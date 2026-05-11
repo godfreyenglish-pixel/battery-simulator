@@ -11,6 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root {
     --bg: #030712;
@@ -806,18 +807,25 @@
         <!-- CSV upload -->
         <div id="csvBody" class="hidden">
           <div class="csv-zone" id="csvZone" onclick="document.getElementById('csvFile').click()">
-            <div class="csv-zone-text" id="csvZoneText"><strong>Drop CSV here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button · 15-min or hourly intervals</span></div>
+            <div class="csv-zone-text" id="csvZoneText"><strong>Drop CSV or PDF bill here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button CSV · or PDF electric bill</span></div>
             <div id="csvMetaBlock" class="hidden">
               <div class="csv-meta">
                 <div>Range: <span id="csvRange">—</span></div>
                 <div>Intervals: <span id="csvIntervals">—</span></div>
                 <div>Total: <span id="csvTotal">—</span></div>
                 <div>Daily avg: <span id="csvDailyAvg">—</span></div>
+                <div style="grid-column: 1 / -1; padding-top: 6px; border-top: 1px solid var(--border); margin-top: 4px;">Annual est: <span id="csvAnnual" style="color: var(--yellow); font-weight: 600;">—</span></div>
               </div>
-              <button class="csv-clear" onclick="event.stopPropagation(); clearCsv()">Clear CSV</button>
+              <button class="csv-clear" onclick="event.stopPropagation(); clearCsv()">Clear file</button>
             </div>
           </div>
-          <input type="file" id="csvFile" accept=".csv" style="display:none" />
+          <input type="file" id="csvFile" accept=".csv,.pdf" style="display:none" />
+        </div>
+
+        <!-- Always-visible annual usage indicator -->
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 11px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600;">Annual Usage</span>
+          <span class="mono" style="font-size: 16px; font-weight: 700; color: var(--yellow);" id="annualUsage">— kWh/yr</span>
         </div>
       </div>
 
@@ -1263,10 +1271,11 @@ function refreshControls() {
       document.getElementById('csvIntervals').textContent = s.csvMeta.intervals;
       document.getElementById('csvTotal').textContent = s.csvMeta.total.toFixed(0) + ' kWh';
       document.getElementById('csvDailyAvg').textContent = s.csvMeta.dailyAvg.toFixed(1) + ' kWh';
+      document.getElementById('csvAnnual').textContent = Math.round(s.csvMeta.annual || (s.csvMeta.dailyAvg * 365)).toLocaleString() + ' kWh/yr';
     }
   } else {
     zone.classList.remove('has-file');
-    document.getElementById('csvZoneText').innerHTML = `<strong>Drop CSV here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button · 15-min or hourly intervals</span>`;
+    document.getElementById('csvZoneText').innerHTML = `<strong>Drop CSV or PDF bill here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button CSV · or PDF electric bill</span>`;
     document.getElementById('csvMetaBlock').classList.add('hidden');
   }
 }
@@ -1346,6 +1355,11 @@ function setupEvents() {
 
 // ===================== CSV PARSING =====================
 function handleCsv(file) {
+  const name = (file.name || '').toLowerCase();
+  if (name.endsWith('.pdf')) {
+    handlePdf(file);
+    return;
+  }
   const reader = new FileReader();
   reader.onload = (e) => {
     try {
@@ -1361,6 +1375,119 @@ function handleCsv(file) {
     }
   };
   reader.readAsText(file);
+}
+
+async function handlePdf(file) {
+  if (typeof pdfjsLib === 'undefined') {
+    alert('PDF library failed to load. Please refresh the page and try again.');
+    return;
+  }
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      fullText += content.items.map(it => it.str).join(' ') + '\n';
+    }
+    const extracted = extractBillData(fullText);
+    if (!extracted.totalKwh || extracted.totalKwh < 10) {
+      alert('Could not find a kWh total in this PDF. Try uploading a Con Ed Green Button CSV instead, or use the Preset slider.\n\nIf you want me to support this bill format, send the PDF to your sales rep and we can tune the parser.');
+      return;
+    }
+    // Build profile from extracted data
+    const s = activeSetup();
+    const days = extracted.periodDays || 30;
+    const totalKwh = extracted.totalKwh;
+    const dailyAvg = totalKwh / days;
+    const shape = SHAPES[`${s.season}_${s.home}`] || SHAPES.summer_gas;
+    const shapeSum = shape.reduce((a,b)=>a+b, 0);
+    const hourly = shape.map(v => (v / shapeSum) * dailyAvg);
+    const annual = totalKwh * (365 / days);
+    s.csvProfile = hourly;
+    s.csvMeta = {
+      range: extracted.periodStart && extracted.periodEnd
+        ? `${extracted.periodStart.toISOString().slice(0,10)} → ${extracted.periodEnd.toISOString().slice(0,10)}`
+        : `${days}-day bill`,
+      intervals: 'PDF bill',
+      total: totalKwh,
+      dailyAvg: dailyAvg,
+      annual: annual,
+      days: days,
+      rowCount: 1,
+      label: `PDF bill · ${days}d · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`,
+    };
+    s.src = 'csv';
+    refreshControls();
+    render();
+  } catch (err) {
+    alert('Could not parse PDF: ' + err.message);
+  }
+}
+
+function extractBillData(text) {
+  const result = { totalKwh: 0, periodStart: null, periodEnd: null, periodDays: 0 };
+  // Normalize whitespace
+  const t = text.replace(/\s+/g, ' ');
+
+  // Try to find total kWh — multiple Con Ed patterns
+  const kwhPatterns = [
+    /total\s+electric\s+use[\s:]+([\d,]+\.?\d*)\s*kwh/i,
+    /total\s+(?:electricity|electric|kwh)\s+(?:use|used|usage|consumption)[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
+    /(?:you used|total used|kwh used)[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
+    /total\s+kwh\s*[:=]?\s*([\d,]+\.?\d*)/i,
+    /([\d,]{2,}\.?\d*)\s*kwh\s+(?:used|consumed|this period)/i,
+  ];
+  for (const pat of kwhPatterns) {
+    const m = t.match(pat);
+    if (m) {
+      const v = parseFloat(m[1].replace(/,/g, ''));
+      if (isFinite(v) && v > 10) { result.totalKwh = v; break; }
+    }
+  }
+
+  // Fallback: largest "## kWh" mention in document (often the bill total)
+  if (!result.totalKwh) {
+    const allMatches = [...t.matchAll(/([\d,]{2,}\.?\d*)\s*kwh/gi)]
+      .map(m => parseFloat(m[1].replace(/,/g, '')))
+      .filter(v => isFinite(v) && v > 50 && v < 50000);
+    if (allMatches.length > 0) {
+      result.totalKwh = Math.max(...allMatches);
+    }
+  }
+
+  // Date range patterns
+  const datePatterns = [
+    /(?:service|billing)\s+(?:period|from)[^\d]*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})[^\d]+(?:to|through|[-–])[^\d]+(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+    /from\s+(\w+\s+\d{1,2},?\s+\d{4})\s+to\s+(\w+\s+\d{1,2},?\s+\d{4})/i,
+    /(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\s*[-–]\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/,
+  ];
+  for (const pat of datePatterns) {
+    const m = t.match(pat);
+    if (m) {
+      const d1 = parseDate(m[1]);
+      const d2 = parseDate(m[2]);
+      if (d1 && d2 && d2 > d1) {
+        result.periodStart = d1;
+        result.periodEnd = d2;
+        result.periodDays = Math.round((d2 - d1) / 86400000) + 1;
+        break;
+      }
+    }
+  }
+
+  // Direct days-in-period
+  if (!result.periodDays) {
+    const m = t.match(/(\d{1,3})\s*days?\s+(?:in\s+)?(?:this\s+)?(?:billing\s+)?period/i);
+    if (m) result.periodDays = parseInt(m[1]);
+  }
+
+  // If still no period days, assume ~30 (one billing cycle)
+  if (!result.periodDays) result.periodDays = 30;
+
+  return result;
 }
 
 function parseGreenButton(text) {
@@ -1381,7 +1508,6 @@ function parseGreenButton(text) {
     headerIdx = 0;
   }
 
-  // Find columns: support both combined ("Service Start"/"Time") and separate ("Date" + "Start Time")
   const dateIdx = headers.findIndex(h => h === 'date' || (h.includes('date') && !h.includes('time') && !h.includes('end')));
   const timeIdx = headers.findIndex(h => h.includes('start') && h.includes('time'));
   const combinedIdx = headers.findIndex(h =>
@@ -1394,65 +1520,88 @@ function parseGreenButton(text) {
   const usageIdx = headers.findIndex(h => h.includes('usage') || h.includes('kwh') || h.includes('consumption'));
   if (usageIdx === -1) throw new Error('No usage/kWh column found');
 
-  const hourBuckets = new Array(24).fill(0);
-  const dates = new Set();
-  let totalKwh = 0, rowCount = 0;
-  let firstDate = null, lastDate = null;
-
+  // Parse all rows into records
+  const records = [];
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
     if (cols.length < 2) continue;
-
-    // Build datetime string
     let dtStr = null;
-    if (dateIdx >= 0 && timeIdx >= 0) {
-      dtStr = cols[dateIdx] + ' ' + cols[timeIdx];
-    } else if (combinedIdx >= 0) {
-      dtStr = cols[combinedIdx];
-    } else if (dateIdx >= 0) {
-      dtStr = cols[dateIdx];
-    } else {
-      dtStr = cols[0];
-    }
-
+    if (dateIdx >= 0 && timeIdx >= 0) dtStr = cols[dateIdx] + ' ' + cols[timeIdx];
+    else if (combinedIdx >= 0) dtStr = cols[combinedIdx];
+    else if (dateIdx >= 0) dtStr = cols[dateIdx];
+    else dtStr = cols[0];
     const usage = parseFloat(cols[usageIdx]);
     if (!isFinite(usage)) continue;
     const dt = parseDate(dtStr);
     if (!dt) continue;
-
-    const hour = dt.getHours();
-    hourBuckets[hour] += usage;
-    totalKwh += usage;
-    rowCount += 1;
-    dates.add(dt.toISOString().slice(0,10));
-    if (!firstDate || dt < firstDate) firstDate = dt;
-    if (!lastDate || dt > lastDate) lastDate = dt;
+    records.push({ dt, usage });
   }
-  if (rowCount === 0) throw new Error('No valid data rows parsed');
+  if (records.length === 0) throw new Error('No valid data rows parsed');
+  records.sort((a, b) => a.dt - b.dt);
 
-  const dayCount = dates.size || 1;
-  let hourly = hourBuckets.map(v => v / dayCount);
+  const firstDate = records[0].dt;
+  const lastDate = records[records.length - 1].dt;
+  const totalKwh = records.reduce((s, r) => s + r.usage, 0);
 
-  const intervalsPerDay = Math.round(rowCount / dayCount);
-  let intervalLabel = 'Hourly';
-  if (intervalsPerDay >= 90) intervalLabel = '15-min interval';
-  else if (intervalsPerDay >= 45) intervalLabel = '30-min interval';
-  else if (intervalsPerDay >= 22) intervalLabel = 'Hourly';
-  else intervalLabel = 'Daily';
+  // Median spacing between rows → detect interval type
+  const deltasMs = [];
+  for (let i = 1; i < records.length; i++) deltasMs.push(records[i].dt - records[i-1].dt);
+  deltasMs.sort((a,b) => a - b);
+  const medianMs = deltasMs.length > 0 ? deltasMs[Math.floor(deltasMs.length/2)] : 0;
+  const medianHours = medianMs / 3600000;
+  const medianDays = medianHours / 24;
 
-  const hourlySum = hourly.reduce((a,b)=>a+b,0);
-  const dailyAvg = totalKwh / dayCount;
-  if (hourlySum > 0 && Math.abs(hourlySum - dailyAvg) / dailyAvg > 0.2) {
-    hourly = hourly.map(v => (v / hourlySum) * dailyAvg);
+  // Actual span in days (covers gaps; for monthly data this is the real elapsed time)
+  const spanDays = Math.max(1, Math.round((lastDate - firstDate) / 86400000) + Math.max(1, medianDays));
+
+  let intervalLabel, hourly, dailyAvg, dayCount;
+  const s = activeSetup();
+  const shape = SHAPES[`${s.season}_${s.home}`] || SHAPES.summer_gas;
+  const shapeSum = shape.reduce((a,b)=>a+b, 0);
+
+  if (medianHours < 2) {
+    // Hourly / 15-min / 30-min: bucket by hour, average across unique days
+    intervalLabel = medianHours < 0.4 ? '15-min interval' : medianHours < 0.9 ? '30-min interval' : 'Hourly';
+    const buckets = new Array(24).fill(0);
+    const dates = new Set();
+    for (const r of records) {
+      buckets[r.dt.getHours()] += r.usage;
+      dates.add(r.dt.toISOString().slice(0,10));
+    }
+    dayCount = Math.max(dates.size, 1);
+    hourly = buckets.map(v => v / dayCount);
+    dailyAvg = totalKwh / dayCount;
+    // Sanity check: if hourly sum way off from daily avg, renormalize
+    const hSum = hourly.reduce((a,b)=>a+b, 0);
+    if (hSum > 0 && Math.abs(hSum - dailyAvg) / dailyAvg > 0.2) {
+      hourly = hourly.map(v => (v / hSum) * dailyAvg);
+    }
+  } else if (medianDays < 7) {
+    // Daily summary (1 row per day): use typical shape scaled to daily avg
+    intervalLabel = 'Daily summary';
+    dayCount = records.length;
+    dailyAvg = totalKwh / dayCount;
+    hourly = shape.map(v => (v / shapeSum) * dailyAvg);
+  } else {
+    // Monthly / billing-cycle data: use date span, apply seasonal shape
+    intervalLabel = `Billing cycle (~${Math.round(medianDays)}d rows)`;
+    dayCount = spanDays;
+    dailyAvg = totalKwh / dayCount;
+    hourly = shape.map(v => (v / shapeSum) * dailyAvg);
   }
+
+  // Annual estimate: scale total by 365/coveredDays
+  const annual = totalKwh * (365 / dayCount);
 
   const meta = {
-    range: firstDate && lastDate ? `${firstDate.toISOString().slice(0,10)} → ${lastDate.toISOString().slice(0,10)}` : `${dayCount} day(s)`,
+    range: `${firstDate.toISOString().slice(0,10)} → ${lastDate.toISOString().slice(0,10)}`,
     intervals: intervalLabel,
     total: totalKwh,
     dailyAvg: dailyAvg,
+    annual: annual,
     days: dayCount,
-    label: `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day avg`,
+    rowCount: records.length,
+    label: `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`,
   };
   return { hourly, meta };
 }
@@ -1561,6 +1710,15 @@ function renderSpecs() {
     document.getElementById('solAnnual').innerHTML = `${annual.toLocaleString()} <span class="spec-unit">kWh</span>`;
     document.getElementById('solDaily').innerHTML  = `${solarDaily.toFixed(1)} <span class="spec-unit">kWh</span>`;
   }
+
+  // Always-visible annual usage (from CSV meta if present, else from preset daily × 365)
+  let annualKwh;
+  if (s.src === 'csv' && s.csvMeta && s.csvMeta.annual) {
+    annualKwh = s.csvMeta.annual;
+  } else {
+    annualKwh = s.daily * 365;
+  }
+  document.getElementById('annualUsage').textContent = Math.round(annualKwh).toLocaleString() + ' kWh/yr';
 }
 
 function renderArbitrage() {

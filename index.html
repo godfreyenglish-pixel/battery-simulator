@@ -312,6 +312,10 @@
     background: var(--orange);
     color: #0B1220;
   }
+  .mode-btn.active.solar {
+    background: var(--teal);
+    color: #0B1220;
+  }
   .mode-icon { width: 14px; height: 14px; }
 
   /* === GRID LAYOUT === */
@@ -733,6 +737,10 @@
       <svg class="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L4 12h6l-2 10 10-12h-6l2-8z"/></svg>
       Backup
     </button>
+    <button class="mode-btn" id="modeSol" onclick="setMode('solar')">
+      <svg class="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      Solar Only
+    </button>
   </div>
 
   <div class="grid-main">
@@ -760,7 +768,7 @@
       </div>
 
       <!-- Battery -->
-      <div class="card">
+      <div class="card" id="battCard">
         <div class="card-title"><span class="card-title-bar"></span>Battery</div>
 
         <div class="field">
@@ -835,6 +843,16 @@
           <div class="field">
             <div class="field-label">System size <span class="field-value mono" id="solKwLabel">8.0 kW DC</span></div>
             <input type="range" id="solKwSlider" min="3" max="20" step="0.5" value="8" />
+          </div>
+          <div class="field">
+            <div class="field-label">Shade loss <span class="field-value mono" id="solShadeLabel">0%</span></div>
+            <input type="range" id="solShadeSlider" min="0" max="50" step="1" value="0" />
+            <div style="font-size: 11px; color: var(--text-4); margin-top: 4px;">0% = full sun · 50% = heavily shaded</div>
+          </div>
+          <div class="field">
+            <div class="field-label">Production adjustment <span class="field-value mono" id="solAdjustLabel">+0%</span></div>
+            <input type="range" id="solAdjustSlider" min="-20" max="20" step="1" value="0" />
+            <div style="font-size: 11px; color: var(--text-4); margin-top: 4px;">Fine-tune vs. OpenSolar estimate or drone-verified output</div>
           </div>
           <div class="spec-grid">
             <div class="spec"><div class="spec-label">Est. Annual</div><div class="spec-value mono" id="solAnnual">— <span class="spec-unit">kWh</span></div></div>
@@ -1036,6 +1054,32 @@
         </div>
       </div>
 
+      <!-- Solar Only results -->
+      <div id="solResults" class="hidden">
+        <div class="results-hero">
+          <div class="result-tile" style="background: linear-gradient(135deg, rgba(20, 184, 166, 0.14), rgba(20, 184, 166, 0.02)); border-color: rgba(20, 184, 166, 0.3);">
+            <div class="result-label">Annual Production</div>
+            <div class="result-value mono" id="solRAnnualProd" style="color: var(--teal);">0 kWh</div>
+            <div class="result-sub" id="solRProdSub">after shade & adjustment</div>
+          </div>
+          <div class="result-tile hero">
+            <div class="result-label">Annual Savings</div>
+            <div class="result-value mono" id="solRSavings">$0</div>
+            <div class="result-sub">vs no-solar baseline</div>
+          </div>
+          <div class="result-tile">
+            <div class="result-label">Home Offset</div>
+            <div class="result-value mono" id="solROffset">0%</div>
+            <div class="result-sub" id="solROffsetSub">of annual usage</div>
+          </div>
+          <div class="result-tile">
+            <div class="result-label">Excess to Grid</div>
+            <div class="result-value mono" id="solRExport">0 kWh</div>
+            <div class="result-sub">net metering credit</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Chart -->
       <div class="chart-wrap">
         <div class="chart-head">
@@ -1093,7 +1137,7 @@
 function defaultSetup() {
   return {
     hasBatt: true, brand: 'eg4', qty: 2,
-    hasSolar: false, solarKw: 8.0,
+    hasSolar: false, solarKw: 8.0, solarShade: 0, solarAdjust: 0,
     src: 'preset', daily: 30, home: 'gas', season: 'summer',
     csvProfile: null, csvMeta: null,
   };
@@ -1156,9 +1200,13 @@ function getLoadProfile(s) {
   return shape.map(v => (v / sum) * s.daily);
 }
 function getSolarProfile(s) {
-  if (!s.hasSolar) return new Array(24).fill(0);
+  // In solar-only mode, always include solar even if hasSolar toggle is off
+  const includeSolar = s.hasSolar || STATE.mode === 'solar';
+  if (!includeSolar) return new Array(24).fill(0);
   const curve = SOLAR_CURVES[s.season] || SOLAR_CURVES.summer;
-  return curve.map(v => v * s.solarKw);
+  const shadeFactor = 1 - (s.solarShade || 0) / 100;
+  const adjustFactor = 1 + (s.solarAdjust || 0) / 100;
+  return curve.map(v => v * s.solarKw * shadeFactor * adjustFactor);
 }
 function batterySpecs(s) {
   if (!s.hasBatt) return { total: 0, usable: 0, cont: 0, brand: null };
@@ -1272,6 +1320,71 @@ function simulateBackup(s) {
            surgeW, surgeKw: surgeW/1000, avgKw, socArr, socWhole, load };
 }
 
+function simulateSolar(s) {
+  const load = getLoadProfile(s);
+  const solar = getSolarProfile(s);
+  const win = getPeakWindow();
+  const peakHrs = peakHoursInWindow(win.start, win.end);
+  const isPeak = h => peakHrs.includes(h);
+
+  const trace = [];
+  for (let h = 0; h < 24; h++) {
+    const ld = load[h];
+    const sol = solar[h];
+    const fromSolar = Math.min(ld, sol);
+    const fromGrid = Math.max(0, ld - sol);
+    const toGrid = Math.max(0, sol - ld);
+    const rate = isPeak(h) ? STATE.peakRate : STATE.offRate;
+    const cost = fromGrid * rate;
+    // Net metering credit: conservative — credit at off-peak rate
+    const credit = toGrid * STATE.offRate;
+    trace.push({ h, load: ld, solar: sol, fromSolar, fromGrid, toGrid, cost, credit });
+  }
+
+  // Daily totals
+  const dailyLoad = load.reduce((a,b)=>a+b, 0);
+  const dailyProd = solar.reduce((a,b)=>a+b, 0);
+  const dailyExport = trace.reduce((a,t)=>a+t.toGrid, 0);
+  const dailySelfUse = trace.reduce((a,t)=>a+t.fromSolar, 0);
+  const dailyGridImport = trace.reduce((a,t)=>a+t.fromGrid, 0);
+  const dailyCost = trace.reduce((a,t)=>a+t.cost, 0);
+  const dailyCredit = trace.reduce((a,t)=>a+t.credit, 0);
+  const netDailyCost = Math.max(0, dailyCost - dailyCredit);
+
+  // Baseline (no solar): all grid at TOU
+  let baseline = 0;
+  for (let h = 0; h < 24; h++) {
+    baseline += load[h] * (isPeak(h) ? STATE.peakRate : STATE.offRate);
+  }
+  const dailySave = baseline - netDailyCost;
+
+  // Annual estimates: weighted blend of seasonal curves
+  // Assume 42% summer, 20% winter, 38% shoulder
+  const annualEstimate = (curve) => {
+    const shadeFactor = 1 - (s.solarShade || 0) / 100;
+    const adjustFactor = 1 + (s.solarAdjust || 0) / 100;
+    return curve.reduce((a,b)=>a+b, 0) * s.solarKw * shadeFactor * adjustFactor;
+  };
+  const annualProd = (annualEstimate(SOLAR_CURVES.summer) * 0.42
+                   + annualEstimate(SOLAR_CURVES.winter) * 0.20
+                   + annualEstimate(SOLAR_CURVES.shoulder) * 0.38) * 365;
+
+  // Annual home usage (load × 365, or from CSV annual)
+  let annualLoad;
+  if (s.src === 'csv' && s.csvMeta && s.csvMeta.annual) annualLoad = s.csvMeta.annual;
+  else annualLoad = dailyLoad * 365;
+
+  const annualOffset = annualLoad > 0 ? (Math.min(annualProd, annualLoad) / annualLoad) * 100 : 0;
+  const annualExport = Math.max(0, annualProd - annualLoad);
+  const annualSave = dailySave * 365;
+
+  return { trace, load, solar,
+           dailyProd, dailyExport, dailySelfUse, dailyGridImport,
+           dailyCost, dailyCredit, netDailyCost, dailySave, baseline,
+           annualProd, annualLoad, annualOffset, annualExport, annualSave,
+           peakHrs };
+}
+
 // ===================== HELPERS =====================
 let chart = null;
 function fmt$(n) { return '$' + n.toFixed(2); }
@@ -1296,17 +1409,34 @@ function setupB() { return STATE.setupB; }
 // ===================== UI MUTATIONS =====================
 function setMode(m) {
   STATE.mode = m;
+  // Mode button highlights
   document.getElementById('modeArb').classList.toggle('active', m === 'arbitrage');
   document.getElementById('modeBak').classList.toggle('active', m === 'backup');
   document.getElementById('modeBak').classList.toggle('backup', m === 'backup');
+  document.getElementById('modeSol').classList.toggle('active', m === 'solar');
+  document.getElementById('modeSol').classList.toggle('solar', m === 'solar');
+  // Card visibility
+  document.getElementById('battCard').classList.toggle('hidden', m === 'solar');
   document.getElementById('rateCard').classList.toggle('hidden', m === 'backup');
-  document.getElementById('criticalCard').classList.toggle('hidden', m === 'arbitrage');
-  document.getElementById('arbResults').classList.toggle('hidden', m === 'backup');
-  document.getElementById('bakResults').classList.toggle('hidden', m === 'arbitrage');
-  document.getElementById('chartTitle').textContent = m === 'arbitrage' ? '24-Hour Battery Behavior' : 'Battery State of Charge · Outage Day';
-  document.getElementById('chartSub').textContent = m === 'arbitrage' ? 'SOC, load, and solar over the day' : 'How long battery sustains critical vs whole-house loads';
-  document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || m !== 'arbitrage');
-  document.getElementById('heroLabel').classList.toggle('hidden', !STATE.compare || m !== 'arbitrage');
+  document.getElementById('criticalCard').classList.toggle('hidden', m !== 'backup');
+  // Results panel visibility (only one shown at a time)
+  document.getElementById('arbResults').classList.toggle('hidden', m !== 'arbitrage');
+  document.getElementById('bakResults').classList.toggle('hidden', m !== 'backup');
+  document.getElementById('solResults').classList.toggle('hidden', m !== 'solar');
+  // Chart header
+  if (m === 'arbitrage') {
+    document.getElementById('chartTitle').textContent = '24-Hour Battery Behavior';
+    document.getElementById('chartSub').textContent = 'SOC, load, and solar over the day';
+  } else if (m === 'backup') {
+    document.getElementById('chartTitle').textContent = 'Battery State of Charge · Outage Day';
+    document.getElementById('chartSub').textContent = 'How long battery sustains critical vs whole-house loads';
+  } else {
+    document.getElementById('chartTitle').textContent = '24-Hour Solar Production vs Load';
+    document.getElementById('chartSub').textContent = 'Solar coverage and grid usage';
+  }
+  // Compare row only valid in arbitrage and solar
+  document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || m === 'backup');
+  document.getElementById('heroLabel').classList.toggle('hidden', !STATE.compare || m === 'backup');
   pauseAnim();
   render();
 }
@@ -1365,10 +1495,17 @@ function refreshControls() {
   document.querySelectorAll('#brandSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.brand === s.brand));
   document.getElementById('qtyDisplay').textContent = s.qty;
   document.getElementById('qtyLabel').textContent = s.qty;
-  document.getElementById('solSwitch').classList.toggle('on', s.hasSolar);
-  document.getElementById('solBody').classList.toggle('hidden', !s.hasSolar);
+  // Solar: in solar-only mode, force solar body visible and hide the include-solar toggle
+  const inSolarMode = STATE.mode === 'solar';
+  document.getElementById('solSwitch').classList.toggle('on', s.hasSolar || inSolarMode);
+  document.getElementById('solSwitch').style.display = inSolarMode ? 'none' : '';
+  document.getElementById('solBody').classList.toggle('hidden', !s.hasSolar && !inSolarMode);
   document.getElementById('solKwSlider').value = s.solarKw;
   document.getElementById('solKwLabel').textContent = s.solarKw.toFixed(1) + ' kW DC';
+  document.getElementById('solShadeSlider').value = s.solarShade || 0;
+  document.getElementById('solShadeLabel').textContent = (s.solarShade || 0) + '%';
+  document.getElementById('solAdjustSlider').value = s.solarAdjust || 0;
+  document.getElementById('solAdjustLabel').textContent = ((s.solarAdjust || 0) >= 0 ? '+' : '') + (s.solarAdjust || 0) + '%';
   document.querySelectorAll('#srcSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.src === s.src));
   document.getElementById('presetBody').classList.toggle('hidden', s.src === 'csv');
   document.getElementById('csvBody').classList.toggle('hidden', s.src === 'preset');
@@ -1434,6 +1571,16 @@ function setupEvents() {
   document.getElementById('solKwSlider').oninput = (e) => {
     const s = activeSetup(); s.solarKw = parseFloat(e.target.value);
     document.getElementById('solKwLabel').textContent = s.solarKw.toFixed(1) + ' kW DC';
+    render();
+  };
+  document.getElementById('solShadeSlider').oninput = (e) => {
+    const s = activeSetup(); s.solarShade = parseInt(e.target.value);
+    document.getElementById('solShadeLabel').textContent = s.solarShade + '%';
+    render();
+  };
+  document.getElementById('solAdjustSlider').oninput = (e) => {
+    const s = activeSetup(); s.solarAdjust = parseInt(e.target.value);
+    document.getElementById('solAdjustLabel').textContent = (s.solarAdjust >= 0 ? '+' : '') + s.solarAdjust + '%';
     render();
   };
   document.querySelectorAll('#srcSeg .seg-btn').forEach(b => b.onclick = () => {
@@ -2029,6 +2176,72 @@ function renderBackup() {
   `;
 }
 
+function renderSolar() {
+  const sB = setupB();
+  const rB = simulateSolar(sB);
+
+  document.getElementById('solRAnnualProd').textContent = Math.round(rB.annualProd).toLocaleString() + ' kWh';
+  document.getElementById('solRSavings').textContent = fmt$0(Math.max(0, rB.annualSave));
+  document.getElementById('solROffset').textContent = rB.annualOffset.toFixed(0) + '%';
+  document.getElementById('solRExport').textContent = Math.round(rB.annualExport).toLocaleString() + ' kWh';
+
+  const shadeNote = (sB.solarShade || 0) > 0 ? ` · ${sB.solarShade}% shade` : '';
+  const adjNote = (sB.solarAdjust || 0) !== 0 ? ` · ${(sB.solarAdjust >= 0 ? '+' : '') + sB.solarAdjust}%` : '';
+  document.getElementById('solRProdSub').textContent = `${sB.solarKw.toFixed(1)} kW DC${shadeNote}${adjNote}`;
+  document.getElementById('solROffsetSub').textContent = `${Math.round(rB.annualLoad).toLocaleString()} kWh/yr home use`;
+
+  // Compare mode populates A vs B annual savings
+  let rA = null;
+  if (STATE.compare) {
+    rA = simulateSolar(setupA());
+    document.getElementById('cmpA').textContent = fmt$0(Math.max(0, rA.annualSave));
+    document.getElementById('cmpB').textContent = fmt$0(Math.max(0, rB.annualSave));
+    const delta = rB.annualSave - rA.annualSave;
+    document.getElementById('cmpD').textContent = (delta >= 0 ? '+$' : '−$') + Math.abs(Math.round(delta)).toLocaleString();
+    const sA = setupA();
+    const summarizeSolar = (setup, result) => {
+      if (!setup.hasSolar && STATE.mode !== 'solar') return 'No solar';
+      const parts = [`${setup.solarKw.toFixed(1)} kW DC`];
+      if ((setup.solarShade || 0) > 0) parts.push(`${setup.solarShade}% shade`);
+      if ((setup.solarAdjust || 0) !== 0) parts.push(`${(setup.solarAdjust >= 0 ? '+' : '') + setup.solarAdjust}% adj`);
+      parts.push(`${Math.round(result.annualProd).toLocaleString()} kWh/yr`);
+      return parts.join(' · ');
+    };
+    document.getElementById('cmpAspec').textContent = summarizeSolar(sA, rA);
+    document.getElementById('cmpBspec').textContent = summarizeSolar(sB, rB);
+    document.getElementById('cmpDspec').textContent = (rB.annualProd - rA.annualProd >= 0 ? '+' : '') + Math.round(rB.annualProd - rA.annualProd).toLocaleString() + ' kWh/yr production';
+    document.getElementById('compareSaturationHint').classList.add('hidden');
+  }
+
+  // Chart: stacked load coverage (solar / grid) + solar production line
+  try { drawSolarChart(rB, rA); } catch (e) { console.warn('Chart skipped:', e.message); }
+
+  // Breakdown cards
+  document.getElementById('breakdown').innerHTML = `
+    <div class="bd-card">
+      <div class="bd-title">Annual Solar</div>
+      <div class="bd-line"><span class="bd-line-key">System size</span><span class="bd-line-val">${sB.solarKw.toFixed(1)} kW DC</span></div>
+      <div class="bd-line"><span class="bd-line-key">Shade loss</span><span class="bd-line-val">${(sB.solarShade || 0)}%</span></div>
+      <div class="bd-line"><span class="bd-line-key">Production adj</span><span class="bd-line-val">${((sB.solarAdjust || 0) >= 0 ? '+' : '') + (sB.solarAdjust || 0)}%</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Net annual production</span><span class="bd-line-val" style="color:var(--teal);font-weight:700;">${Math.round(rB.annualProd).toLocaleString()} kWh</span></div>
+    </div>
+    <div class="bd-card">
+      <div class="bd-title">Annual Energy Flow</div>
+      <div class="bd-line"><span class="bd-line-key">Home usage</span><span class="bd-line-val">${Math.round(rB.annualLoad).toLocaleString()} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">Self-consumption</span><span class="bd-line-val">${Math.round(rB.dailySelfUse * 365).toLocaleString()} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">Grid import</span><span class="bd-line-val">${Math.round(rB.dailyGridImport * 365).toLocaleString()} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">Exported to grid</span><span class="bd-line-val">${Math.round(rB.annualExport).toLocaleString()} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Offset</span><span class="bd-line-val" style="color:var(--teal);font-weight:700;">${rB.annualOffset.toFixed(0)}%</span></div>
+    </div>
+    <div class="bd-card" style="background:linear-gradient(135deg, rgba(20, 184, 166, 0.10), transparent); border-color:rgba(20, 184, 166, 0.3);">
+      <div class="bd-title" style="color:var(--teal);">Net Annual Outcome</div>
+      <div class="bd-line"><span class="bd-line-key">Cost without solar</span><span class="bd-line-val" style="color:var(--red)">${fmt$0(rB.baseline * 365)}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Cost with solar</span><span class="bd-line-val" style="color:var(--green)">${fmt$0(rB.netDailyCost * 365)}</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Annual savings</span><span class="bd-line-val" style="color:var(--yellow);font-weight:700;">${fmt$0(Math.max(0, rB.annualSave))}</span></div>
+    </div>
+  `;
+}
+
 // ===================== CHARTS =====================
 // Custom plugin: shades the peak window background + draws a vertical line at current animation hour
 const annotationsPlugin = {
@@ -2193,6 +2406,60 @@ function drawBackupChart(b) {
   });
 }
 
+function drawSolarChart(rB, rA) {
+  const labels = Array.from({length:24}, (_,i)=>fmtHour(i));
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  if (chart) chart.destroy();
+
+  // Coverage: solar→load (bottom), grid→load (top)
+  const fromSolar = rB.trace.map(t => Math.min(t.load, t.solar));
+  const fromGridLoad = rB.trace.map(t => Math.max(0, t.load - Math.min(t.load, t.solar)));
+  const peakHrs = rB.peakHrs;
+
+  document.getElementById('chartLegend').innerHTML = [
+    `<div class="legend-item"><div class="legend-dot" style="background:#14B8A6"></div>Solar → Load</div>`,
+    `<div class="legend-item"><div class="legend-dot" style="background:#EF4444"></div>Grid (peak)</div>`,
+    `<div class="legend-item"><div class="legend-dot" style="background:#3B82F6"></div>Grid (off-peak)</div>`,
+    `<div class="legend-item"><div class="legend-dot line" style="background:#FBBF24"></div>Solar production</div>`,
+    rA ? `<div class="legend-item"><div class="legend-dot line" style="background:#9CA3AF"></div>Production · Setup A</div>` : ''
+  ].filter(Boolean).join('');
+
+  const datasets = [
+    {
+      type: 'bar', label: 'Solar → Load', data: fromSolar,
+      backgroundColor: 'rgba(20, 184, 166, 0.85)',
+      stack: 'load', borderRadius: 0, yAxisID: 'y', order: 3,
+    },
+    {
+      type: 'bar', label: 'Grid → Load', data: fromGridLoad,
+      backgroundColor: fromGridLoad.map((_, h) => peakHrs.includes(h) ? 'rgba(239, 68, 68, 0.78)' : 'rgba(59, 130, 246, 0.55)'),
+      stack: 'load', borderRadius: 3, yAxisID: 'y', order: 3,
+    },
+    {
+      type: 'line', label: 'Solar Production', data: rB.solar,
+      borderColor: '#FBBF24', backgroundColor: 'rgba(251, 191, 36, 0.08)',
+      borderWidth: 2.5, tension: 0.4, pointRadius: 0, pointHoverRadius: 4,
+      fill: false, yAxisID: 'y', order: 1,
+    }
+  ];
+
+  if (rA) {
+    datasets.push({
+      type: 'line', label: 'Setup A Production', data: rA.solar,
+      borderColor: '#9CA3AF', backgroundColor: 'transparent',
+      borderWidth: 2, borderDash: [5,5], tension: 0.4, pointRadius: 0,
+      fill: false, yAxisID: 'y', order: 1,
+    });
+  }
+
+  const opts = chartOptions('kWh', null);
+  opts.scales.x.stacked = true;
+  opts.scales.y.stacked = true;
+  opts.plugins.rivertownAnnotations = { peakHrs, animHour: STATE.animHour };
+
+  chart = new Chart(ctx, { data: { labels, datasets }, options: opts });
+}
+
 function chartOptions(yLabel, y1Label) {
   const opts = {
     responsive: true, maintainAspectRatio: false,
@@ -2230,14 +2497,14 @@ function chartOptions(yLabel, y1Label) {
 
 // ===================== URL STATE =====================
 function packSetup(s) {
-  return { hb: s.hasBatt?1:0, br: s.brand, q: s.qty, hs: s.hasSolar?1:0, sk: s.solarKw, sr: s.src, d: s.daily, h: s.home, se: s.season };
+  return { hb: s.hasBatt?1:0, br: s.brand, q: s.qty, hs: s.hasSolar?1:0, sk: s.solarKw, ss: s.solarShade || 0, sa: s.solarAdjust || 0, sr: s.src, d: s.daily, h: s.home, se: s.season };
 }
 function unpackSetup(p) {
-  return { hasBatt: !!p.hb, brand: p.br || 'eg4', qty: p.q || 2, hasSolar: !!p.hs, solarKw: p.sk || 8.0, src: p.sr || 'preset', daily: p.d || 30, home: p.h || 'gas', season: p.se || 'summer', csvProfile: null, csvMeta: null };
+  return { hasBatt: !!p.hb, brand: p.br || 'eg4', qty: p.q || 2, hasSolar: !!p.hs, solarKw: p.sk || 8.0, solarShade: p.ss || 0, solarAdjust: p.sa || 0, src: p.sr || 'preset', daily: p.d || 30, home: p.h || 'gas', season: p.se || 'summer', csvProfile: null, csvMeta: null };
 }
 function serializeState() {
   const pack = {
-    m: STATE.mode === 'arbitrage' ? 'a' : 'b',
+    m: STATE.mode === 'arbitrage' ? 'a' : STATE.mode === 'backup' ? 'b' : 's',
     c: STATE.compare ? 1 : 0,
     pr: STATE.peakRate, or: STATE.offRate,
     wt: STATE.winType, ws: STATE.winStart, we: STATE.winEnd,
@@ -2254,7 +2521,7 @@ function restoreState() {
     const m = hash.match(/^#c=(.+)$/);
     if (!m) return;
     const data = JSON.parse(atob(m[1]));
-    STATE.mode = data.m === 'a' ? 'arbitrage' : 'backup';
+    STATE.mode = data.m === 'a' ? 'arbitrage' : data.m === 's' ? 'solar' : 'backup';
     STATE.compare = !!data.c;
     STATE.peakRate = data.pr ?? 0.42;
     STATE.offRate = data.or ?? 0.10;
@@ -2380,7 +2647,8 @@ function render() {
   refreshControls();
   renderSpecs();
   if (STATE.mode === 'arbitrage') renderArbitrage();
-  else renderBackup();
+  else if (STATE.mode === 'backup') renderBackup();
+  else renderSolar();
   if (STATE.animHour >= 0) updateLiveStats();
   saveState();
 }

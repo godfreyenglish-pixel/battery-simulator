@@ -1,0 +1,1864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Battery Load Simulator · Rivertown Solar</title>
+<meta name="description" content="Interactive battery load simulator for arbitrage and backup scenarios. EG4, LG, Solis configs." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #030712;
+    --bg-2: #0B1220;
+    --card: #111827;
+    --card-2: #0F1626;
+    --border: #1F2937;
+    --border-2: #374151;
+    --text: #F9FAFB;
+    --text-2: #D1D5DB;
+    --text-3: #9CA3AF;
+    --text-4: #6B7280;
+    --yellow: #FBBF24;
+    --yellow-dim: #B8860B;
+    --green: #10B981;
+    --red: #EF4444;
+    --blue: #3B82F6;
+    --purple: #A78BFA;
+    --orange: #F97316;
+    --teal: #14B8A6;
+  }
+  /* === NEW V2 STYLES === */
+  .top-actions { display: flex; gap: 8px; align-items: center; }
+  .icon-btn {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--text-2); padding: 8px 14px; border-radius: 8px;
+    font-family: inherit; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; display: flex; align-items: center; gap: 6px;
+    transition: all 0.15s;
+  }
+  .icon-btn:hover { border-color: var(--border-2); color: var(--text); }
+  .icon-btn.active { background: var(--yellow); color: #0B1220; border-color: var(--yellow); font-weight: 600; }
+  .icon-btn svg { width: 14px; height: 14px; }
+
+  .card-title-bar.teal { background: var(--teal); }
+
+  .setup-tabs {
+    display: none; background: var(--card-2);
+    border: 1px solid var(--border); border-radius: 10px;
+    padding: 3px; margin-bottom: 14px;
+  }
+  .setup-tabs.on { display: flex; gap: 3px; }
+  .setup-tab {
+    flex: 1; background: none; border: none; color: var(--text-3);
+    padding: 9px 10px; border-radius: 7px; cursor: pointer;
+    font-family: inherit; font-size: 13px; font-weight: 500;
+    transition: all 0.15s; display: flex; align-items: center;
+    justify-content: center; gap: 6px;
+  }
+  .setup-tab:hover { color: var(--text); }
+  .setup-tab.active.A { background: rgba(156, 163, 175, 0.22); color: #E5E7EB; }
+  .setup-tab.active.B { background: rgba(251, 191, 36, 0.22); color: var(--yellow); }
+  .setup-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  .switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .switch-track { width: 36px; height: 20px; background: var(--border); border-radius: 10px; position: relative; transition: background 0.2s; }
+  .switch-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: var(--text-2); border-radius: 50%; transition: all 0.2s; }
+  .switch.on .switch-track { background: var(--yellow); }
+  .switch.on .switch-thumb { left: 18px; background: #0B1220; }
+
+  .csv-zone {
+    border: 1.5px dashed var(--border-2); border-radius: 10px;
+    padding: 16px; text-align: center; cursor: pointer;
+    transition: all 0.2s; background: var(--bg-2);
+  }
+  .csv-zone:hover { border-color: var(--yellow); background: rgba(251, 191, 36, 0.04); }
+  .csv-zone.has-file { border-style: solid; border-color: var(--green); background: rgba(16, 185, 129, 0.06); }
+  .csv-zone-text { font-size: 12.5px; color: var(--text-3); }
+  .csv-zone-text strong { color: var(--text); }
+  .csv-meta {
+    margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-4);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; text-align: left;
+  }
+  .csv-meta div span { color: var(--text-2); font-family: 'Geist Mono', monospace; }
+  .csv-clear {
+    margin-top: 8px; background: none;
+    border: 1px solid var(--border); color: var(--text-4);
+    padding: 4px 10px; border-radius: 6px; font-size: 11px;
+    cursor: pointer; font-family: inherit;
+  }
+  .csv-clear:hover { color: var(--red); border-color: var(--red); }
+
+  .anim-bar {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 12px; padding: 10px 12px;
+    background: var(--bg-2); border-radius: 10px; border: 1px solid var(--border);
+  }
+  .play-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--yellow); border: none; color: #0B1220;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: all 0.15s;
+  }
+  .play-btn:hover { transform: scale(1.05); box-shadow: 0 0 18px rgba(251, 191, 36, 0.4); }
+  .play-btn svg { width: 14px; height: 14px; fill: #0B1220; }
+  .scrub-wrap { flex: 1; min-width: 0; }
+  .scrub-hour { font-family: 'Geist Mono', monospace; font-size: 13px; font-weight: 600; color: var(--yellow); margin-bottom: 2px; }
+  .live-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 8px; margin-top: 12px; padding: 12px;
+    background: var(--bg-2); border-radius: 10px; border: 1px solid var(--border);
+  }
+  .live-stat-label { font-size: 10px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.06em; }
+  .live-stat-val { font-family: 'Geist Mono', monospace; font-size: 15px; font-weight: 600; color: var(--text); margin-top: 2px; }
+
+  .compare-tile {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(16, 185, 129, 0.02));
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 14px; padding: 16px; margin-bottom: 14px;
+  }
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px; align-items: center;
+  }
+  .compare-col { text-align: center; }
+  .compare-col-label { font-size: 10px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+  .compare-col-val { font-family: 'Geist Mono', monospace; font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .compare-col.A .compare-col-val { color: var(--text-2); }
+  .compare-col.B .compare-col-val { color: var(--yellow); }
+  .compare-col.D .compare-col-val { color: var(--green); }
+
+  .toast {
+    position: fixed; bottom: 24px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--green); color: #052E25;
+    padding: 10px 20px; border-radius: 10px;
+    font-size: 13px; font-weight: 600;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s; z-index: 200;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+  /* === END NEW V2 STYLES === */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    background:
+      radial-gradient(ellipse 1200px 600px at 50% -200px, rgba(251, 191, 36, 0.06), transparent),
+      radial-gradient(ellipse 800px 400px at 100% 50%, rgba(59, 130, 246, 0.04), transparent),
+      var(--bg);
+    min-height: 100vh;
+    padding-bottom: 80px;
+  }
+  .mono { font-family: 'Geist Mono', monospace; font-feature-settings: 'tnum'; }
+
+  /* === HEADER === */
+  header.top {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+    background: rgba(3, 7, 18, 0.85);
+    backdrop-filter: blur(12px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .top-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand-mark {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--yellow), #F59E0B);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800;
+    color: #0B1220;
+    font-size: 18px;
+    box-shadow: 0 0 24px rgba(251, 191, 36, 0.3);
+  }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+  .brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+  .brand-sub { font-size: 11px; color: var(--text-4); letter-spacing: 0.04em; text-transform: uppercase; }
+  .top-meta { font-size: 12px; color: var(--text-3); }
+
+  /* === MAIN === */
+  main {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 28px 20px 0;
+  }
+  .title-row { margin-bottom: 24px; }
+  h1 {
+    font-size: clamp(24px, 4vw, 34px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+  h1 .accent { color: var(--yellow); }
+  .subtitle { color: var(--text-3); margin-top: 6px; font-size: 14px; }
+
+  /* === MODE TOGGLE === */
+  .mode-toggle {
+    display: inline-flex;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 24px;
+    gap: 4px;
+  }
+  .mode-btn {
+    background: none;
+    border: none;
+    color: var(--text-3);
+    padding: 10px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mode-btn:hover { color: var(--text-2); }
+  .mode-btn.active {
+    background: var(--yellow);
+    color: #0B1220;
+    font-weight: 600;
+  }
+  .mode-btn.active.backup {
+    background: var(--orange);
+    color: #0B1220;
+  }
+  .mode-icon { width: 14px; height: 14px; }
+
+  /* === GRID LAYOUT === */
+  .grid-main {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 20px;
+  }
+  @media (max-width: 980px) {
+    .grid-main { grid-template-columns: 1fr; }
+  }
+
+  /* === CARDS === */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .card + .card { margin-top: 16px; }
+  .card-title {
+    font-size: 11px;
+    color: var(--text-4);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title-bar {
+    width: 3px; height: 12px; background: var(--yellow);
+    border-radius: 2px;
+  }
+  .card-title-bar.orange { background: var(--orange); }
+  .card-title-bar.blue { background: var(--blue); }
+  .card-title-bar.green { background: var(--green); }
+
+  /* === FORM CONTROLS === */
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  .field-label {
+    font-size: 12px;
+    color: var(--text-3);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 500;
+  }
+  .field-value {
+    color: var(--yellow);
+    font-family: 'Geist Mono', monospace;
+    font-weight: 600;
+  }
+
+  .seg {
+    display: flex;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .seg-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-3);
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+  .seg-btn:hover { color: var(--text); }
+  .seg-btn.active {
+    background: var(--border-2);
+    color: var(--text);
+  }
+
+  /* slider */
+  input[type=range] {
+    -webkit-appearance: none;
+    width: 100%;
+    background: transparent;
+    height: 24px;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: var(--border-2);
+    border-radius: 2px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    background: var(--yellow);
+    border: 3px solid #0B1220;
+    border-radius: 50%;
+    margin-top: -7px;
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+  }
+  input[type=range]::-moz-range-track {
+    height: 4px;
+    background: var(--border-2);
+    border-radius: 2px;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 18px; height: 18px;
+    background: var(--yellow);
+    border: 3px solid #0B1220;
+    border-radius: 50%;
+    box-shadow: 0 0 12px rgba(251, 191, 36, 0.4);
+  }
+
+  /* qty stepper */
+  .qty {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .qty-btn {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .qty-btn:hover { background: var(--border); border-color: var(--border-2); }
+  .qty-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .qty-display {
+    flex: 1;
+    text-align: center;
+    font-family: 'Geist Mono', monospace;
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--yellow);
+  }
+
+  /* numeric input */
+  .num-input {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-family: 'Geist Mono', monospace;
+    font-size: 14px;
+    font-weight: 500;
+    width: 100%;
+  }
+  .num-input:focus {
+    outline: none;
+    border-color: var(--yellow);
+  }
+
+  /* === BATTERY SPEC CARD === */
+  .spec-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .spec {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .spec-label { font-size: 10px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.06em; }
+  .spec-value { font-family: 'Geist Mono', monospace; font-size: 18px; font-weight: 600; color: var(--text); margin-top: 2px; }
+  .spec-unit { color: var(--text-3); font-size: 13px; font-weight: 400; }
+
+  /* === CHECKBOX LIST (critical loads) === */
+  .check-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+  }
+  .check-row:last-child { border-bottom: none; }
+  .check-row:hover .check-name { color: var(--text); }
+  .check-left { display: flex; align-items: center; gap: 10px; flex: 1; }
+  .check-box {
+    width: 18px; height: 18px;
+    border-radius: 5px;
+    border: 2px solid var(--border-2);
+    background: var(--bg-2);
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .check-row.on .check-box {
+    background: var(--orange);
+    border-color: var(--orange);
+  }
+  .check-row.on .check-box::after {
+    content: '✓';
+    color: #0B1220;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .check-name { font-size: 13.5px; color: var(--text-2); transition: color 0.15s; }
+  .check-watts { font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--text-4); }
+
+  /* === RESULTS HERO === */
+  .results-hero {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .result-tile {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    position: relative;
+    overflow: hidden;
+  }
+  .result-tile.hero {
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.12), rgba(251, 191, 36, 0.02));
+    border-color: rgba(251, 191, 36, 0.3);
+  }
+  .result-tile.hero-orange {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.14), rgba(249, 115, 22, 0.02));
+    border-color: rgba(249, 115, 22, 0.3);
+  }
+  .result-label {
+    font-size: 11px;
+    color: var(--text-4);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+  .result-value {
+    font-family: 'Geist Mono', monospace;
+    font-size: clamp(24px, 3.5vw, 32px);
+    font-weight: 700;
+    color: var(--text);
+    margin-top: 6px;
+    letter-spacing: -0.02em;
+  }
+  .result-tile.hero .result-value { color: var(--yellow); }
+  .result-tile.hero-orange .result-value { color: var(--orange); }
+  .result-sub { font-size: 12px; color: var(--text-3); margin-top: 4px; }
+
+  /* === CHART === */
+  .chart-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+  .chart-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chart-legend {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    font-size: 11px; color: var(--text-3);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+  .chart-canvas-wrap { position: relative; height: 320px; }
+  @media (max-width: 600px) {
+    .chart-canvas-wrap { height: 260px; }
+  }
+
+  /* === BREAKDOWN === */
+  .breakdown {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .bd-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .bd-title {
+    font-size: 11px;
+    color: var(--text-4);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .bd-line {
+    display: flex; justify-content: space-between;
+    padding: 6px 0;
+    font-size: 13px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .bd-line:last-child { border-bottom: none; }
+  .bd-line-key { color: var(--text-3); }
+  .bd-line-val { color: var(--text); font-family: 'Geist Mono', monospace; font-weight: 500; }
+
+  /* === FOOTER === */
+  footer {
+    margin-top: 40px;
+    padding: 20px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-4);
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--yellow); text-decoration: none; }
+  .disclaimer {
+    max-width: 700px;
+    margin: 16px auto 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-4);
+  }
+
+  /* utility */
+  .hidden { display: none !important; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .grow { flex: 1; }
+
+  /* runtime hero (backup) */
+  .runtime-hero {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.16), rgba(15, 22, 38, 0.5));
+    border: 1px solid rgba(249, 115, 22, 0.4);
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+  .runtime-big {
+    font-family: 'Geist Mono', monospace;
+    font-size: clamp(40px, 7vw, 64px);
+    font-weight: 800;
+    color: var(--orange);
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+  .runtime-label {
+    font-size: 12px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 8px;
+  }
+  .runtime-sub {
+    color: var(--text-2);
+    margin-top: 10px;
+    font-size: 14px;
+  }
+
+  /* peak window slider */
+  .window-display {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: center;
+    font-family: 'Geist Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--yellow);
+    margin-bottom: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <div class="brand">
+      <div class="brand-mark">⚡</div>
+      <div class="brand-text">
+        <div class="brand-name">Battery Load Simulator</div>
+        <div class="brand-sub">Rivertown Solar · Westchester Home Energy</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="compareBtn" onclick="toggleCompare()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 4v16M17 4v16M3 8h4M3 16h4M17 8h4M17 16h4"/></svg>
+        Compare
+      </button>
+      <button class="icon-btn" id="shareBtn" onclick="copyShareLink()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13"/></svg>
+        Share
+      </button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="title-row">
+    <h1>See how a battery handles <span class="accent">your home</span>.</h1>
+    <p class="subtitle">Model whole-house arbitrage savings or backup runtime in real time. Adjust the inputs to match your situation.</p>
+  </div>
+
+  <div class="mode-toggle">
+    <button class="mode-btn active" id="modeArb" onclick="setMode('arbitrage')">
+      <svg class="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M2 12h20"/></svg>
+      Arbitrage
+    </button>
+    <button class="mode-btn" id="modeBak" onclick="setMode('backup')">
+      <svg class="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2L4 12h6l-2 10 10-12h-6l2-8z"/></svg>
+      Backup
+    </button>
+  </div>
+
+  <div class="grid-main">
+
+    <!-- ===== LEFT: CONFIG ===== -->
+    <div>
+
+      <!-- Setup A/B tabs (only when compare on) -->
+      <div class="setup-tabs" id="setupTabs">
+        <button class="setup-tab A" data-setup="A">
+          <span class="setup-dot" style="background:#9CA3AF"></span> Setup A · Current
+        </button>
+        <button class="setup-tab B active" data-setup="B">
+          <span class="setup-dot" style="background:var(--yellow)"></span> Setup B · Proposed
+        </button>
+      </div>
+
+      <!-- Battery -->
+      <div class="card">
+        <div class="card-title"><span class="card-title-bar"></span>Battery</div>
+
+        <div class="field">
+          <div class="field-label">
+            <span>Include battery</span>
+            <div class="switch on" id="battSwitch"><div class="switch-track"><div class="switch-thumb"></div></div></div>
+          </div>
+        </div>
+
+        <div id="battBody">
+          <div class="field">
+            <div class="field-label">Brand</div>
+            <div class="seg" id="brandSeg">
+              <button class="seg-btn active" data-brand="eg4">EG4 16K</button>
+              <button class="seg-btn" data-brand="lg">LG RESU16H</button>
+              <button class="seg-btn" data-brand="solis">Solis</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">Quantity <span class="field-value mono" id="qtyLabel">2</span></div>
+            <div class="qty">
+              <button class="qty-btn" id="qtyMinus">−</button>
+              <div class="qty-display" id="qtyDisplay">2</div>
+              <button class="qty-btn" id="qtyPlus">+</button>
+            </div>
+          </div>
+
+          <div class="spec-grid">
+            <div class="spec">
+              <div class="spec-label">Total</div>
+              <div class="spec-value mono" id="specTotal">32 <span class="spec-unit">kWh</span></div>
+            </div>
+            <div class="spec">
+              <div class="spec-label">Usable (80% DOD)</div>
+              <div class="spec-value mono" id="specUsable">25.6 <span class="spec-unit">kWh</span></div>
+            </div>
+            <div class="spec">
+              <div class="spec-label">Continuous</div>
+              <div class="spec-value mono" id="specCont">24 <span class="spec-unit">kW</span></div>
+            </div>
+            <div class="spec">
+              <div class="spec-label">Backup Hours</div>
+              <div class="spec-value mono" id="specBackup">— <span class="spec-unit">hr</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Solar -->
+      <div class="card">
+        <div class="card-title"><span class="card-title-bar teal"></span>Solar</div>
+        <div class="field">
+          <div class="field-label">
+            <span>Include solar</span>
+            <div class="switch" id="solSwitch"><div class="switch-track"><div class="switch-thumb"></div></div></div>
+          </div>
+        </div>
+        <div id="solBody" class="hidden">
+          <div class="field">
+            <div class="field-label">System size <span class="field-value mono" id="solKwLabel">8.0 kW DC</span></div>
+            <input type="range" id="solKwSlider" min="3" max="20" step="0.5" value="8" />
+          </div>
+          <div class="spec-grid">
+            <div class="spec"><div class="spec-label">Est. Annual</div><div class="spec-value mono" id="solAnnual">— <span class="spec-unit">kWh</span></div></div>
+            <div class="spec"><div class="spec-label">Est. Daily</div><div class="spec-value mono" id="solDaily">— <span class="spec-unit">kWh</span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Load Profile -->
+      <div class="card">
+        <div class="card-title"><span class="card-title-bar blue"></span>Home Load Profile</div>
+
+        <div class="field">
+          <div class="field-label">Source</div>
+          <div class="seg" id="srcSeg">
+            <button class="seg-btn active" data-src="preset">Preset</button>
+            <button class="seg-btn" data-src="csv">My Data (CSV)</button>
+          </div>
+        </div>
+
+        <!-- Preset controls -->
+        <div id="presetBody">
+          <div class="field">
+            <div class="field-label">Daily Usage <span class="field-value mono" id="dailyLabel">30 kWh/day</span></div>
+            <input type="range" id="dailySlider" min="10" max="80" step="1" value="30" />
+          </div>
+
+          <div class="field">
+            <div class="field-label">Home Type</div>
+            <div class="seg" id="homeSeg">
+              <button class="seg-btn active" data-home="gas">Gas Heat</button>
+              <button class="seg-btn" data-home="heatpump">Heat Pump</button>
+              <button class="seg-btn" data-home="dual">Dual</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">Season</div>
+            <div class="seg" id="seasonSeg">
+              <button class="seg-btn active" data-season="summer">Summer</button>
+              <button class="seg-btn" data-season="winter">Winter</button>
+              <button class="seg-btn" data-season="shoulder">Shoulder</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- CSV upload -->
+        <div id="csvBody" class="hidden">
+          <div class="csv-zone" id="csvZone" onclick="document.getElementById('csvFile').click()">
+            <div class="csv-zone-text" id="csvZoneText"><strong>Drop CSV here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button · 15-min or hourly intervals</span></div>
+            <div id="csvMetaBlock" class="hidden">
+              <div class="csv-meta">
+                <div>Range: <span id="csvRange">—</span></div>
+                <div>Intervals: <span id="csvIntervals">—</span></div>
+                <div>Total: <span id="csvTotal">—</span></div>
+                <div>Daily avg: <span id="csvDailyAvg">—</span></div>
+              </div>
+              <button class="csv-clear" onclick="event.stopPropagation(); clearCsv()">Clear CSV</button>
+            </div>
+          </div>
+          <input type="file" id="csvFile" accept=".csv" style="display:none" />
+        </div>
+      </div>
+
+      <!-- Arbitrage-only: Rates -->
+      <div class="card" id="rateCard">
+        <div class="card-title"><span class="card-title-bar"></span>TOU Rate Plan</div>
+
+        <div class="field">
+          <div class="field-label">Peak Rate <span class="field-value mono">$/kWh</span></div>
+          <input type="number" class="num-input mono" id="peakRate" value="0.42" step="0.01" min="0.10" max="1.00" />
+        </div>
+
+        <div class="field">
+          <div class="field-label">Off-Peak Rate <span class="field-value mono">$/kWh</span></div>
+          <input type="number" class="num-input mono" id="offRate" value="0.10" step="0.01" min="0.03" max="0.40" />
+        </div>
+
+        <div class="field">
+          <div class="field-label">Peak Window</div>
+          <div class="window-display" id="windowDisplay">2 PM – 10 PM</div>
+          <div class="seg" id="windowSeg">
+            <button class="seg-btn active" data-win="long">2–10 PM</button>
+            <button class="seg-btn" data-win="evening">5–10 PM</button>
+            <button class="seg-btn" data-win="custom">Custom</button>
+          </div>
+          <div id="customWin" class="hidden" style="margin-top:10px;">
+            <div class="row">
+              <input type="number" class="num-input mono grow" id="winStart" value="14" min="0" max="23" />
+              <span style="color:var(--text-4)">to</span>
+              <input type="number" class="num-input mono grow" id="winEnd" value="22" min="1" max="24" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Backup-only: Critical Loads -->
+      <div class="card hidden" id="criticalCard">
+        <div class="card-title"><span class="card-title-bar orange"></span>Critical Loads (Backup)</div>
+        <div id="criticalList"></div>
+        <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border); display:flex; justify-content:space-between;">
+          <span style="font-size:12px; color:var(--text-3);">Continuous Draw</span>
+          <span class="mono" style="font-size:14px; font-weight:600; color:var(--orange);" id="critTotal">0 W</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== RIGHT: RESULTS + CHART ===== -->
+    <div>
+
+      <!-- Arbitrage results -->
+      <div id="arbResults">
+        <!-- Compare row (only visible in compare mode) -->
+        <div id="compareRow" class="hidden">
+          <div class="compare-tile">
+            <div style="font-size:11px; color:var(--text-4); text-transform:uppercase; letter-spacing:0.08em; font-weight:600; margin-bottom:12px;">Annual Outcome · Setup A vs Setup B</div>
+            <div class="compare-grid">
+              <div class="compare-col A">
+                <div class="compare-col-label">Setup A (Current)</div>
+                <div class="compare-col-val" id="cmpA">$0</div>
+              </div>
+              <div class="compare-col B">
+                <div class="compare-col-label">Setup B (Proposed)</div>
+                <div class="compare-col-val" id="cmpB">$0</div>
+              </div>
+              <div class="compare-col D">
+                <div class="compare-col-label">Δ Annual Save</div>
+                <div class="compare-col-val" id="cmpD">$0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="results-hero">
+          <div class="result-tile hero">
+            <div class="result-label">Daily Savings</div>
+            <div class="result-value mono" id="rDailySave">$0.00</div>
+            <div class="result-sub">peak load shifted to battery</div>
+          </div>
+          <div class="result-tile hero">
+            <div class="result-label">Annual Savings</div>
+            <div class="result-value mono" id="rAnnualSave">$0</div>
+            <div class="result-sub">at current rates</div>
+          </div>
+          <div class="result-tile">
+            <div class="result-label">Peak kWh Avoided</div>
+            <div class="result-value mono" id="rKwhAvoided">0</div>
+            <div class="result-sub">per day</div>
+          </div>
+          <div class="result-tile">
+            <div class="result-label">Battery Utilization</div>
+            <div class="result-value mono" id="rUtil">0%</div>
+            <div class="result-sub">of usable cap per cycle</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Backup results -->
+      <div id="bakResults" class="hidden">
+        <div class="runtime-hero">
+          <div class="runtime-label">Estimated Runtime · Critical Loads</div>
+          <div class="runtime-big mono" id="rtBig">— hr</div>
+          <div class="runtime-sub" id="rtBigSub">Select loads to estimate runtime</div>
+        </div>
+        <div class="results-hero">
+          <div class="result-tile">
+            <div class="result-label">Whole-House Runtime</div>
+            <div class="result-value mono" id="rtWhole">— hr</div>
+            <div class="result-sub">avg daily load</div>
+          </div>
+          <div class="result-tile">
+            <div class="result-label">Critical Load Draw</div>
+            <div class="result-value mono" id="rtCritW">0 W</div>
+            <div class="result-sub">continuous</div>
+          </div>
+          <div class="result-tile">
+            <div class="result-label">Peak Surge Capacity</div>
+            <div class="result-value mono" id="rtSurge">0 kW</div>
+            <div class="result-sub">battery output limit</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chart -->
+      <div class="chart-wrap">
+        <div class="chart-head">
+          <div>
+            <div style="font-size:11px; color:var(--text-4); text-transform:uppercase; letter-spacing:0.08em; font-weight:600;" id="chartTitle">24-Hour Battery Behavior</div>
+            <div style="color:var(--text-3); font-size:13px; margin-top:4px;" id="chartSub">SOC and load shifted to battery during peak window</div>
+          </div>
+          <div class="chart-legend" id="chartLegend"></div>
+        </div>
+        <div class="chart-canvas-wrap">
+          <canvas id="mainChart"></canvas>
+        </div>
+
+        <!-- Animation controls -->
+        <div class="anim-bar">
+          <button class="play-btn" id="playBtn" onclick="togglePlay()">
+            <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <div class="scrub-wrap">
+            <div class="scrub-hour" id="scrubHour">▶ Press play or drag to scrub the 24-hour cycle</div>
+            <input type="range" id="scrubSlider" min="0" max="23" step="1" value="0" />
+          </div>
+        </div>
+
+        <!-- Live stats (during animation) -->
+        <div class="live-stats hidden" id="liveStats">
+          <div><div class="live-stat-label">Hour</div><div class="live-stat-val mono" id="liveHour">—</div></div>
+          <div><div class="live-stat-label">Load</div><div class="live-stat-val mono" id="liveLoad">—</div></div>
+          <div><div class="live-stat-label">Solar</div><div class="live-stat-val mono" id="liveSolar">—</div></div>
+          <div><div class="live-stat-label">Battery</div><div class="live-stat-val mono" id="liveBatt">—</div></div>
+          <div><div class="live-stat-label">From Grid</div><div class="live-stat-val mono" id="liveGrid">—</div></div>
+          <div><div class="live-stat-label">SOC</div><div class="live-stat-val mono" id="liveSoc">—</div></div>
+        </div>
+      </div>
+
+      <!-- Breakdown -->
+      <div class="breakdown" id="breakdown"></div>
+
+    </div>
+  </div>
+
+  <footer>
+    <div>Rivertown Solar · 32 Main St, Dobbs Ferry, NY 10522 · <a href="https://www.rivertownsolar.com" target="_blank">rivertownsolar.com</a></div>
+    <div class="disclaimer">
+      Estimates only. Real-world performance varies with weather, inverter sizing, panel placement, occupancy, and rate plan terms.
+      Battery capacity shown at 80% depth-of-discharge per manufacturer best practice. Confirm TOU rate eligibility with Con Edison or NYSEG before switching plans.
+    </div>
+  </footer>
+</main>
+
+<div class="toast" id="toast">Link copied to clipboard</div>
+
+<script>
+// ===================== STATE =====================
+function defaultSetup() {
+  return {
+    hasBatt: true, brand: 'eg4', qty: 2,
+    hasSolar: false, solarKw: 8.0,
+    src: 'preset', daily: 30, home: 'gas', season: 'summer',
+    csvProfile: null, csvMeta: null,
+  };
+}
+const STATE = {
+  mode: 'arbitrage',
+  compare: false,
+  activeSetup: 'B',
+  setupA: defaultSetup(),
+  setupB: defaultSetup(),
+  peakRate: 0.42, offRate: 0.10,
+  winType: 'long', winStart: 14, winEnd: 22,
+  crit: {
+    fridge: true, internet: true, lights: true, devices: true,
+    furnaceFan: false, well: false, microwave: false, tv: false, cpap: false,
+  },
+  animHour: -1, animPlaying: false, animTimer: null,
+};
+STATE.setupA.hasBatt = false; // current = no battery by default
+
+const BRANDS = {
+  eg4:   { name: 'EG4 16K',    kwh: 16,    contKw: 12, dod: 0.80, maxQty: 3 },
+  lg:    { name: 'LG RESU16H', kwh: 16,    contKw: 7,  dod: 0.80, maxQty: 2 },
+  solis: { name: 'Solis 5.12', kwh: 5.12,  contKw: 5,  dod: 0.80, maxQty: 4 },
+};
+const CRIT_LOADS = {
+  fridge:     { name: 'Refrigerator',         watts: 150,  duty: 0.40 },
+  internet:   { name: 'Internet / WiFi',       watts: 50,   duty: 1.00 },
+  lights:     { name: 'Essential LED Lights',  watts: 200,  duty: 0.30 },
+  devices:    { name: 'Phones / Laptops',      watts: 100,  duty: 0.60 },
+  furnaceFan: { name: 'Furnace Fan / Boiler',  watts: 400,  duty: 0.40 },
+  well:       { name: 'Well Pump',             watts: 1500, duty: 0.08 },
+  microwave:  { name: 'Microwave',             watts: 1500, duty: 0.10 },
+  tv:         { name: 'TV / Entertainment',    watts: 200,  duty: 0.20 },
+  cpap:       { name: 'CPAP / Medical',        watts: 60,   duty: 0.33 },
+};
+const SHAPES = {
+  summer_gas:        [0.025,0.024,0.023,0.022,0.023,0.026,0.032,0.038,0.040,0.040,0.042,0.044,0.046,0.048,0.050,0.052,0.055,0.058,0.060,0.058,0.052,0.045,0.038,0.030],
+  winter_gas:        [0.030,0.028,0.027,0.026,0.027,0.032,0.045,0.055,0.052,0.044,0.040,0.038,0.038,0.040,0.042,0.046,0.056,0.062,0.058,0.052,0.046,0.040,0.036,0.032],
+  shoulder_gas:      [0.028,0.026,0.025,0.024,0.025,0.029,0.038,0.046,0.046,0.042,0.040,0.040,0.041,0.043,0.045,0.048,0.054,0.058,0.058,0.054,0.048,0.040,0.036,0.030],
+  summer_heatpump:   [0.035,0.034,0.033,0.032,0.033,0.034,0.038,0.042,0.044,0.044,0.046,0.048,0.050,0.052,0.054,0.054,0.056,0.058,0.056,0.052,0.048,0.044,0.040,0.038],
+  winter_heatpump:   [0.046,0.046,0.046,0.046,0.046,0.048,0.052,0.052,0.046,0.040,0.038,0.038,0.038,0.038,0.040,0.044,0.048,0.050,0.048,0.046,0.044,0.042,0.040,0.040],
+  shoulder_heatpump: [0.038,0.036,0.035,0.034,0.036,0.040,0.046,0.048,0.044,0.040,0.040,0.040,0.041,0.044,0.046,0.048,0.052,0.054,0.052,0.048,0.044,0.040,0.038,0.036],
+  summer_dual:       [0.030,0.028,0.027,0.026,0.027,0.030,0.036,0.040,0.042,0.042,0.044,0.046,0.048,0.050,0.052,0.054,0.056,0.058,0.058,0.054,0.048,0.042,0.038,0.034],
+  winter_dual:       [0.038,0.036,0.036,0.036,0.038,0.042,0.050,0.054,0.048,0.042,0.038,0.038,0.038,0.040,0.042,0.046,0.054,0.058,0.054,0.050,0.046,0.042,0.040,0.038],
+  shoulder_dual:     [0.032,0.030,0.030,0.030,0.032,0.036,0.044,0.048,0.046,0.042,0.040,0.040,0.041,0.043,0.045,0.048,0.054,0.058,0.056,0.052,0.046,0.040,0.038,0.034],
+};
+// kWh per kW DC per hour, by season
+const SOLAR_CURVES = {
+  summer:   [0,0,0,0,0,0.03,0.10,0.22,0.38,0.50,0.58,0.62,0.62,0.58,0.50,0.40,0.28,0.16,0.06,0.01,0,0,0,0],
+  winter:   [0,0,0,0,0,0,0,0.04,0.14,0.26,0.34,0.36,0.35,0.30,0.20,0.10,0.03,0,0,0,0,0,0,0],
+  shoulder: [0,0,0,0,0,0.01,0.06,0.16,0.28,0.40,0.48,0.50,0.50,0.46,0.38,0.28,0.18,0.08,0.02,0,0,0,0,0],
+};
+
+// ===================== PROFILE BUILDERS =====================
+function getLoadProfile(s) {
+  if (s.src === 'csv' && s.csvProfile) return s.csvProfile;
+  const shape = SHAPES[`${s.season}_${s.home}`] || SHAPES.summer_gas;
+  const sum = shape.reduce((a,b)=>a+b, 0);
+  return shape.map(v => (v / sum) * s.daily);
+}
+function getSolarProfile(s) {
+  if (!s.hasSolar) return new Array(24).fill(0);
+  const curve = SOLAR_CURVES[s.season] || SOLAR_CURVES.summer;
+  return curve.map(v => v * s.solarKw);
+}
+function batterySpecs(s) {
+  if (!s.hasBatt) return { total: 0, usable: 0, cont: 0, brand: null };
+  const b = BRANDS[s.brand];
+  const total = b.kwh * s.qty;
+  return { total, usable: total * b.dod, cont: b.contKw * s.qty, brand: b };
+}
+function peakHoursInWindow(start, end) {
+  const hours = [];
+  if (start <= end) for (let h = start; h < end; h++) hours.push(h);
+  else { for (let h = start; h < 24; h++) hours.push(h); for (let h = 0; h < end; h++) hours.push(h); }
+  return hours;
+}
+function getPeakWindow() {
+  if (STATE.winType === 'long') return { start: 14, end: 22 };
+  if (STATE.winType === 'evening') return { start: 17, end: 22 };
+  return { start: STATE.winStart, end: STATE.winEnd };
+}
+
+// ===================== SIMULATION =====================
+function simulateArbitrage(s) {
+  const load = getLoadProfile(s);
+  const solar = getSolarProfile(s);
+  const { usable, cont } = batterySpecs(s);
+  const win = getPeakWindow();
+  const peakHrs = peakHoursInWindow(win.start, win.end);
+  const isPeak = h => peakHrs.includes(h);
+
+  const trace = [];
+  let soc = usable;
+  for (let h = 0; h < 24; h++) {
+    const ld = load[h];
+    const sol = solar[h];
+    let netLoad = ld - sol;
+    let fromSolar = Math.min(ld, sol);
+    let fromBattery = 0, fromGrid = 0, toBattery = 0, toGrid = 0;
+
+    if (netLoad > 0) {
+      if (isPeak(h) && s.hasBatt && soc > 0) {
+        fromBattery = Math.min(cont, netLoad, soc);
+        soc -= fromBattery;
+        netLoad -= fromBattery;
+      }
+      fromGrid = netLoad;
+    } else {
+      let excess = -netLoad;
+      if (s.hasBatt && soc < usable) {
+        const space = usable - soc;
+        toBattery = Math.min(space, excess, cont);
+        soc += toBattery;
+        excess -= toBattery;
+      }
+      toGrid = excess;
+    }
+
+    if (!isPeak(h) && s.hasBatt && soc < usable) {
+      const space = usable - soc;
+      const charge = Math.min(space, cont * 0.5);
+      soc += charge;
+      fromGrid += charge;
+    }
+
+    const rate = isPeak(h) ? STATE.peakRate : STATE.offRate;
+    const cost = fromGrid * rate;
+    const credit = toGrid * STATE.offRate;
+    trace.push({ h, load: ld, solar: sol, fromSolar, fromBattery, fromGrid, toBattery, toGrid, soc, cost, credit });
+  }
+
+  const totalCost = trace.reduce((a,t)=>a+t.cost, 0);
+  const totalCredit = trace.reduce((a,t)=>a+t.credit, 0);
+  const netCost = Math.max(0, totalCost - totalCredit);
+
+  let baseline = 0;
+  for (let h = 0; h < 24; h++) {
+    const rate = isPeak(h) ? STATE.peakRate : STATE.offRate;
+    baseline += load[h] * rate;
+  }
+
+  const kwhShifted = trace.reduce((a,t)=>a+t.fromBattery, 0);
+  const util = usable > 0 ? (kwhShifted / usable) * 100 : 0;
+
+  return { trace, load, solar, baseline, totalCost, totalCredit, netCost,
+           dailySave: baseline - netCost, kwhShifted, util, peakHrs, usable, cont };
+}
+
+function simulateBackup(s) {
+  const { usable, cont } = batterySpecs(s);
+  const load = getLoadProfile(s);
+  const dailyLoad = load.reduce((a,b)=>a+b, 0);
+  const avgKw = dailyLoad / 24;
+
+  let critW = 0, surgeW = 0;
+  for (const k in STATE.crit) {
+    if (STATE.crit[k]) {
+      const L = CRIT_LOADS[k];
+      critW += L.watts * L.duty;
+      surgeW += L.watts;
+    }
+  }
+  const critKw = critW / 1000;
+
+  const critRuntime = critKw > 0 ? usable / critKw : 0;
+  const wholeRuntime = avgKw > 0 ? usable / avgKw : 0;
+
+  const socArr = []; let soc = usable;
+  for (let h = 0; h < 24; h++) { soc = Math.max(0, soc - critKw); socArr.push(soc); }
+  const socWhole = []; let socW = usable;
+  for (let h = 0; h < 24; h++) { socW = Math.max(0, socW - load[h]); socWhole.push(socW); }
+
+  return { usable, cont, critW, critKw, critRuntime, wholeRuntime,
+           surgeW, surgeKw: surgeW/1000, avgKw, socArr, socWhole, load };
+}
+
+// ===================== HELPERS =====================
+let chart = null;
+function fmt$(n) { return '$' + n.toFixed(2); }
+function fmt$0(n) { return '$' + Math.round(n).toLocaleString(); }
+function fmtHr(n) {
+  if (!isFinite(n) || n <= 0) return '— hr';
+  if (n >= 24) return Math.floor(n/24) + 'd ' + Math.round(n%24) + 'hr';
+  return n.toFixed(1) + ' hr';
+}
+function fmtKwh(n) { return n.toFixed(1); }
+function fmtHour(h) {
+  h = ((h % 24) + 24) % 24;
+  if (h === 0) return '12 AM';
+  if (h === 12) return '12 PM';
+  if (h < 12) return h + ' AM';
+  return (h - 12) + ' PM';
+}
+function activeSetup() { return STATE.compare ? STATE[`setup${STATE.activeSetup}`] : STATE.setupB; }
+function setupA() { return STATE.setupA; }
+function setupB() { return STATE.setupB; }
+
+// ===================== UI MUTATIONS =====================
+function setMode(m) {
+  STATE.mode = m;
+  document.getElementById('modeArb').classList.toggle('active', m === 'arbitrage');
+  document.getElementById('modeBak').classList.toggle('active', m === 'backup');
+  document.getElementById('modeBak').classList.toggle('backup', m === 'backup');
+  document.getElementById('rateCard').classList.toggle('hidden', m === 'backup');
+  document.getElementById('criticalCard').classList.toggle('hidden', m === 'arbitrage');
+  document.getElementById('arbResults').classList.toggle('hidden', m === 'backup');
+  document.getElementById('bakResults').classList.toggle('hidden', m === 'arbitrage');
+  document.getElementById('chartTitle').textContent = m === 'arbitrage' ? '24-Hour Battery Behavior' : 'Battery State of Charge · Outage Day';
+  document.getElementById('chartSub').textContent = m === 'arbitrage' ? 'SOC, load, and solar over the day' : 'How long battery sustains critical vs whole-house loads';
+  document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || m !== 'arbitrage');
+  pauseAnim();
+  render();
+}
+
+function toggleCompare() {
+  STATE.compare = !STATE.compare;
+  document.getElementById('compareBtn').classList.toggle('active', STATE.compare);
+  document.getElementById('setupTabs').classList.toggle('on', STATE.compare);
+  document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || STATE.mode !== 'arbitrage');
+  if (!STATE.compare) STATE.activeSetup = 'B';
+  refreshControls();
+  render();
+}
+
+function setActiveSetup(which) {
+  STATE.activeSetup = which;
+  document.querySelectorAll('.setup-tab').forEach(t => t.classList.toggle('active', t.dataset.setup === which));
+  refreshControls();
+}
+
+function refreshControls() {
+  const s = activeSetup();
+  document.getElementById('battSwitch').classList.toggle('on', s.hasBatt);
+  document.getElementById('battBody').style.display = s.hasBatt ? '' : 'none';
+  document.querySelectorAll('#brandSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.brand === s.brand));
+  document.getElementById('qtyDisplay').textContent = s.qty;
+  document.getElementById('qtyLabel').textContent = s.qty;
+  document.getElementById('solSwitch').classList.toggle('on', s.hasSolar);
+  document.getElementById('solBody').classList.toggle('hidden', !s.hasSolar);
+  document.getElementById('solKwSlider').value = s.solarKw;
+  document.getElementById('solKwLabel').textContent = s.solarKw.toFixed(1) + ' kW DC';
+  document.querySelectorAll('#srcSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.src === s.src));
+  document.getElementById('presetBody').classList.toggle('hidden', s.src === 'csv');
+  document.getElementById('csvBody').classList.toggle('hidden', s.src === 'preset');
+  document.getElementById('dailySlider').value = s.daily;
+  document.getElementById('dailyLabel').textContent = s.daily + ' kWh/day';
+  document.querySelectorAll('#homeSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.home === s.home));
+  document.querySelectorAll('#seasonSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.season === s.season));
+  if (s.hasBatt) {
+    document.getElementById('qtyMinus').disabled = s.qty <= 1;
+    document.getElementById('qtyPlus').disabled = s.qty >= BRANDS[s.brand].maxQty;
+  }
+  const zone = document.getElementById('csvZone');
+  if (s.csvProfile) {
+    zone.classList.add('has-file');
+    document.getElementById('csvZoneText').innerHTML = `<strong>CSV loaded</strong><br><span style="font-size:11px;color:var(--text-4)">${s.csvMeta ? s.csvMeta.label : ''}</span>`;
+    document.getElementById('csvMetaBlock').classList.remove('hidden');
+    if (s.csvMeta) {
+      document.getElementById('csvRange').textContent = s.csvMeta.range;
+      document.getElementById('csvIntervals').textContent = s.csvMeta.intervals;
+      document.getElementById('csvTotal').textContent = s.csvMeta.total.toFixed(0) + ' kWh';
+      document.getElementById('csvDailyAvg').textContent = s.csvMeta.dailyAvg.toFixed(1) + ' kWh';
+    }
+  } else {
+    zone.classList.remove('has-file');
+    document.getElementById('csvZoneText').innerHTML = `<strong>Drop CSV here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button · 15-min or hourly intervals</span>`;
+    document.getElementById('csvMetaBlock').classList.add('hidden');
+  }
+}
+
+function buildCriticalList() {
+  const c = document.getElementById('criticalList');
+  c.innerHTML = '';
+  for (const k in CRIT_LOADS) {
+    const L = CRIT_LOADS[k];
+    const row = document.createElement('div');
+    row.className = 'check-row' + (STATE.crit[k] ? ' on' : '');
+    row.innerHTML = `
+      <div class="check-left"><div class="check-box"></div><div class="check-name">${L.name}</div></div>
+      <div class="check-watts">${L.watts}W</div>`;
+    row.onclick = () => {
+      STATE.crit[k] = !STATE.crit[k];
+      row.classList.toggle('on', STATE.crit[k]);
+      render();
+    };
+    c.appendChild(row);
+  }
+}
+
+// ===================== EVENTS =====================
+function setupEvents() {
+  document.querySelectorAll('.setup-tab').forEach(t => t.onclick = () => setActiveSetup(t.dataset.setup));
+  document.getElementById('battSwitch').onclick = () => { const s = activeSetup(); s.hasBatt = !s.hasBatt; refreshControls(); render(); };
+  document.getElementById('solSwitch').onclick  = () => { const s = activeSetup(); s.hasSolar = !s.hasSolar; refreshControls(); render(); };
+  document.querySelectorAll('#brandSeg .seg-btn').forEach(b => b.onclick = () => {
+    const s = activeSetup(); s.brand = b.dataset.brand;
+    const max = BRANDS[s.brand].maxQty;
+    if (s.qty > max) s.qty = max;
+    refreshControls(); render();
+  });
+  document.getElementById('qtyMinus').onclick = () => { const s = activeSetup(); if (s.qty > 1) { s.qty--; refreshControls(); render(); } };
+  document.getElementById('qtyPlus').onclick  = () => { const s = activeSetup(); if (s.qty < BRANDS[s.brand].maxQty) { s.qty++; refreshControls(); render(); } };
+  document.getElementById('solKwSlider').oninput = (e) => {
+    const s = activeSetup(); s.solarKw = parseFloat(e.target.value);
+    document.getElementById('solKwLabel').textContent = s.solarKw.toFixed(1) + ' kW DC';
+    render();
+  };
+  document.querySelectorAll('#srcSeg .seg-btn').forEach(b => b.onclick = () => {
+    const s = activeSetup(); s.src = b.dataset.src;
+    refreshControls(); render();
+  });
+  document.getElementById('dailySlider').oninput = (e) => {
+    const s = activeSetup(); s.daily = +e.target.value;
+    document.getElementById('dailyLabel').textContent = s.daily + ' kWh/day';
+    render();
+  };
+  document.querySelectorAll('#homeSeg .seg-btn').forEach(b => b.onclick = () => {
+    const s = activeSetup(); s.home = b.dataset.home;
+    refreshControls(); render();
+  });
+  document.querySelectorAll('#seasonSeg .seg-btn').forEach(b => b.onclick = () => {
+    const s = activeSetup(); s.season = b.dataset.season;
+    refreshControls(); render();
+  });
+  document.getElementById('peakRate').oninput = (e) => { STATE.peakRate = parseFloat(e.target.value) || 0; render(); };
+  document.getElementById('offRate').oninput  = (e) => { STATE.offRate = parseFloat(e.target.value) || 0; render(); };
+  document.querySelectorAll('#windowSeg .seg-btn').forEach(b => b.onclick = () => {
+    document.querySelectorAll('#windowSeg .seg-btn').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    STATE.winType = b.dataset.win;
+    document.getElementById('customWin').classList.toggle('hidden', STATE.winType !== 'custom');
+    render();
+  });
+  document.getElementById('winStart').oninput = (e) => { STATE.winStart = parseInt(e.target.value); if (STATE.winType === 'custom') render(); };
+  document.getElementById('winEnd').oninput   = (e) => { STATE.winEnd = parseInt(e.target.value);   if (STATE.winType === 'custom') render(); };
+  document.getElementById('scrubSlider').oninput = (e) => setAnimHour(parseInt(e.target.value));
+  document.getElementById('csvFile').onchange = (e) => { const file = e.target.files[0]; if (file) handleCsv(file); };
+  const zone = document.getElementById('csvZone');
+  ['dragover','dragenter'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.style.borderColor = 'var(--yellow)'; }));
+  ['dragleave','drop'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.style.borderColor = ''; }));
+  zone.addEventListener('drop', e => { const file = e.dataTransfer.files[0]; if (file) handleCsv(file); });
+}
+
+// ===================== CSV PARSING =====================
+function handleCsv(file) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const profile = parseGreenButton(e.target.result);
+      const s = activeSetup();
+      s.csvProfile = profile.hourly;
+      s.csvMeta = profile.meta;
+      s.src = 'csv';
+      refreshControls();
+      render();
+    } catch (err) {
+      alert('Could not parse CSV: ' + err.message + '\n\nExpected Con Ed Green Button format with date/time and kWh columns.');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function parseGreenButton(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+  if (lines.length < 2) throw new Error('No data rows');
+
+  let headerIdx = -1, headers = [];
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, '').toLowerCase());
+    if (cols.some(c => c.includes('usage') || c.includes('kwh') || c.includes('consumption'))) {
+      if (cols.some(c => c.includes('date') || c.includes('time') || c.includes('start'))) {
+        headerIdx = i; headers = cols; break;
+      }
+    }
+  }
+  if (headerIdx === -1) {
+    headers = lines[0].split(',').map(c => c.trim().toLowerCase());
+    headerIdx = 0;
+  }
+
+  // Find columns: support both combined ("Service Start"/"Time") and separate ("Date" + "Start Time")
+  const dateIdx = headers.findIndex(h => h === 'date' || (h.includes('date') && !h.includes('time') && !h.includes('end')));
+  const timeIdx = headers.findIndex(h => h.includes('start') && h.includes('time'));
+  const combinedIdx = headers.findIndex(h =>
+    (h.includes('start') && !h.includes('time')) ||
+    h === 'time' ||
+    h.includes('service start') ||
+    h.includes('datetime') ||
+    h.includes('timestamp')
+  );
+  const usageIdx = headers.findIndex(h => h.includes('usage') || h.includes('kwh') || h.includes('consumption'));
+  if (usageIdx === -1) throw new Error('No usage/kWh column found');
+
+  const hourBuckets = new Array(24).fill(0);
+  const dates = new Set();
+  let totalKwh = 0, rowCount = 0;
+  let firstDate = null, lastDate = null;
+
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    if (cols.length < 2) continue;
+
+    // Build datetime string
+    let dtStr = null;
+    if (dateIdx >= 0 && timeIdx >= 0) {
+      dtStr = cols[dateIdx] + ' ' + cols[timeIdx];
+    } else if (combinedIdx >= 0) {
+      dtStr = cols[combinedIdx];
+    } else if (dateIdx >= 0) {
+      dtStr = cols[dateIdx];
+    } else {
+      dtStr = cols[0];
+    }
+
+    const usage = parseFloat(cols[usageIdx]);
+    if (!isFinite(usage)) continue;
+    const dt = parseDate(dtStr);
+    if (!dt) continue;
+
+    const hour = dt.getHours();
+    hourBuckets[hour] += usage;
+    totalKwh += usage;
+    rowCount += 1;
+    dates.add(dt.toISOString().slice(0,10));
+    if (!firstDate || dt < firstDate) firstDate = dt;
+    if (!lastDate || dt > lastDate) lastDate = dt;
+  }
+  if (rowCount === 0) throw new Error('No valid data rows parsed');
+
+  const dayCount = dates.size || 1;
+  let hourly = hourBuckets.map(v => v / dayCount);
+
+  const intervalsPerDay = Math.round(rowCount / dayCount);
+  let intervalLabel = 'Hourly';
+  if (intervalsPerDay >= 90) intervalLabel = '15-min interval';
+  else if (intervalsPerDay >= 45) intervalLabel = '30-min interval';
+  else if (intervalsPerDay >= 22) intervalLabel = 'Hourly';
+  else intervalLabel = 'Daily';
+
+  const hourlySum = hourly.reduce((a,b)=>a+b,0);
+  const dailyAvg = totalKwh / dayCount;
+  if (hourlySum > 0 && Math.abs(hourlySum - dailyAvg) / dailyAvg > 0.2) {
+    hourly = hourly.map(v => (v / hourlySum) * dailyAvg);
+  }
+
+  const meta = {
+    range: firstDate && lastDate ? `${firstDate.toISOString().slice(0,10)} → ${lastDate.toISOString().slice(0,10)}` : `${dayCount} day(s)`,
+    intervals: intervalLabel,
+    total: totalKwh,
+    dailyAvg: dailyAvg,
+    days: dayCount,
+    label: `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day avg`,
+  };
+  return { hourly, meta };
+}
+
+function parseDate(str) {
+  if (!str) return null;
+  str = str.replace(/\s+(EST|EDT|GMT|UTC|PST|PDT|CST|CDT|MST|MDT)$/i, '');
+  const d = new Date(str);
+  if (isNaN(d.getTime())) {
+    const m = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
+    if (m) return new Date(+m[3], +m[1]-1, +m[2], +m[4], +m[5]);
+    return null;
+  }
+  return d;
+}
+
+function clearCsv() {
+  const s = activeSetup();
+  s.csvProfile = null; s.csvMeta = null; s.src = 'preset';
+  refreshControls(); render();
+}
+
+// ===================== ANIMATION =====================
+function togglePlay() {
+  if (STATE.animPlaying) pauseAnim();
+  else playAnim();
+}
+function playAnim() {
+  STATE.animPlaying = true;
+  document.getElementById('playIcon').innerHTML = '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>';
+  if (STATE.animHour < 0) STATE.animHour = 0;
+  STATE.animTimer = setInterval(() => {
+    STATE.animHour = (STATE.animHour + 1) % 24;
+    document.getElementById('scrubSlider').value = STATE.animHour;
+    updateLiveStats();
+  }, 600);
+  document.getElementById('liveStats').classList.remove('hidden');
+}
+function pauseAnim() {
+  STATE.animPlaying = false;
+  document.getElementById('playIcon').innerHTML = '<path d="M8 5v14l11-7z"/>';
+  if (STATE.animTimer) { clearInterval(STATE.animTimer); STATE.animTimer = null; }
+}
+function setAnimHour(h) {
+  STATE.animHour = h;
+  pauseAnim();
+  document.getElementById('liveStats').classList.remove('hidden');
+  updateLiveStats();
+}
+function updateLiveStats() {
+  const h = STATE.animHour;
+  if (h < 0) return;
+  document.getElementById('scrubHour').textContent = '⏱ ' + fmtHour(h) + ' — Hour ' + h;
+  if (STATE.mode === 'arbitrage') {
+    const r = simulateArbitrage(setupB());
+    const t = r.trace[h];
+    document.getElementById('liveHour').textContent = fmtHour(h);
+    document.getElementById('liveLoad').textContent = t.load.toFixed(2) + ' kWh';
+    document.getElementById('liveSolar').textContent = t.solar.toFixed(2) + ' kWh';
+    let battStr;
+    if (t.fromBattery > 0) battStr = '−' + t.fromBattery.toFixed(2);
+    else if (t.toBattery > 0) battStr = '+' + t.toBattery.toFixed(2);
+    else battStr = '0.00';
+    document.getElementById('liveBatt').textContent = battStr + ' kWh';
+    document.getElementById('liveGrid').textContent = t.fromGrid.toFixed(2) + ' kWh';
+    const socPct = r.usable > 0 ? (t.soc / r.usable * 100) : 0;
+    document.getElementById('liveSoc').textContent = socPct.toFixed(0) + '%';
+  } else {
+    const b = simulateBackup(setupB());
+    document.getElementById('liveHour').textContent = fmtHour(h);
+    document.getElementById('liveLoad').textContent = b.load[h].toFixed(2) + ' kWh';
+    document.getElementById('liveSolar').textContent = '—';
+    document.getElementById('liveBatt').textContent = '−' + b.critKw.toFixed(2) + ' kW';
+    document.getElementById('liveGrid').textContent = 'OFF';
+    const socPct = b.usable > 0 ? (b.socArr[h] / b.usable * 100) : 0;
+    document.getElementById('liveSoc').textContent = socPct.toFixed(0) + '%';
+  }
+}
+
+// ===================== RENDER =====================
+function renderSpecs() {
+  const s = setupB();
+  const spec = batterySpecs(s);
+  document.getElementById('specTotal').innerHTML = `${spec.total.toFixed(1)} <span class="spec-unit">kWh</span>`;
+  document.getElementById('specUsable').innerHTML = `${spec.usable.toFixed(1)} <span class="spec-unit">kWh</span>`;
+  document.getElementById('specCont').innerHTML = `${spec.cont.toFixed(0)} <span class="spec-unit">kW</span>`;
+  if (STATE.mode === 'backup' && spec.usable > 0) {
+    const b = simulateBackup(s);
+    const hrs = b.critKw > 0 ? b.critRuntime : b.wholeRuntime;
+    document.getElementById('specBackup').innerHTML = isFinite(hrs) ? `${hrs.toFixed(1)} <span class="spec-unit">hr</span>` : `— <span class="spec-unit">hr</span>`;
+  } else if (spec.usable > 0) {
+    const profile = getLoadProfile(s);
+    const daily = profile.reduce((a,b)=>a+b, 0);
+    const avg = daily / 24;
+    const hrs = spec.usable / avg;
+    document.getElementById('specBackup').innerHTML = `${hrs.toFixed(1)} <span class="spec-unit">hr</span>`;
+  } else {
+    document.getElementById('specBackup').innerHTML = `— <span class="spec-unit">hr</span>`;
+  }
+  if (s.hasSolar) {
+    const solarDaily = getSolarProfile(s).reduce((a,b)=>a+b, 0);
+    const sSum = SOLAR_CURVES.summer.reduce((a,b)=>a+b, 0) * s.solarKw;
+    const sWin = SOLAR_CURVES.winter.reduce((a,b)=>a+b, 0) * s.solarKw;
+    const sSho = SOLAR_CURVES.shoulder.reduce((a,b)=>a+b, 0) * s.solarKw;
+    const annual = Math.round((sSum*0.42 + sWin*0.20 + sSho*0.38) * 365);
+    document.getElementById('solAnnual').innerHTML = `${annual.toLocaleString()} <span class="spec-unit">kWh</span>`;
+    document.getElementById('solDaily').innerHTML  = `${solarDaily.toFixed(1)} <span class="spec-unit">kWh</span>`;
+  }
+}
+
+function renderArbitrage() {
+  const sB = setupB();
+  const rB = simulateArbitrage(sB);
+  document.getElementById('rDailySave').textContent = fmt$(Math.max(0, rB.dailySave));
+  document.getElementById('rAnnualSave').textContent = fmt$0(Math.max(0, rB.dailySave) * 365);
+  document.getElementById('rKwhAvoided').textContent = fmtKwh(rB.kwhShifted) + ' kWh';
+  document.getElementById('rUtil').textContent = Math.min(100, Math.max(0, rB.util)).toFixed(0) + '%';
+
+  let rA = null;
+  if (STATE.compare) {
+    rA = simulateArbitrage(setupA());
+    document.getElementById('cmpA').textContent = fmt$0(Math.max(0, rA.dailySave) * 365);
+    document.getElementById('cmpB').textContent = fmt$0(Math.max(0, rB.dailySave) * 365);
+    const delta = (rB.dailySave - rA.dailySave) * 365;
+    document.getElementById('cmpD').textContent = (delta >= 0 ? '+$' : '−$') + Math.abs(Math.round(delta)).toLocaleString();
+  }
+
+  const win = getPeakWindow();
+  document.getElementById('windowDisplay').textContent = `${fmtHour(win.start)} – ${fmtHour(win.end)}`;
+  try { drawArbChart(rB, rA); } catch(e) { console.warn('Chart skipped:', e.message); }
+
+  const peakKwhBase = rB.peakHrs.reduce((s, h) => s + rB.load[h], 0);
+  const offKwhBase = rB.load.reduce((s, v, h) => rB.peakHrs.includes(h) ? s : s + v, 0);
+  const peakCostBase = peakKwhBase * STATE.peakRate;
+  const offCostBase = offKwhBase * STATE.offRate;
+  const peakGridWith = rB.peakHrs.reduce((s, h) => s + rB.trace[h].fromGrid * STATE.peakRate, 0);
+  const offGridWith = rB.trace.reduce((s, t, h) => rB.peakHrs.includes(h) ? s : s + t.fromGrid * STATE.offRate, 0);
+  const solarKwh = rB.solar.reduce((a,b)=>a+b, 0);
+  const exportKwh = rB.trace.reduce((a,t)=>a+t.toGrid, 0);
+
+  document.getElementById('breakdown').innerHTML = `
+    <div class="bd-card">
+      <div class="bd-title">Cost Without Battery + Solar</div>
+      <div class="bd-line"><span class="bd-line-key">Peak (${peakKwhBase.toFixed(1)} kWh @ $${STATE.peakRate.toFixed(2)})</span><span class="bd-line-val">${fmt$(peakCostBase)}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Off-peak (${offKwhBase.toFixed(1)} kWh @ $${STATE.offRate.toFixed(2)})</span><span class="bd-line-val">${fmt$(offCostBase)}</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Daily baseline</span><span class="bd-line-val" style="color:var(--red)">${fmt$(rB.baseline)}</span></div>
+    </div>
+    <div class="bd-card">
+      <div class="bd-title">Daily Energy Flow (Setup B)</div>
+      <div class="bd-line"><span class="bd-line-key">Solar produced</span><span class="bd-line-val" style="color:var(--teal)">${fmtKwh(solarKwh)} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">Battery dispatched</span><span class="bd-line-val" style="color:var(--yellow)">${fmtKwh(rB.kwhShifted)} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">Exported to grid</span><span class="bd-line-val">${fmtKwh(exportKwh)} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">Peak grid spend</span><span class="bd-line-val">${fmt$(peakGridWith)}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Off-peak grid spend</span><span class="bd-line-val">${fmt$(offGridWith)}</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Net daily cost</span><span class="bd-line-val" style="color:var(--green)">${fmt$(rB.netCost)}</span></div>
+    </div>
+    <div class="bd-card" style="background:linear-gradient(135deg, rgba(251,191,36,0.10), transparent); border-color:rgba(251,191,36,0.3);">
+      <div class="bd-title" style="color:var(--yellow);">Net Outcome (Setup B)</div>
+      <div class="bd-line"><span class="bd-line-key">Daily</span><span class="bd-line-val" style="color:var(--yellow);">${fmt$(Math.max(0, rB.dailySave))}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Monthly</span><span class="bd-line-val" style="color:var(--yellow);">${fmt$(Math.max(0, rB.dailySave) * 30)}</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Annual</span><span class="bd-line-val" style="color:var(--yellow);font-weight:700;">${fmt$0(Math.max(0, rB.dailySave) * 365)}</span></div>
+    </div>
+  `;
+}
+
+function renderBackup() {
+  const s = setupB();
+  const b = simulateBackup(s);
+  document.getElementById('critTotal').textContent = Math.round(b.critW) + ' W';
+
+  if (s.hasBatt && b.critKw > 0) {
+    document.getElementById('rtBig').textContent = fmtHr(b.critRuntime);
+    document.getElementById('rtBigSub').textContent = `${Math.round(b.critW)}W continuous · ${fmtKwh(b.usable)} kWh usable`;
+  } else if (!s.hasBatt) {
+    document.getElementById('rtBig').textContent = 'No Battery';
+    document.getElementById('rtBigSub').textContent = 'Enable battery in setup to estimate runtime';
+  } else {
+    document.getElementById('rtBig').textContent = '— hr';
+    document.getElementById('rtBigSub').textContent = 'Select critical loads to estimate runtime';
+  }
+  document.getElementById('rtWhole').textContent = fmtHr(b.wholeRuntime);
+  document.getElementById('rtCritW').textContent = Math.round(b.critW) + ' W';
+  document.getElementById('rtSurge').textContent = b.cont.toFixed(0) + ' kW';
+
+  try { drawBackupChart(b); } catch(e) { console.warn('Chart skipped:', e.message); }
+
+  let critRows = '';
+  for (const k in STATE.crit) {
+    if (STATE.crit[k]) {
+      const L = CRIT_LOADS[k];
+      const avgW = L.watts * L.duty;
+      critRows += `<div class="bd-line"><span class="bd-line-key">${L.name}</span><span class="bd-line-val">${avgW.toFixed(0)} W avg</span></div>`;
+    }
+  }
+  if (!critRows) critRows = '<div class="bd-line"><span class="bd-line-key" style="color:var(--text-4)">None selected</span></div>';
+
+  document.getElementById('breakdown').innerHTML = `
+    <div class="bd-card">
+      <div class="bd-title">Selected Critical Loads</div>
+      ${critRows}
+    </div>
+    <div class="bd-card">
+      <div class="bd-title">Runtime Math</div>
+      <div class="bd-line"><span class="bd-line-key">Usable capacity</span><span class="bd-line-val">${fmtKwh(b.usable)} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">Critical draw</span><span class="bd-line-val">${b.critKw.toFixed(2)} kW</span></div>
+      <div class="bd-line"><span class="bd-line-key">Whole-house avg</span><span class="bd-line-val">${b.avgKw.toFixed(2)} kW</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Critical runtime</span><span class="bd-line-val" style="color:var(--orange);font-weight:700;">${fmtHr(b.critRuntime)}</span></div>
+    </div>
+    <div class="bd-card" style="background:linear-gradient(135deg, rgba(249,115,22,0.10), transparent); border-color:rgba(249,115,22,0.3);">
+      <div class="bd-title" style="color:var(--orange);">Surge Headroom</div>
+      <div class="bd-line"><span class="bd-line-key">Continuous output</span><span class="bd-line-val" style="color:var(--orange);">${b.cont.toFixed(0)} kW</span></div>
+      <div class="bd-line"><span class="bd-line-key">Peak load surge</span><span class="bd-line-val">${b.surgeKw.toFixed(2)} kW</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Headroom</span><span class="bd-line-val" style="color:${b.cont >= b.surgeKw ? 'var(--green)' : 'var(--red)'};font-weight:700;">${b.cont >= b.surgeKw ? '✓ Sufficient' : '⚠ Tight'}</span></div>
+    </div>
+  `;
+}
+
+// ===================== CHARTS =====================
+function drawArbChart(rB, rA) {
+  const labels = Array.from({length:24}, (_,i)=>fmtHour(i));
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  if (chart) chart.destroy();
+
+  const usable = rB.usable;
+  const socPctB = rB.trace.map(t => usable > 0 ? (t.soc / usable * 100) : 0);
+  const socPctA = rA && rA.usable > 0 ? rA.trace.map(t => t.soc / rA.usable * 100) : null;
+  const peakHrs = rB.peakHrs;
+
+  const legendHtml = [
+    `<div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div>Load</div>`,
+    rB.solar.some(v=>v>0) ? `<div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div>Solar</div>` : '',
+    rB.usable > 0 ? `<div class="legend-item"><div class="legend-dot line" style="background:var(--yellow)"></div>SOC · ${STATE.compare ? 'Setup B' : 'Battery'}</div>` : '',
+    STATE.compare && rA && rA.usable > 0 ? `<div class="legend-item"><div class="legend-dot line" style="background:var(--text-3)"></div>SOC · Setup A</div>` : ''
+  ].filter(Boolean).join('');
+  document.getElementById('chartLegend').innerHTML = legendHtml;
+
+  const datasets = [{
+    type: 'bar', label: 'Load', data: rB.load,
+    backgroundColor: rB.load.map((_, h) => peakHrs.includes(h) ? 'rgba(239, 68, 68, 0.55)' : 'rgba(59, 130, 246, 0.45)'),
+    borderRadius: 3, yAxisID: 'y', order: 3,
+  }];
+  if (rB.solar.some(v=>v>0)) {
+    datasets.push({
+      type: 'line', label: 'Solar', data: rB.solar,
+      borderColor: '#14B8A6', backgroundColor: 'rgba(20, 184, 166, 0.15)',
+      borderWidth: 2, tension: 0.4, pointRadius: 0, fill: true,
+      yAxisID: 'y', order: 2,
+    });
+  }
+  if (rB.usable > 0) {
+    datasets.push({
+      type: 'line', label: 'SOC', data: socPctB,
+      borderColor: '#FBBF24', backgroundColor: 'rgba(251, 191, 36, 0.08)',
+      borderWidth: 2.5, tension: 0.35, pointRadius: 0, pointHoverRadius: 4,
+      fill: !socPctA, yAxisID: 'y1', order: 1,
+    });
+  }
+  if (socPctA) {
+    datasets.push({
+      type: 'line', label: 'SOC A', data: socPctA,
+      borderColor: '#9CA3AF', backgroundColor: 'transparent',
+      borderWidth: 2, borderDash: [5,5], tension: 0.35, pointRadius: 0,
+      yAxisID: 'y1', order: 1,
+    });
+  }
+
+  chart = new Chart(ctx, { data: { labels, datasets }, options: chartOptions('kWh', rB.usable > 0 ? '% SOC' : null) });
+}
+
+function drawBackupChart(b) {
+  const labels = Array.from({length:25}, (_,i)=>fmtHour(i));
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  if (chart) chart.destroy();
+  document.getElementById('chartLegend').innerHTML = `
+    <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div>SOC · Critical Loads</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>SOC · Whole House</div>`;
+  const critSeries = [b.usable, ...b.socArr];
+  const wholeSeries = [b.usable, ...b.socWhole];
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: ['Start', ...labels.slice(1)],
+      datasets: [
+        { label: 'Critical Loads', data: critSeries, borderColor: '#F97316', backgroundColor: 'rgba(249, 115, 22, 0.15)', borderWidth: 2.5, tension: 0.2, fill: true, pointRadius: 0, pointHoverRadius: 4 },
+        { label: 'Whole House', data: wholeSeries, borderColor: '#EF4444', backgroundColor: 'rgba(239, 68, 68, 0.10)', borderWidth: 2.5, tension: 0.2, fill: true, pointRadius: 0, pointHoverRadius: 4 }
+      ]
+    },
+    options: chartOptions('kWh remaining', null)
+  });
+}
+
+function chartOptions(yLabel, y1Label) {
+  const opts = {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#111827', borderColor: '#374151', borderWidth: 1,
+        titleColor: '#F9FAFB', bodyColor: '#D1D5DB', padding: 12, cornerRadius: 8, boxPadding: 4,
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#6B7280', font: { family: 'Geist Mono', size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+        grid: { color: 'rgba(55, 65, 81, 0.3)' }
+      },
+      y: {
+        position: 'left',
+        ticks: { color: '#6B7280', font: { family: 'Geist Mono', size: 10 } },
+        grid: { color: 'rgba(55, 65, 81, 0.3)' },
+        title: { display: true, text: yLabel, color: '#9CA3AF', font: { size: 11 } }
+      }
+    }
+  };
+  if (y1Label) {
+    opts.scales.y1 = {
+      position: 'right', min: 0, max: 100,
+      ticks: { color: '#FBBF24', font: { family: 'Geist Mono', size: 10 }, callback: v => v + '%' },
+      grid: { display: false },
+      title: { display: true, text: y1Label, color: '#FBBF24', font: { size: 11 } }
+    };
+  }
+  return opts;
+}
+
+// ===================== URL STATE =====================
+function packSetup(s) {
+  return { hb: s.hasBatt?1:0, br: s.brand, q: s.qty, hs: s.hasSolar?1:0, sk: s.solarKw, sr: s.src, d: s.daily, h: s.home, se: s.season };
+}
+function unpackSetup(p) {
+  return { hasBatt: !!p.hb, brand: p.br || 'eg4', qty: p.q || 2, hasSolar: !!p.hs, solarKw: p.sk || 8.0, src: p.sr || 'preset', daily: p.d || 30, home: p.h || 'gas', season: p.se || 'summer', csvProfile: null, csvMeta: null };
+}
+function serializeState() {
+  const pack = {
+    m: STATE.mode === 'arbitrage' ? 'a' : 'b',
+    c: STATE.compare ? 1 : 0,
+    pr: STATE.peakRate, or: STATE.offRate,
+    wt: STATE.winType, ws: STATE.winStart, we: STATE.winEnd,
+    cr: STATE.crit,
+    A: packSetup(STATE.setupA),
+    B: packSetup(STATE.setupB),
+  };
+  return btoa(JSON.stringify(pack));
+}
+function restoreState() {
+  const hash = window.location.hash;
+  if (!hash || hash.length < 4) return;
+  try {
+    const m = hash.match(/^#c=(.+)$/);
+    if (!m) return;
+    const data = JSON.parse(atob(m[1]));
+    STATE.mode = data.m === 'a' ? 'arbitrage' : 'backup';
+    STATE.compare = !!data.c;
+    STATE.peakRate = data.pr ?? 0.42;
+    STATE.offRate = data.or ?? 0.10;
+    STATE.winType = data.wt || 'long';
+    STATE.winStart = data.ws ?? 14;
+    STATE.winEnd = data.we ?? 22;
+    if (data.cr) STATE.crit = data.cr;
+    if (data.A) STATE.setupA = unpackSetup(data.A);
+    if (data.B) STATE.setupB = unpackSetup(data.B);
+    document.getElementById('peakRate').value = STATE.peakRate;
+    document.getElementById('offRate').value = STATE.offRate;
+    document.querySelectorAll('#windowSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.win === STATE.winType));
+    document.getElementById('customWin').classList.toggle('hidden', STATE.winType !== 'custom');
+    document.getElementById('winStart').value = STATE.winStart;
+    document.getElementById('winEnd').value = STATE.winEnd;
+    if (STATE.compare) {
+      document.getElementById('compareBtn').classList.add('active');
+      document.getElementById('setupTabs').classList.add('on');
+    }
+    setMode(STATE.mode);
+  } catch (e) {
+    console.warn('Could not restore state:', e);
+  }
+}
+
+function copyShareLink() {
+  const url = window.location.origin + window.location.pathname + '#c=' + serializeState();
+  const finish = () => {
+    const t = document.getElementById('toast');
+    t.textContent = 'Link copied · pre-loads this exact setup';
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(finish).catch(() => prompt('Copy this link:', url));
+  } else {
+    prompt('Copy this link:', url);
+  }
+}
+
+// ===================== MAIN RENDER =====================
+function render() {
+  refreshControls();
+  renderSpecs();
+  if (STATE.mode === 'arbitrage') renderArbitrage();
+  else renderBackup();
+  if (STATE.animHour >= 0) updateLiveStats();
+}
+
+// ===================== INIT =====================
+buildCriticalList();
+setupEvents();
+restoreState();
+render();
+</script>
+
+</body>
+</html>

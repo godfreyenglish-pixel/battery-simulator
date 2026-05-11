@@ -1632,9 +1632,14 @@ function togglePlay() {
 function playAnim() {
   STATE.animPlaying = true;
   document.getElementById('playIcon').innerHTML = '<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>';
-  if (STATE.animHour < 0) STATE.animHour = 0;
+  // Reset to start if at end or fresh
+  if (STATE.animHour < 0 || STATE.animHour >= 23) STATE.animHour = 0;
   STATE.animTimer = setInterval(() => {
-    STATE.animHour = (STATE.animHour + 1) % 24;
+    if (STATE.animHour >= 23) {
+      pauseAnim();
+      return;
+    }
+    STATE.animHour = STATE.animHour + 1;
     document.getElementById('scrubSlider').value = STATE.animHour;
     updateLiveStats();
   }, 600);
@@ -1678,6 +1683,11 @@ function updateLiveStats() {
     document.getElementById('liveGrid').textContent = 'OFF';
     const socPct = b.usable > 0 ? (b.socArr[h] / b.usable * 100) : 0;
     document.getElementById('liveSoc').textContent = socPct.toFixed(0) + '%';
+  }
+  // Update vertical line marker on chart without full re-render
+  if (chart && chart.options && chart.options.plugins && chart.options.plugins.rivertownAnnotations) {
+    chart.options.plugins.rivertownAnnotations.animHour = h;
+    chart.update('none');
   }
 }
 
@@ -1829,6 +1839,65 @@ function renderBackup() {
 }
 
 // ===================== CHARTS =====================
+// Custom plugin: shades the peak window background + draws a vertical line at current animation hour
+const annotationsPlugin = {
+  id: 'rivertownAnnotations',
+  beforeDatasetsDraw(chart, args, opts) {
+    const { ctx, chartArea, scales } = chart;
+    if (!chartArea || !scales.x) return;
+    // Peak window band (contiguous range[s])
+    if (opts.peakHrs && opts.peakHrs.length > 0) {
+      const sorted = [...opts.peakHrs].sort((a,b)=>a-b);
+      // Find contiguous runs
+      const runs = [];
+      let runStart = sorted[0], prev = sorted[0];
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i] !== prev + 1) {
+          runs.push([runStart, prev]);
+          runStart = sorted[i];
+        }
+        prev = sorted[i];
+      }
+      runs.push([runStart, prev]);
+      ctx.save();
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.07)';
+      for (const [a, b] of runs) {
+        const x1 = scales.x.getPixelForValue(a) - (scales.x.getPixelForValue(1) - scales.x.getPixelForValue(0)) / 2;
+        const x2 = scales.x.getPixelForValue(b) + (scales.x.getPixelForValue(1) - scales.x.getPixelForValue(0)) / 2;
+        ctx.fillRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top);
+      }
+      // Peak label
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.55)';
+      ctx.font = '10px Geist Mono, monospace';
+      ctx.textAlign = 'center';
+      if (runs.length > 0) {
+        const [a, b] = runs[0];
+        const midX = (scales.x.getPixelForValue(a) + scales.x.getPixelForValue(b)) / 2;
+        ctx.fillText('PEAK WINDOW', midX, chartArea.top + 12);
+      }
+      ctx.restore();
+    }
+  },
+  afterDatasetsDraw(chart, args, opts) {
+    const { ctx, chartArea, scales } = chart;
+    if (!chartArea || !scales.x) return;
+    // Vertical line at current animation hour
+    if (typeof opts.animHour === 'number' && opts.animHour >= 0) {
+      ctx.save();
+      const x = scales.x.getPixelForValue(opts.animHour);
+      ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+};
+if (typeof Chart !== 'undefined') Chart.register(annotationsPlugin);
+
 function drawArbChart(rB, rA) {
   const labels = Array.from({length:24}, (_,i)=>fmtHour(i));
   const ctx = document.getElementById('mainChart').getContext('2d');
@@ -1838,34 +1907,57 @@ function drawArbChart(rB, rA) {
   const socPctB = rB.trace.map(t => usable > 0 ? (t.soc / usable * 100) : 0);
   const socPctA = rA && rA.usable > 0 ? rA.trace.map(t => t.soc / rA.usable * 100) : null;
   const peakHrs = rB.peakHrs;
+  const hasSolar = rB.solar.some(v => v > 0);
+  const hasBatt = rB.usable > 0;
 
-  const legendHtml = [
-    `<div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div>Load</div>`,
-    rB.solar.some(v=>v>0) ? `<div class="legend-item"><div class="legend-dot" style="background:var(--teal)"></div>Solar</div>` : '',
-    rB.usable > 0 ? `<div class="legend-item"><div class="legend-dot line" style="background:var(--yellow)"></div>SOC · ${STATE.compare ? 'Setup B' : 'Battery'}</div>` : '',
-    STATE.compare && rA && rA.usable > 0 ? `<div class="legend-item"><div class="legend-dot line" style="background:var(--text-3)"></div>SOC · Setup A</div>` : ''
-  ].filter(Boolean).join('');
-  document.getElementById('chartLegend').innerHTML = legendHtml;
+  // Coverage breakdown per hour: what supplied the load
+  const fromSolar = rB.trace.map(t => Math.min(t.load, t.solar));
+  const fromBattery = rB.trace.map(t => t.fromBattery);
+  const fromGridLoad = rB.trace.map(t => Math.max(0, t.load - Math.min(t.load, t.solar) - t.fromBattery));
+  const excessSolar = rB.trace.map(t => Math.max(0, t.solar - t.load));
 
-  const datasets = [{
-    type: 'bar', label: 'Load', data: rB.load,
-    backgroundColor: rB.load.map((_, h) => peakHrs.includes(h) ? 'rgba(239, 68, 68, 0.55)' : 'rgba(59, 130, 246, 0.45)'),
-    borderRadius: 3, yAxisID: 'y', order: 3,
-  }];
-  if (rB.solar.some(v=>v>0)) {
+  // Legend
+  const legend = [];
+  if (hasSolar) legend.push(`<div class="legend-item"><div class="legend-dot" style="background:#14B8A6"></div>Solar → Load</div>`);
+  if (hasBatt) legend.push(`<div class="legend-item"><div class="legend-dot" style="background:#FBBF24"></div>Battery → Load</div>`);
+  legend.push(`<div class="legend-item"><div class="legend-dot" style="background:#EF4444"></div>Grid (peak)</div>`);
+  legend.push(`<div class="legend-item"><div class="legend-dot" style="background:#3B82F6"></div>Grid (off-peak)</div>`);
+  if (hasBatt) legend.push(`<div class="legend-item"><div class="legend-dot line" style="background:#FBBF24"></div>SOC ${STATE.compare ? 'B' : ''}</div>`);
+  if (socPctA) legend.push(`<div class="legend-item"><div class="legend-dot line" style="background:#9CA3AF"></div>SOC A</div>`);
+  document.getElementById('chartLegend').innerHTML = legend.join('');
+
+  const datasets = [];
+
+  // Stacked bars showing load coverage (bottom to top: solar, battery, grid)
+  if (hasSolar) {
     datasets.push({
-      type: 'line', label: 'Solar', data: rB.solar,
-      borderColor: '#14B8A6', backgroundColor: 'rgba(20, 184, 166, 0.15)',
-      borderWidth: 2, tension: 0.4, pointRadius: 0, fill: true,
-      yAxisID: 'y', order: 2,
+      type: 'bar', label: 'Solar → Load', data: fromSolar,
+      backgroundColor: 'rgba(20, 184, 166, 0.85)',
+      stack: 'load', borderRadius: 0, yAxisID: 'y', order: 3,
     });
   }
-  if (rB.usable > 0) {
+  if (hasBatt) {
+    datasets.push({
+      type: 'bar', label: 'Battery → Load', data: fromBattery,
+      backgroundColor: 'rgba(251, 191, 36, 0.92)',
+      borderColor: 'rgba(251, 191, 36, 1)',
+      borderWidth: 0,
+      stack: 'load', borderRadius: 0, yAxisID: 'y', order: 3,
+    });
+  }
+  datasets.push({
+    type: 'bar', label: 'Grid → Load', data: fromGridLoad,
+    backgroundColor: fromGridLoad.map((_, h) => peakHrs.includes(h) ? 'rgba(239, 68, 68, 0.78)' : 'rgba(59, 130, 246, 0.55)'),
+    stack: 'load', borderRadius: 3, yAxisID: 'y', order: 3,
+  });
+
+  // SOC line(s)
+  if (hasBatt) {
     datasets.push({
       type: 'line', label: 'SOC', data: socPctB,
-      borderColor: '#FBBF24', backgroundColor: 'rgba(251, 191, 36, 0.08)',
+      borderColor: '#FBBF24', backgroundColor: 'transparent',
       borderWidth: 2.5, tension: 0.35, pointRadius: 0, pointHoverRadius: 4,
-      fill: !socPctA, yAxisID: 'y1', order: 1,
+      yAxisID: 'y1', order: 1,
     });
   }
   if (socPctA) {
@@ -1877,7 +1969,13 @@ function drawArbChart(rB, rA) {
     });
   }
 
-  chart = new Chart(ctx, { data: { labels, datasets }, options: chartOptions('kWh', rB.usable > 0 ? '% SOC' : null) });
+  const opts = chartOptions('kWh', hasBatt ? '% SOC' : null);
+  // Wire stacked + annotations plugin opts
+  opts.scales.x.stacked = true;
+  opts.scales.y.stacked = true;
+  opts.plugins.rivertownAnnotations = { peakHrs, animHour: STATE.animHour };
+
+  chart = new Chart(ctx, { data: { labels, datasets }, options: opts });
 }
 
 function drawBackupChart(b) {
@@ -1889,6 +1987,8 @@ function drawBackupChart(b) {
     <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>SOC · Whole House</div>`;
   const critSeries = [b.usable, ...b.socArr];
   const wholeSeries = [b.usable, ...b.socWhole];
+  const opts = chartOptions('kWh remaining', null);
+  opts.plugins.rivertownAnnotations = { peakHrs: [], animHour: STATE.animHour };
   chart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -1898,7 +1998,7 @@ function drawBackupChart(b) {
         { label: 'Whole House', data: wholeSeries, borderColor: '#EF4444', backgroundColor: 'rgba(239, 68, 68, 0.10)', borderWidth: 2.5, tension: 0.2, fill: true, pointRadius: 0, pointHoverRadius: 4 }
       ]
     },
-    options: chartOptions('kWh remaining', null)
+    options: opts
   });
 }
 

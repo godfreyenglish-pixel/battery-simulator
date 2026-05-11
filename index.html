@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>Battery Load Simulator · Rivertown Solar</title>
 <meta name="description" content="Interactive battery load simulator for arbitrage and backup scenarios. EG4, LG, Solis configs." />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23FBBF24'/%3E%3Cstop offset='1' stop-color='%23F59E0B'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='6' fill='url(%23g)'/%3E%3Cpath d='M19 3 L7 18 h6 l-3 11 L23 14 h-6 l2-11z' fill='%230B1220'/%3E%3C/svg%3E" />
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23FBBF24'/%3E%3Cstop offset='1' stop-color='%23F59E0B'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='180' height='180' rx='36' fill='url(%23g)'/%3E%3Cpath d='M107 18 L40 102 h34 l-17 60 L141 80 h-34 l11-62z' fill='%230B1220'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -981,7 +983,7 @@
   </div>
 
   <footer>
-    <div>Rivertown Solar · 32 Main St, Dobbs Ferry, NY 10522 · <a href="https://www.rivertownsolar.com" target="_blank">rivertownsolar.com</a></div>
+    <div>Rivertown Solar · 32 Main St, Dobbs Ferry, NY 10522 · <a href="https://www.rivertownsolar.com" target="_blank">rivertownsolar.com</a> · <a href="javascript:resetAll()" style="color:var(--text-4);">Reset saved config</a></div>
     <div class="disclaimer">
       Estimates only. Real-world performance varies with weather, inverter sizing, panel placement, occupancy, and rate plan terms.
       Battery capacity shown at 80% depth-of-discharge per manufacturer best practice. Confirm TOU rate eligibility with Con Edison or NYSEG before switching plans.
@@ -1844,6 +1846,69 @@ function copyShareLink() {
   }
 }
 
+// ===================== LOCAL STORAGE =====================
+const STORAGE_KEY = 'rivertown-battery-sim-v1';
+function saveState() {
+  try {
+    const data = {
+      mode: STATE.mode, compare: STATE.compare, activeSetup: STATE.activeSetup,
+      peakRate: STATE.peakRate, offRate: STATE.offRate,
+      winType: STATE.winType, winStart: STATE.winStart, winEnd: STATE.winEnd,
+      crit: STATE.crit,
+      setupA: STATE.setupA, setupB: STATE.setupB,
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch(e) { /* private mode / quota / disabled — silently skip */ }
+}
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (d.mode) STATE.mode = d.mode;
+    if (typeof d.compare === 'boolean') STATE.compare = d.compare;
+    if (d.activeSetup) STATE.activeSetup = d.activeSetup;
+    if (typeof d.peakRate === 'number') STATE.peakRate = d.peakRate;
+    if (typeof d.offRate === 'number') STATE.offRate = d.offRate;
+    if (d.winType) STATE.winType = d.winType;
+    if (typeof d.winStart === 'number') STATE.winStart = d.winStart;
+    if (typeof d.winEnd === 'number') STATE.winEnd = d.winEnd;
+    if (d.crit) STATE.crit = d.crit;
+    if (d.setupA) STATE.setupA = d.setupA;
+    if (d.setupB) STATE.setupB = d.setupB;
+    return true;
+  } catch(e) { return false; }
+}
+function resetAll() {
+  if (!confirm('Reset all saved configuration and return to defaults? This clears your saved setup but not shareable links.')) return;
+  try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+  window.location.hash = '';
+  window.location.reload();
+}
+// Sync DOM controls and visibility flags to STATE after a load (used after loadState)
+function applyLoadedStateToUI() {
+  // Mode
+  setMode(STATE.mode);
+  // Compare toggle visual
+  document.getElementById('compareBtn').classList.toggle('active', STATE.compare);
+  document.getElementById('setupTabs').classList.toggle('on', STATE.compare);
+  document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || STATE.mode !== 'arbitrage');
+  // Active setup tab highlight
+  document.querySelectorAll('.setup-tab').forEach(t => t.classList.toggle('active', t.dataset.setup === STATE.activeSetup));
+  // Rates
+  document.getElementById('peakRate').value = STATE.peakRate;
+  document.getElementById('offRate').value = STATE.offRate;
+  // Peak window
+  document.querySelectorAll('#windowSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.win === STATE.winType));
+  document.getElementById('customWin').classList.toggle('hidden', STATE.winType !== 'custom');
+  document.getElementById('winStart').value = STATE.winStart;
+  document.getElementById('winEnd').value = STATE.winEnd;
+  // Critical loads list — rebuild to reflect loaded state
+  document.getElementById('criticalList').innerHTML = '';
+  buildCriticalList();
+}
+
 // ===================== MAIN RENDER =====================
 function render() {
   refreshControls();
@@ -1851,13 +1916,19 @@ function render() {
   if (STATE.mode === 'arbitrage') renderArbitrage();
   else renderBackup();
   if (STATE.animHour >= 0) updateLiveStats();
+  saveState();
 }
 
 // ===================== INIT =====================
 buildCriticalList();
 setupEvents();
+// Priority: localStorage baseline → URL hash overrides → render
+const hadLocal = loadState();
+const hadHash = window.location.hash && window.location.hash.length > 3;
+if (hadLocal && !hadHash) applyLoadedStateToUI();
 restoreState();
 render();
+
 </script>
 
 </body>

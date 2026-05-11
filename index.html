@@ -742,6 +742,18 @@
               <div class="spec-value mono" id="specBackup">— <span class="spec-unit">hr</span></div>
             </div>
           </div>
+
+          <!-- Peak coverage indicator -->
+          <div id="peakCoverage" style="margin-top: 10px; padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 11px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;">Peak Coverage</span>
+              <span class="mono" style="font-size: 13px; font-weight: 600;" id="coverageLabel">—</span>
+            </div>
+            <div style="width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;">
+              <div id="coverageBar" style="height: 100%; background: var(--yellow); border-radius: 3px; transition: width 0.3s, background 0.3s; width: 0%;"></div>
+            </div>
+            <div style="font-size: 11px; color: var(--text-4); margin-top: 6px;" id="coverageHint">—</div>
+          </div>
         </div>
       </div>
 
@@ -886,17 +898,27 @@
               <div class="compare-col A">
                 <div class="compare-col-label">Setup A (Current)</div>
                 <div class="compare-col-val" id="cmpA">$0</div>
+                <div style="font-size: 10px; color: var(--text-4); margin-top: 6px; font-family: 'Geist Mono', monospace;" id="cmpAspec">—</div>
               </div>
               <div class="compare-col B">
                 <div class="compare-col-label">Setup B (Proposed)</div>
                 <div class="compare-col-val" id="cmpB">$0</div>
+                <div style="font-size: 10px; color: var(--text-4); margin-top: 6px; font-family: 'Geist Mono', monospace;" id="cmpBspec">—</div>
               </div>
               <div class="compare-col D">
                 <div class="compare-col-label">Δ Annual Save</div>
                 <div class="compare-col-val" id="cmpD">$0</div>
+                <div style="font-size: 10px; color: var(--text-4); margin-top: 6px;" id="cmpDspec">—</div>
               </div>
             </div>
+            <div id="compareSaturationHint" class="hidden" style="margin-top: 12px; padding: 10px 12px; background: rgba(251, 191, 36, 0.08); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 8px; font-size: 12px; color: var(--text-2); line-height: 1.5;">
+              <strong style="color: var(--yellow);">⚡ Both setups fully cover the peak window.</strong> Adding more battery capacity won't increase arbitrage savings under this load. Try a heavier load (heat pump, EV, higher kWh/day) to see the difference.
+            </div>
           </div>
+        </div>
+
+        <div id="heroLabel" class="hidden" style="font-size:11px; color:var(--text-4); text-transform:uppercase; letter-spacing:0.08em; font-weight:600; margin-bottom:10px;">
+          Hero stats · <span style="color: var(--yellow);">Setup B (Proposed)</span> · switch tabs to edit either setup
         </div>
 
         <div class="results-hero">
@@ -1219,6 +1241,7 @@ function setMode(m) {
   document.getElementById('chartTitle').textContent = m === 'arbitrage' ? '24-Hour Battery Behavior' : 'Battery State of Charge · Outage Day';
   document.getElementById('chartSub').textContent = m === 'arbitrage' ? 'SOC, load, and solar over the day' : 'How long battery sustains critical vs whole-house loads';
   document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || m !== 'arbitrage');
+  document.getElementById('heroLabel').classList.toggle('hidden', !STATE.compare || m !== 'arbitrage');
   pauseAnim();
   render();
 }
@@ -1228,6 +1251,7 @@ function toggleCompare() {
   document.getElementById('compareBtn').classList.toggle('active', STATE.compare);
   document.getElementById('setupTabs').classList.toggle('on', STATE.compare);
   document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || STATE.mode !== 'arbitrage');
+  document.getElementById('heroLabel').classList.toggle('hidden', !STATE.compare || STATE.mode !== 'arbitrage');
   if (!STATE.compare) STATE.activeSetup = 'B';
   refreshControls();
   render();
@@ -1237,6 +1261,7 @@ function setActiveSetup(which) {
   STATE.activeSetup = which;
   document.querySelectorAll('.setup-tab').forEach(t => t.classList.toggle('active', t.dataset.setup === which));
   refreshControls();
+  render();
 }
 
 function refreshControls() {
@@ -1693,7 +1718,7 @@ function updateLiveStats() {
 
 // ===================== RENDER =====================
 function renderSpecs() {
-  const s = setupB();
+  const s = activeSetup();
   const spec = batterySpecs(s);
   document.getElementById('specTotal').innerHTML = `${spec.total.toFixed(1)} <span class="spec-unit">kWh</span>`;
   document.getElementById('specUsable').innerHTML = `${spec.usable.toFixed(1)} <span class="spec-unit">kWh</span>`;
@@ -1729,6 +1754,51 @@ function renderSpecs() {
     annualKwh = s.daily * 365;
   }
   document.getElementById('annualUsage').textContent = Math.round(annualKwh).toLocaleString() + ' kWh/yr';
+
+  // Peak Coverage indicator (based on ACTIVE setup, not just B)
+  const active = activeSetup();
+  const activeSpec = batterySpecs(active);
+  const activeLoad = getLoadProfile(active);
+  const activeSolar = getSolarProfile(active);
+  const win = getPeakWindow();
+  const peakHrs = peakHoursInWindow(win.start, win.end);
+  // Net peak demand = load minus solar during peak (battery only needs to cover what's left)
+  let peakDemand = 0;
+  for (const h of peakHrs) peakDemand += Math.max(0, activeLoad[h] - activeSolar[h]);
+  let coveragePct = 0;
+  let hint = '';
+  let barColor = 'var(--yellow)';
+  if (!active.hasBatt) {
+    document.getElementById('coverageLabel').textContent = 'No battery';
+    document.getElementById('coverageLabel').style.color = 'var(--text-4)';
+    document.getElementById('coverageBar').style.width = '0%';
+    hint = 'Enable battery to see peak coverage';
+  } else if (peakDemand <= 0) {
+    document.getElementById('coverageLabel').textContent = '—';
+    document.getElementById('coverageLabel').style.color = 'var(--text-4)';
+    document.getElementById('coverageBar').style.width = '0%';
+    hint = 'No peak-window demand to cover';
+  } else {
+    coveragePct = Math.min(100, (activeSpec.usable / peakDemand) * 100);
+    const showPct = coveragePct.toFixed(0);
+    document.getElementById('coverageLabel').textContent = `${showPct}% of ${peakDemand.toFixed(1)} kWh`;
+    if (coveragePct >= 100) {
+      barColor = 'var(--green)';
+      document.getElementById('coverageLabel').style.color = 'var(--green)';
+      hint = `${activeSpec.usable.toFixed(1)} kWh covers full peak — more batteries won't add savings`;
+    } else if (coveragePct >= 70) {
+      barColor = 'var(--yellow)';
+      document.getElementById('coverageLabel').style.color = 'var(--yellow)';
+      hint = `${activeSpec.usable.toFixed(1)} kWh covers most of peak — slight room for more`;
+    } else {
+      barColor = 'var(--orange)';
+      document.getElementById('coverageLabel').style.color = 'var(--orange)';
+      hint = `${activeSpec.usable.toFixed(1)} kWh undersized — adding batteries will raise savings`;
+    }
+    document.getElementById('coverageBar').style.width = coveragePct + '%';
+    document.getElementById('coverageBar').style.background = barColor;
+  }
+  document.getElementById('coverageHint').textContent = hint;
 }
 
 function renderArbitrage() {
@@ -1746,6 +1816,33 @@ function renderArbitrage() {
     document.getElementById('cmpB').textContent = fmt$0(Math.max(0, rB.dailySave) * 365);
     const delta = (rB.dailySave - rA.dailySave) * 365;
     document.getElementById('cmpD').textContent = (delta >= 0 ? '+$' : '−$') + Math.abs(Math.round(delta)).toLocaleString();
+
+    // Per-setup spec lines so user can see what's actually different
+    const sA = setupA();
+    const summarizeSpec = (setup, result) => {
+      const specB = batterySpecs(setup);
+      const parts = [];
+      if (setup.hasBatt) parts.push(`${BRANDS[setup.brand].name} ×${setup.qty} · ${specB.usable.toFixed(1)} kWh`);
+      else parts.push('No battery');
+      if (setup.hasSolar) parts.push(`Solar ${setup.solarKw.toFixed(1)} kW`);
+      parts.push(`Shifted ${result.kwhShifted.toFixed(1)} kWh/day`);
+      return parts.join(' · ');
+    };
+    document.getElementById('cmpAspec').textContent = summarizeSpec(sA, rA);
+    document.getElementById('cmpBspec').textContent = summarizeSpec(sB, rB);
+
+    // Δ shifted kWh
+    const dShifted = rB.kwhShifted - rA.kwhShifted;
+    document.getElementById('cmpDspec').textContent = (dShifted >= 0 ? '+' : '') + dShifted.toFixed(1) + ' kWh/day shifted';
+
+    // Saturation hint: when both setups have battery, identical save, and both fully cover peak
+    const win = getPeakWindow();
+    const peakHrs = peakHoursInWindow(win.start, win.end);
+    const peakDemand = peakHrs.reduce((sum, h) => sum + Math.max(0, rB.load[h] - rB.solar[h]), 0);
+    const bothMaxed = sA.hasBatt && sB.hasBatt
+                     && rA.usable >= peakDemand && rB.usable >= peakDemand
+                     && Math.abs(rA.dailySave - rB.dailySave) < 0.01;
+    document.getElementById('compareSaturationHint').classList.toggle('hidden', !bothMaxed);
   }
 
   const win = getPeakWindow();
@@ -2152,6 +2249,7 @@ function applyLoadedStateToUI() {
   document.getElementById('compareBtn').classList.toggle('active', STATE.compare);
   document.getElementById('setupTabs').classList.toggle('on', STATE.compare);
   document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || STATE.mode !== 'arbitrage');
+  document.getElementById('heroLabel').classList.toggle('hidden', !STATE.compare || STATE.mode !== 'arbitrage');
   // Active setup tab highlight
   document.querySelectorAll('.setup-tab').forEach(t => t.classList.toggle('active', t.dataset.setup === STATE.activeSetup));
   // Rates

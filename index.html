@@ -2439,7 +2439,7 @@ function drawSolarChart(rB, rA) {
       type: 'line', label: 'Solar Production', data: rB.solar,
       borderColor: '#FBBF24', backgroundColor: 'rgba(251, 191, 36, 0.08)',
       borderWidth: 2.5, tension: 0.4, pointRadius: 0, pointHoverRadius: 4,
-      fill: false, yAxisID: 'y', order: 1,
+      fill: false, yAxisID: 'y2', order: 1,
     }
   ];
 
@@ -2448,13 +2448,29 @@ function drawSolarChart(rB, rA) {
       type: 'line', label: 'Setup A Production', data: rA.solar,
       borderColor: '#9CA3AF', backgroundColor: 'transparent',
       borderWidth: 2, borderDash: [5,5], tension: 0.4, pointRadius: 0,
-      fill: false, yAxisID: 'y', order: 1,
+      fill: false, yAxisID: 'y2', order: 1,
     });
   }
 
   const opts = chartOptions('kWh', null);
   opts.scales.x.stacked = true;
   opts.scales.y.stacked = true;
+  // Lines use a separate non-stacked axis matching the same range
+  const maxData = Math.max(
+    ...fromSolar.map((v, i) => v + fromGridLoad[i]),
+    ...rB.solar,
+    ...(rA ? rA.solar : [])
+  );
+  opts.scales.y2 = {
+    position: 'right',
+    display: false,
+    min: 0,
+    max: Math.ceil(maxData * 1.1),
+    stacked: false,
+    grid: { display: false },
+  };
+  opts.scales.y.min = 0;
+  opts.scales.y.max = Math.ceil(maxData * 1.1);
   opts.plugins.rivertownAnnotations = { peakHrs, animHour: STATE.animHour };
 
   chart = new Chart(ctx, { data: { labels, datasets }, options: opts });
@@ -2497,10 +2513,37 @@ function chartOptions(yLabel, y1Label) {
 
 // ===================== URL STATE =====================
 function packSetup(s) {
-  return { hb: s.hasBatt?1:0, br: s.brand, q: s.qty, hs: s.hasSolar?1:0, sk: s.solarKw, ss: s.solarShade || 0, sa: s.solarAdjust || 0, sr: s.src, d: s.daily, h: s.home, se: s.season };
+  const base = { hb: s.hasBatt?1:0, br: s.brand, q: s.qty, hs: s.hasSolar?1:0, sk: s.solarKw, ss: s.solarShade || 0, sa: s.solarAdjust || 0, sr: s.src, d: s.daily, h: s.home, se: s.season };
+  // Include CSV hourly profile (rounded to 2 decimals to save bytes) + key meta
+  if (s.src === 'csv' && s.csvProfile && s.csvMeta) {
+    base.cp = s.csvProfile.map(v => Math.round(v * 100) / 100);
+    base.cm = {
+      r: s.csvMeta.range || '',
+      i: s.csvMeta.intervals || '',
+      t: Math.round(s.csvMeta.total || 0),
+      da: Math.round((s.csvMeta.dailyAvg || 0) * 10) / 10,
+      an: Math.round(s.csvMeta.annual || 0),
+      d: s.csvMeta.days || 0,
+    };
+  }
+  return base;
 }
 function unpackSetup(p) {
-  return { hasBatt: !!p.hb, brand: p.br || 'eg4', qty: p.q || 2, hasSolar: !!p.hs, solarKw: p.sk || 8.0, solarShade: p.ss || 0, solarAdjust: p.sa || 0, src: p.sr || 'preset', daily: p.d || 30, home: p.h || 'gas', season: p.se || 'summer', csvProfile: null, csvMeta: null };
+  const out = { hasBatt: !!p.hb, brand: p.br || 'eg4', qty: p.q || 2, hasSolar: !!p.hs, solarKw: p.sk || 8.0, solarShade: p.ss || 0, solarAdjust: p.sa || 0, src: p.sr || 'preset', daily: p.d || 30, home: p.h || 'gas', season: p.se || 'summer', csvProfile: null, csvMeta: null };
+  if (p.cp && Array.isArray(p.cp) && p.cp.length === 24 && p.cm) {
+    out.csvProfile = p.cp;
+    out.csvMeta = {
+      range: p.cm.r || 'Shared data',
+      intervals: p.cm.i || 'Shared',
+      total: p.cm.t || 0,
+      dailyAvg: p.cm.da || 0,
+      annual: p.cm.an || 0,
+      days: p.cm.d || 0,
+      rowCount: 24,
+      label: `Shared · ${p.cm.da || 0} kWh/day · ${(p.cm.an || 0).toLocaleString()} kWh/yr`,
+    };
+  }
+  return out;
 }
 function serializeState() {
   const pack = {
@@ -2512,7 +2555,7 @@ function serializeState() {
     A: packSetup(STATE.setupA),
     B: packSetup(STATE.setupB),
   };
-  return btoa(JSON.stringify(pack));
+  return btoa(unescape(encodeURIComponent(JSON.stringify(pack))));
 }
 function restoreState() {
   const hash = window.location.hash;
@@ -2520,7 +2563,15 @@ function restoreState() {
   try {
     const m = hash.match(/^#c=(.+)$/);
     if (!m) return;
-    const data = JSON.parse(atob(m[1]));
+    let decoded;
+    try {
+      // New format: UTF-8 safe
+      decoded = decodeURIComponent(escape(atob(m[1])));
+    } catch (e) {
+      // Fallback: old format
+      decoded = atob(m[1]);
+    }
+    const data = JSON.parse(decoded);
     STATE.mode = data.m === 'a' ? 'arbitrage' : data.m === 's' ? 'solar' : 'backup';
     STATE.compare = !!data.c;
     STATE.peakRate = data.pr ?? 0.42;
@@ -2549,11 +2600,20 @@ function restoreState() {
 
 function copyShareLink() {
   const url = window.location.origin + window.location.pathname + '#c=' + serializeState();
+  // Detect if CSV is included in either setup
+  const hasCsv = (STATE.setupA.src === 'csv' && STATE.setupA.csvProfile)
+              || (STATE.setupB.src === 'csv' && STATE.setupB.csvProfile);
+  // Warn if URL is getting close to browser limits (~8KB safe, 32KB max)
+  if (url.length > 8000) {
+    console.warn(`Share URL is ${url.length} chars — may be truncated by some apps. Consider clearing CSV data.`);
+  }
   const finish = () => {
     const t = document.getElementById('toast');
-    t.textContent = 'Link copied · pre-loads this exact setup';
+    t.textContent = hasCsv
+      ? `Link copied · includes CSV usage data (${(url.length / 1024).toFixed(1)} KB)`
+      : 'Link copied · pre-loads this exact setup';
     t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 2200);
+    setTimeout(() => t.classList.remove('show'), 2600);
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(finish).catch(() => prompt('Copy this link:', url));

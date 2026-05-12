@@ -992,6 +992,12 @@
         </div>
 
         <div class="field">
+          <div class="field-label">Basic Service Charge <span class="field-value mono">$/month</span></div>
+          <input type="number" class="num-input mono" id="basicCharge" value="22" step="0.01" min="0" max="100" />
+          <div style="font-size: 11px; color: var(--text-4); margin-top: 4px;">Con Ed default ~$22/mo · always paid, even with 100% offset</div>
+        </div>
+
+        <div class="field">
           <div class="field-label">Peak Window</div>
           <div class="window-display" id="windowDisplay">2 PM – 10 PM</div>
           <div class="seg" id="windowSeg">
@@ -1261,7 +1267,7 @@ const STATE = {
   activeSetup: 'B',
   setupA: defaultSetup(),
   setupB: defaultSetup(),
-  peakRate: 0.42, offRate: 0.10,
+  peakRate: 0.42, offRate: 0.10, basicCharge: 22,
   winType: 'long', winStart: 14, winEnd: 22,
   crit: {
     fridge: true, internet: true, lights: true, devices: true,
@@ -1780,6 +1786,7 @@ function setupEvents() {
   });
   document.getElementById('peakRate').oninput = (e) => { STATE.peakRate = parseFloat(e.target.value) || 0; render(); };
   document.getElementById('offRate').oninput  = (e) => { STATE.offRate = parseFloat(e.target.value) || 0; render(); };
+  document.getElementById('basicCharge').oninput = (e) => { STATE.basicCharge = parseFloat(e.target.value) || 0; render(); };
   document.querySelectorAll('#windowSeg .seg-btn').forEach(b => b.onclick = () => {
     document.querySelectorAll('#windowSeg .seg-btn').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
@@ -2447,8 +2454,9 @@ function renderSolar() {
     </div>
     <div class="bd-card" style="background:linear-gradient(135deg, rgba(20, 184, 166, 0.10), transparent); border-color:rgba(20, 184, 166, 0.3);">
       <div class="bd-title" style="color:var(--teal);">Net Annual Outcome</div>
-      <div class="bd-line"><span class="bd-line-key">Cost without solar</span><span class="bd-line-val" style="color:var(--red)">${fmt$0(rB.baseline * 365)}</span></div>
-      <div class="bd-line"><span class="bd-line-key">Cost with solar</span><span class="bd-line-val" style="color:var(--green)">${fmt$0(rB.netDailyCost * 365)}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Cost without solar</span><span class="bd-line-val" style="color:var(--red)">${fmt$0(rB.baseline * 365 + STATE.basicCharge * 12)}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Cost with solar</span><span class="bd-line-val" style="color:var(--green)">${fmt$0(rB.netDailyCost * 365 + STATE.basicCharge * 12)}</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="font-size:11px;color:var(--text-4);">Includes ${fmt$0(STATE.basicCharge * 12)}/yr basic service charge</span><span class="bd-line-val"></span></div>
       <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Annual savings</span><span class="bd-line-val" style="color:var(--yellow);font-weight:700;">${fmt$0(Math.max(0, rB.annualSave))}</span></div>
     </div>
   `;

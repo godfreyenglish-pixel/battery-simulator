@@ -1083,28 +1083,28 @@
         <!-- ROI panel for Arbitrage -->
         <div id="roiPanelArb" class="roi-panel hidden">
           <div class="roi-header">
-            <span class="roi-title">System Economics · with 5% utility escalator</span>
+            <span class="roi-title">System Economics · 5% utility escalator</span>
             <span class="roi-config" id="roiArbConfig">—</span>
           </div>
           <div class="roi-grid">
             <div class="roi-cell">
               <div class="roi-label">System Cost</div>
-              <div class="roi-value mono" id="roiArbGross">$0</div>
-            </div>
-            <div class="roi-cell">
-              <div class="roi-label">NYSERDA Incentive</div>
-              <div class="roi-value mono" id="roiArbIncentive" style="color: var(--teal);">−$0</div>
-            </div>
-            <div class="roi-cell">
-              <div class="roi-label">Net Cost</div>
               <div class="roi-value mono" id="roiArbNet" style="color: var(--yellow);">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">Yr 1 Savings</div>
+              <div class="roi-value mono" id="roiArbY1">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">Yr 25 Savings</div>
+              <div class="roi-value mono" id="roiArbY25">$0</div>
             </div>
             <div class="roi-cell">
               <div class="roi-label">Payback</div>
               <div class="roi-value mono" id="roiArbPayback">— yrs</div>
             </div>
             <div class="roi-cell" style="border-left: 1px solid var(--border); padding-left: 14px;">
-              <div class="roi-label">25-Yr Savings</div>
+              <div class="roi-label">25-Yr Total Savings</div>
               <div class="roi-value mono" id="roiArbLifetime" style="color: var(--green);">$0</div>
             </div>
           </div>
@@ -1165,7 +1165,7 @@
         <!-- ROI panel for Solar Only -->
         <div class="roi-panel">
           <div class="roi-header">
-            <span class="roi-title">System Economics · $3.75/W · 5% utility escalator · 0.5%/yr panel degradation</span>
+            <span class="roi-title">System Economics · 5% utility escalator</span>
             <span class="roi-config" id="roiSolConfig">—</span>
           </div>
           <div class="roi-grid">
@@ -2236,10 +2236,11 @@ function renderArbitrage() {
     roiPanel.classList.remove('hidden');
     const payback = paybackYears(costB.net, annualSaveB);
     const lifetime = lifetimeSavings(annualSaveB);
-    document.getElementById('roiArbConfig').textContent = `${BRANDS[sB.brand].name} ×${sB.qty} · ${costB.totalKwh.toFixed(1)} kWh @ $${costB.perKwh}/kWh`;
-    document.getElementById('roiArbGross').textContent = fmt$0(costB.gross);
-    document.getElementById('roiArbIncentive').textContent = '−' + fmt$0(costB.incentive);
+    const y25 = annualSaveB * Math.pow(1 + UTILITY_ESCALATOR, 24);
+    document.getElementById('roiArbConfig').textContent = `${BRANDS[sB.brand].name} ×${sB.qty} · ${costB.totalKwh.toFixed(1)} kWh usable storage`;
     document.getElementById('roiArbNet').textContent = fmt$0(costB.net);
+    document.getElementById('roiArbY1').textContent = fmt$0(annualSaveB);
+    document.getElementById('roiArbY25').textContent = fmt$0(y25);
     document.getElementById('roiArbPayback').textContent = isFinite(payback) ? payback.toFixed(1) + ' yrs' : '— yrs';
     document.getElementById('roiArbLifetime').textContent = fmt$0(lifetime);
   } else {
@@ -2393,7 +2394,7 @@ function renderSolar() {
   const lifetimeSol = lifetimeSavings(annualSaveSol, { degradation: PANEL_DEGRADATION });
   const paybackSol = paybackYears(costSol, annualSaveSol, { degradation: PANEL_DEGRADATION });
   const y25Save = annualSaveSol * Math.pow(1 + UTILITY_ESCALATOR, 24) * Math.pow(1 - PANEL_DEGRADATION, 24);
-  document.getElementById('roiSolConfig').textContent = `${sB.solarKw.toFixed(1)} kW DC × $${SOLAR_PRICE_PER_WATT.toFixed(2)}/W`;
+  document.getElementById('roiSolConfig').textContent = `${sB.solarKw.toFixed(1)} kW DC`;
   document.getElementById('roiSolGross').textContent = fmt$0(costSol);
   document.getElementById('roiSolY1').textContent = fmt$0(annualSaveSol);
   document.getElementById('roiSolY25').textContent = fmt$0(y25Save);

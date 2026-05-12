@@ -145,7 +145,60 @@
     transition: opacity 0.2s, transform 0.2s; z-index: 200;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
-  /* === END NEW V2 STYLES === */
+  /* === ROI PANEL === */
+  .roi-panel {
+    margin-top: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .roi-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .roi-title {
+    font-size: 11px;
+    color: var(--text-4);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+  }
+  .roi-config {
+    font-size: 12px;
+    color: var(--text-3);
+    font-family: 'Geist Mono', monospace;
+  }
+  .roi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 14px;
+  }
+  .roi-cell { display: flex; flex-direction: column; gap: 3px; }
+  .roi-label {
+    font-size: 10px;
+    color: var(--text-4);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+  }
+  .roi-value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+  @media (max-width: 700px) {
+    .roi-grid { grid-template-columns: 1fr 1fr; }
+    .roi-cell { padding: 0 !important; border-left: none !important; }
+  }
+  /* === END ROI PANEL === */
   /* === SETUP TABS V2 === */
   .setup-tabs-v2 {
     margin-bottom: 14px;
@@ -1026,6 +1079,36 @@
             <div class="result-sub">of usable cap per cycle</div>
           </div>
         </div>
+
+        <!-- ROI panel for Arbitrage -->
+        <div id="roiPanelArb" class="roi-panel hidden">
+          <div class="roi-header">
+            <span class="roi-title">System Economics · with 5% utility escalator</span>
+            <span class="roi-config" id="roiArbConfig">—</span>
+          </div>
+          <div class="roi-grid">
+            <div class="roi-cell">
+              <div class="roi-label">System Cost</div>
+              <div class="roi-value mono" id="roiArbGross">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">NYSERDA Incentive</div>
+              <div class="roi-value mono" id="roiArbIncentive" style="color: var(--teal);">−$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">Net Cost</div>
+              <div class="roi-value mono" id="roiArbNet" style="color: var(--yellow);">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">Payback</div>
+              <div class="roi-value mono" id="roiArbPayback">— yrs</div>
+            </div>
+            <div class="roi-cell" style="border-left: 1px solid var(--border); padding-left: 14px;">
+              <div class="roi-label">25-Yr Savings</div>
+              <div class="roi-value mono" id="roiArbLifetime" style="color: var(--green);">$0</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Backup results -->
@@ -1063,9 +1146,9 @@
             <div class="result-sub" id="solRProdSub">after shade & adjustment</div>
           </div>
           <div class="result-tile hero">
-            <div class="result-label">Annual Savings</div>
+            <div class="result-label">Year 1 Savings</div>
             <div class="result-value mono" id="solRSavings">$0</div>
-            <div class="result-sub">vs no-solar baseline</div>
+            <div class="result-sub">grows 5% / yr with rate escalator</div>
           </div>
           <div class="result-tile">
             <div class="result-label">Home Offset</div>
@@ -1076,6 +1159,36 @@
             <div class="result-label">Excess to Grid</div>
             <div class="result-value mono" id="solRExport">0 kWh</div>
             <div class="result-sub">net metering credit</div>
+          </div>
+        </div>
+
+        <!-- ROI panel for Solar Only -->
+        <div class="roi-panel">
+          <div class="roi-header">
+            <span class="roi-title">System Economics · $3.75/W · 5% utility escalator · 0.5%/yr panel degradation</span>
+            <span class="roi-config" id="roiSolConfig">—</span>
+          </div>
+          <div class="roi-grid">
+            <div class="roi-cell">
+              <div class="roi-label">System Cost</div>
+              <div class="roi-value mono" id="roiSolGross">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">Yr 1 Savings</div>
+              <div class="roi-value mono" id="roiSolY1">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">Yr 25 Savings</div>
+              <div class="roi-value mono" id="roiSolY25">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">Payback</div>
+              <div class="roi-value mono" id="roiSolPayback">— yrs</div>
+            </div>
+            <div class="roi-cell" style="border-left: 1px solid var(--border); padding-left: 14px;">
+              <div class="roi-label">25-Yr Total Savings</div>
+              <div class="roi-value mono" id="roiSolLifetime" style="color: var(--green);">$0</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1163,6 +1276,71 @@ const BRANDS = {
   lg:    { name: 'LG RESU16H', kwh: 16,    contKw: 7,  dod: 0.80, maxQty: 2 },
   solis: { name: 'Solis 5.12', kwh: 5.12,  contKw: 5,  dod: 0.80, maxQty: 4 },
 };
+
+// ===================== PRICING & ROI =====================
+const SOLAR_PRICE_PER_WATT = 3.75;          // $/W gross system cost
+const UTILITY_ESCALATOR = 0.05;             // 5% annual utility rate increase
+const LIFETIME_YEARS = 25;                  // standard solar/battery lifetime
+const PANEL_DEGRADATION = 0.005;            // 0.5%/yr solar panel output decline
+
+// Battery pricing — EG4 figures match user's exact numbers (per kWh × kWh + $5k CLP+commission)
+// LG/Solis: $925/$635 per kWh + $3k base adder + $5k CLP+commission, per project knowledge
+const BATT_ADDER = 5000;                    // CLP $3k + commission $2k (baked into all configs)
+const BATT_BRAND_ADDER = { eg4: 0, lg: 3000, solis: 3000 };
+const BATT_PER_KWH = {
+  eg4:   { 1: 1000, 2: 705, 3: 610 },
+  lg:    { 1: 925,  2: 635 },
+  solis: { 1: 925,  2: 635, 3: 635, 4: 635 },
+};
+const NYSERDA = { 1: 4000, 2: 6250 };       // 2+ batteries cap at $6,250
+
+function solarSystemCost(s) {
+  return s.solarKw * 1000 * SOLAR_PRICE_PER_WATT;
+}
+
+function batterySystemCost(s) {
+  if (!s.hasBatt) return { gross: 0, incentive: 0, net: 0 };
+  const brand = BRANDS[s.brand];
+  const qty = s.qty;
+  const totalKwh = brand.kwh * qty;
+  const perKwh = (BATT_PER_KWH[s.brand] && BATT_PER_KWH[s.brand][qty]) || BATT_PER_KWH.eg4[1];
+  const gross = totalKwh * perKwh + (BATT_BRAND_ADDER[s.brand] || 0) + BATT_ADDER;
+  const incentive = qty >= 2 ? NYSERDA[2] : NYSERDA[1];
+  return { gross, incentive, net: Math.max(0, gross - incentive), totalKwh, perKwh };
+}
+
+// 25-year compounded savings with utility escalator
+// Solar systems also experience panel degradation (production drops ~0.5%/yr)
+function lifetimeSavings(annualSave, opts = {}) {
+  const years = opts.years || LIFETIME_YEARS;
+  const escalator = opts.escalator ?? UTILITY_ESCALATOR;
+  const degradation = opts.degradation || 0;
+  let total = 0;
+  for (let y = 0; y < years; y++) {
+    const escFactor = Math.pow(1 + escalator, y);
+    const degFactor = Math.pow(1 - degradation, y);
+    total += annualSave * escFactor * degFactor;
+  }
+  return total;
+}
+
+// Payback in years using compounding annual savings (and degradation if applicable)
+function paybackYears(netCost, annualSave, opts = {}) {
+  if (annualSave <= 0 || netCost <= 0) return Infinity;
+  const escalator = opts.escalator ?? UTILITY_ESCALATOR;
+  const degradation = opts.degradation || 0;
+  let cumulative = 0;
+  for (let y = 0; y < 50; y++) {
+    const yearSave = annualSave * Math.pow(1 + escalator, y) * Math.pow(1 - degradation, y);
+    if (cumulative + yearSave >= netCost) {
+      const fractional = (netCost - cumulative) / yearSave;
+      return y + fractional;
+    }
+    cumulative += yearSave;
+  }
+  return Infinity;
+}
+
 const CRIT_LOADS = {
   fridge:     { name: 'Refrigerator',         watts: 150,  duty: 0.40 },
   internet:   { name: 'Internet / WiFi',       watts: 50,   duty: 1.00 },
@@ -2050,6 +2228,24 @@ function renderArbitrage() {
   document.getElementById('rKwhAvoided').textContent = fmtKwh(rB.kwhShifted) + ' kWh';
   document.getElementById('rUtil').textContent = Math.min(100, Math.max(0, rB.util)).toFixed(0) + '%';
 
+  // ===== ROI panel for Arbitrage =====
+  const annualSaveB = Math.max(0, rB.dailySave) * 365;
+  const costB = batterySystemCost(sB);
+  const roiPanel = document.getElementById('roiPanelArb');
+  if (sB.hasBatt && costB.gross > 0) {
+    roiPanel.classList.remove('hidden');
+    const payback = paybackYears(costB.net, annualSaveB);
+    const lifetime = lifetimeSavings(annualSaveB);
+    document.getElementById('roiArbConfig').textContent = `${BRANDS[sB.brand].name} ×${sB.qty} · ${costB.totalKwh.toFixed(1)} kWh @ $${costB.perKwh}/kWh`;
+    document.getElementById('roiArbGross').textContent = fmt$0(costB.gross);
+    document.getElementById('roiArbIncentive').textContent = '−' + fmt$0(costB.incentive);
+    document.getElementById('roiArbNet').textContent = fmt$0(costB.net);
+    document.getElementById('roiArbPayback').textContent = isFinite(payback) ? payback.toFixed(1) + ' yrs' : '— yrs';
+    document.getElementById('roiArbLifetime').textContent = fmt$0(lifetime);
+  } else {
+    roiPanel.classList.add('hidden');
+  }
+
   let rA = null;
   if (STATE.compare) {
     rA = simulateArbitrage(setupA());
@@ -2062,8 +2258,9 @@ function renderArbitrage() {
     const sA = setupA();
     const summarizeSpec = (setup, result) => {
       const specB = batterySpecs(setup);
+      const cost = batterySystemCost(setup);
       const parts = [];
-      if (setup.hasBatt) parts.push(`${BRANDS[setup.brand].name} ×${setup.qty} · ${specB.usable.toFixed(1)} kWh`);
+      if (setup.hasBatt) parts.push(`${BRANDS[setup.brand].name} ×${setup.qty} · ${specB.usable.toFixed(1)} kWh · net ${fmt$0(cost.net)}`);
       else parts.push('No battery');
       if (setup.hasSolar) parts.push(`Solar ${setup.solarKw.toFixed(1)} kW`);
       parts.push(`Shifted ${result.kwhShifted.toFixed(1)} kWh/day`);
@@ -2190,6 +2387,19 @@ function renderSolar() {
   document.getElementById('solRProdSub').textContent = `${sB.solarKw.toFixed(1)} kW DC${shadeNote}${adjNote}`;
   document.getElementById('solROffsetSub').textContent = `${Math.round(rB.annualLoad).toLocaleString()} kWh/yr home use`;
 
+  // ===== ROI panel for Solar Only =====
+  const costSol = solarSystemCost(sB);
+  const annualSaveSol = Math.max(0, rB.annualSave);
+  const lifetimeSol = lifetimeSavings(annualSaveSol, { degradation: PANEL_DEGRADATION });
+  const paybackSol = paybackYears(costSol, annualSaveSol, { degradation: PANEL_DEGRADATION });
+  const y25Save = annualSaveSol * Math.pow(1 + UTILITY_ESCALATOR, 24) * Math.pow(1 - PANEL_DEGRADATION, 24);
+  document.getElementById('roiSolConfig').textContent = `${sB.solarKw.toFixed(1)} kW DC × $${SOLAR_PRICE_PER_WATT.toFixed(2)}/W`;
+  document.getElementById('roiSolGross').textContent = fmt$0(costSol);
+  document.getElementById('roiSolY1').textContent = fmt$0(annualSaveSol);
+  document.getElementById('roiSolY25').textContent = fmt$0(y25Save);
+  document.getElementById('roiSolPayback').textContent = isFinite(paybackSol) ? paybackSol.toFixed(1) + ' yrs' : '— yrs';
+  document.getElementById('roiSolLifetime').textContent = fmt$0(lifetimeSol);
+
   // Compare mode populates A vs B annual savings
   let rA = null;
   if (STATE.compare) {
@@ -2201,7 +2411,8 @@ function renderSolar() {
     const sA = setupA();
     const summarizeSolar = (setup, result) => {
       if (!setup.hasSolar && STATE.mode !== 'solar') return 'No solar';
-      const parts = [`${setup.solarKw.toFixed(1)} kW DC`];
+      const cost = solarSystemCost(setup);
+      const parts = [`${setup.solarKw.toFixed(1)} kW DC · ${fmt$0(cost)}`];
       if ((setup.solarShade || 0) > 0) parts.push(`${setup.solarShade}% shade`);
       if ((setup.solarAdjust || 0) !== 0) parts.push(`${(setup.solarAdjust >= 0 ? '+' : '') + setup.solarAdjust}% adj`);
       parts.push(`${Math.round(result.annualProd).toLocaleString()} kWh/yr`);

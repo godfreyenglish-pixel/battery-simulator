@@ -153,6 +153,11 @@
     border-radius: 12px;
     padding: 14px 16px;
   }
+  .roi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 14px;
+  }
   .roi-header {
     display: flex;
     justify-content: space-between;
@@ -169,16 +174,12 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     font-weight: 600;
+    transition: color 0.15s;
   }
   .roi-config {
     font-size: 12px;
     color: var(--text-3);
     font-family: 'Geist Mono', monospace;
-  }
-  .roi-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-    gap: 14px;
   }
   .roi-cell { display: flex; flex-direction: column; gap: 3px; }
   .roi-label {
@@ -194,6 +195,7 @@
     color: var(--text);
     letter-spacing: -0.01em;
   }
+  /* Removed half-built collapse feature */
   @media (max-width: 700px) {
     .roi-grid { grid-template-columns: 1fr 1fr; }
     .roi-cell { padding: 0 !important; border-left: none !important; }
@@ -979,16 +981,27 @@
 
       <!-- Arbitrage-only: Rates -->
       <div class="card" id="rateCard">
-        <div class="card-title"><span class="card-title-bar"></span>TOU Rate Plan</div>
+        <div class="card-title"><span class="card-title-bar"></span>Rate III TOU (Voluntary Plan)</div>
 
         <div class="field">
-          <div class="field-label">Peak Rate <span class="field-value mono">$/kWh</span></div>
-          <input type="number" class="num-input mono" id="peakRate" value="0.42" step="0.01" min="0.10" max="1.00" />
+          <div class="field-label">Summer Peak Rate <span class="field-value mono">$/kWh · Jun–Sep · 8 AM–midnight</span></div>
+          <input type="number" class="num-input mono" id="peakRate" value="0.38" step="0.01" min="0.10" max="1.00" />
         </div>
 
         <div class="field">
-          <div class="field-label">Off-Peak Rate <span class="field-value mono">$/kWh</span></div>
-          <input type="number" class="num-input mono" id="offRate" value="0.10" step="0.01" min="0.03" max="0.40" />
+          <div class="field-label">Winter Peak Rate <span class="field-value mono">$/kWh · Oct–May · 8 AM–midnight</span></div>
+          <input type="number" class="num-input mono" id="winterPeakRate" value="0.17" step="0.01" min="0.05" max="1.00" />
+        </div>
+
+        <div class="field">
+          <div class="field-label">Off-Peak Rate <span class="field-value mono">$/kWh · midnight–8 AM year-round</span></div>
+          <input type="number" class="num-input mono" id="offRate" value="0.05" step="0.01" min="0.03" max="0.40" />
+        </div>
+
+        <div class="field">
+          <div class="field-label">EL1 Standard Rate (current bill) <span class="field-value mono">$/kWh</span></div>
+          <input type="number" class="num-input mono" id="el1Rate" value="0.38" step="0.01" min="0.10" max="1.00" />
+          <div style="font-size: 11px; color: var(--text-4); margin-top: 4px;">What the homeowner pays today on Con Ed's flat residential rate · Westchester all-in ≈ $0.38/kWh · battery only saves $ after switching to Rate III TOU</div>
         </div>
 
         <div class="field">
@@ -998,7 +1011,13 @@
         </div>
 
         <div class="field">
-          <div class="field-label">Peak Window</div>
+          <div class="field-label">Solar Export Credit <span class="field-value mono">$/kWh</span></div>
+          <input type="number" class="num-input mono" id="exportRate" value="0.16" step="0.01" min="0.05" max="0.50" />
+          <div style="font-size: 11px; color: var(--text-4); margin-top: 4px;">VDER value-stack credit · Con Ed Zone H ≈ $0.16/kWh</div>
+        </div>
+
+        <div class="field">
+          <div class="field-label">Battery Discharge Window</div>
           <div class="window-display" id="windowDisplay">2 PM – 10 PM</div>
           <div class="seg" id="windowSeg">
             <button class="seg-btn active" data-win="long">2–10 PM</button>
@@ -1012,6 +1031,7 @@
               <input type="number" class="num-input mono grow" id="winEnd" value="22" min="1" max="24" />
             </div>
           </div>
+          <div style="font-size: 11px; color: var(--text-4); margin-top: 6px;">Rate III peak rate applies 8 AM – midnight regardless. Pick when the battery dispatches within that window.</div>
         </div>
       </div>
 
@@ -1067,12 +1087,12 @@
           <div class="result-tile hero">
             <div class="result-label">Daily Savings</div>
             <div class="result-value mono" id="rDailySave">$0.00</div>
-            <div class="result-sub">peak load shifted to battery</div>
+            <div class="result-sub">EL1 daily cost − Rate III daily cost</div>
           </div>
           <div class="result-tile hero">
-            <div class="result-label">Annual Savings</div>
+            <div class="result-label">Annual Savings (Switch + Battery)</div>
             <div class="result-value mono" id="rAnnualSave">$0</div>
-            <div class="result-sub">at current rates</div>
+            <div class="result-sub">EL1 annual bill minus Rate III with battery</div>
           </div>
           <div class="result-tile">
             <div class="result-label">Peak kWh Avoided</div>
@@ -1169,15 +1189,23 @@
         </div>
 
         <!-- ROI panel for Solar Only -->
-        <div class="roi-panel">
+        <div class="roi-panel" id="roiPanelSol">
           <div class="roi-header">
             <span class="roi-title">System Economics · 5% utility escalator</span>
             <span class="roi-config" id="roiSolConfig">—</span>
           </div>
           <div class="roi-grid">
             <div class="roi-cell">
-              <div class="roi-label">System Cost</div>
-              <div class="roi-value mono" id="roiSolGross">$0</div>
+              <div class="roi-label">Gross Cost</div>
+              <div class="roi-value mono" id="roiSolGrossCost">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">NY State Credit</div>
+              <div class="roi-value mono" id="roiSolStateCredit" style="color: var(--teal);">−$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">Net Cost</div>
+              <div class="roi-value mono" id="roiSolGross" style="color: var(--yellow);">$0</div>
             </div>
             <div class="roi-cell">
               <div class="roi-label">Yr 1 Savings</div>
@@ -1267,7 +1295,7 @@ const STATE = {
   activeSetup: 'B',
   setupA: defaultSetup(),
   setupB: defaultSetup(),
-  peakRate: 0.42, offRate: 0.10, basicCharge: 22,
+  peakRate: 0.38, offRate: 0.05, winterPeakRate: 0.17, basicCharge: 22, exportRate: 0.16, el1Rate: 0.38,
   winType: 'long', winStart: 14, winEnd: 22,
   crit: {
     fridge: true, internet: true, lights: true, devices: true,
@@ -1288,6 +1316,9 @@ const SOLAR_PRICE_PER_WATT = 3.75;          // $/W gross system cost
 const UTILITY_ESCALATOR = 0.05;             // 5% annual utility rate increase
 const LIFETIME_YEARS = 25;                  // standard solar/battery lifetime
 const PANEL_DEGRADATION = 0.005;            // 0.5%/yr solar panel output decline
+const BATTERY_RTE = 0.90;                   // round-trip efficiency (EG4/LG ~ 90%)
+const NY_SOLAR_CREDIT_PCT = 0.25;           // NY state solar credit: 25% of system cost
+const NY_SOLAR_CREDIT_CAP = 5000;           // ...capped at $5,000 lifetime per residence
 
 // Battery pricing — EG4 figures match user's exact numbers (per kWh × kWh + $5k CLP+commission)
 // LG/Solis: $925/$635 per kWh + $3k base adder + $5k CLP+commission, per project knowledge
@@ -1299,9 +1330,16 @@ const BATT_PER_KWH = {
   solis: { 1: 925,  2: 635, 3: 635, 4: 635 },
 };
 const NYSERDA = { 1: 4000, 2: 6250 };       // 2+ batteries cap at $6,250
+// TOU schedule weighting (Con Ed peak rates apply Jun-Sep weekdays = ~88 days/yr)
+// Seasonal day counts: Con Ed summer peak rate applies Jun-Sep (122 days)
+// Winter peak rate (lower) applies Oct-May (243 days). Total = 365.
+const SUMMER_DAYS = 122;
+const WINTER_DAYS = 243;
 
 function solarSystemCost(s) {
-  return s.solarKw * 1000 * SOLAR_PRICE_PER_WATT;
+  const gross = s.solarKw * 1000 * SOLAR_PRICE_PER_WATT;
+  const stateCredit = Math.min(NY_SOLAR_CREDIT_CAP, gross * NY_SOLAR_CREDIT_PCT);
+  return { gross, stateCredit, net: gross - stateCredit };
 }
 
 function batterySystemCost(s) {
@@ -1377,11 +1415,22 @@ const SOLAR_CURVES = {
 };
 
 // ===================== PROFILE BUILDERS =====================
+// Seasonal usage multipliers: scale annual-avg daily kWh based on season + home type
+// Designed so weighted average across summer/winter/shoulder roughly equals 1.0
+// (using 42% summer + 20% winter + 38% shoulder day weights from solar curves)
+const SEASONAL_MULT = {
+  gas:      { summer: 1.20, winter: 0.85, shoulder: 0.90 },  // gas heat: AC drives summer
+  heatpump: { summer: 0.80, winter: 1.55, shoulder: 0.90 },  // heat pump: heating dominates
+  dual:     { summer: 1.00, winter: 1.20, shoulder: 0.90 },  // mixed
+};
+
 function getLoadProfile(s) {
   if (s.src === 'csv' && s.csvProfile) return s.csvProfile;
   const shape = SHAPES[`${s.season}_${s.home}`] || SHAPES.summer_gas;
   const sum = shape.reduce((a,b)=>a+b, 0);
-  return shape.map(v => (v / sum) * s.daily);
+  const mult = (SEASONAL_MULT[s.home] && SEASONAL_MULT[s.home][s.season]) || 1.0;
+  const dailyForSeason = s.daily * mult;
+  return shape.map(v => (v / sum) * dailyForSeason);
 }
 function getSolarProfile(s) {
   // In solar-only mode, always include solar even if hasSolar toggle is off
@@ -1404,20 +1453,40 @@ function peakHoursInWindow(start, end) {
   else { for (let h = start; h < 24; h++) hours.push(h); for (let h = 0; h < end; h++) hours.push(h); }
   return hours;
 }
-function getPeakWindow() {
-  if (STATE.winType === 'long') return { start: 14, end: 22 };
-  if (STATE.winType === 'evening') return { start: 17, end: 22 };
+
+// Con Ed Rate III TOU peak: 8am - midnight (16 hours). Off-peak: midnight - 8am (8 hours).
+const TOU_PEAK_START = 8;
+const TOU_PEAK_END = 24; // exclusive — actually 0 (midnight)
+function ratePeakHours() {
+  const hours = [];
+  for (let h = TOU_PEAK_START; h < TOU_PEAK_END; h++) hours.push(h);
+  return hours;
+}
+// The user's chosen discharge window — when the battery dispatches
+function getDischargeWindow() {
+  if (STATE.winType === 'long') return { start: 14, end: 22 };   // 2pm-10pm default
+  if (STATE.winType === 'evening') return { start: 17, end: 22 }; // 5pm-10pm
   return { start: STATE.winStart, end: STATE.winEnd };
 }
+// Backwards-compat alias for chart/UI code referencing the discharge window
+function getPeakWindow() { return getDischargeWindow(); }
 
 // ===================== SIMULATION =====================
-function simulateArbitrage(s) {
+function simulateArbitrage(s, peakRateOverride) {
   const load = getLoadProfile(s);
   const solar = getSolarProfile(s);
   const { usable, cont } = batterySpecs(s);
-  const win = getPeakWindow();
-  const peakHrs = peakHoursInWindow(win.start, win.end);
-  const isPeak = h => peakHrs.includes(h);
+  const dw = getDischargeWindow();
+  const dischargeHrs = peakHoursInWindow(dw.start, dw.end);
+  const isDischarge = h => dischargeHrs.includes(h);
+  // Rate-defined peak: 8am-midnight charges peak rate regardless of battery
+  const peakRateHrs = ratePeakHours();
+  const isPeakRate = h => peakRateHrs.includes(h);
+  // Split RTE evenly: sqrt(0.90) ≈ 0.949 on each leg (charge and discharge)
+  const ETA = Math.sqrt(BATTERY_RTE);
+  // Peak rate: use override (for seasonal blending) or default to current season's rate
+  const peakRate = (peakRateOverride !== undefined) ? peakRateOverride :
+    (s.season === 'winter' ? STATE.winterPeakRate : STATE.peakRate);
 
   const trace = [];
   let soc = usable;
@@ -1429,33 +1498,39 @@ function simulateArbitrage(s) {
     let fromBattery = 0, fromGrid = 0, toBattery = 0, toGrid = 0;
 
     if (netLoad > 0) {
-      if (isPeak(h) && s.hasBatt && soc > 0) {
-        fromBattery = Math.min(cont, netLoad, soc);
-        soc -= fromBattery;
+      if (isDischarge(h) && s.hasBatt && soc > 0) {
+        // Discharge: battery loses (fromBattery / ETA) of stored energy to deliver fromBattery to load
+        const maxDeliverable = Math.min(cont, netLoad, soc * ETA);
+        fromBattery = maxDeliverable;
+        soc -= fromBattery / ETA;
         netLoad -= fromBattery;
       }
       fromGrid = netLoad;
     } else {
       let excess = -netLoad;
       if (s.hasBatt && soc < usable) {
+        // Charge from solar: grid/solar supplies excess, battery stores excess * ETA
         const space = usable - soc;
-        toBattery = Math.min(space, excess, cont);
-        soc += toBattery;
+        const maxCharge = Math.min(space / ETA, excess, cont);
+        toBattery = maxCharge;
+        soc += toBattery * ETA;
         excess -= toBattery;
       }
       toGrid = excess;
     }
 
-    if (!isPeak(h) && s.hasBatt && soc < usable) {
+    // Off-peak grid charging — only during true off-peak hours (midnight-8am)
+    if (!isPeakRate(h) && s.hasBatt && soc < usable) {
       const space = usable - soc;
-      const charge = Math.min(space, cont * 0.5);
-      soc += charge;
+      const charge = Math.min(space / ETA, cont * 0.5);
+      soc += charge * ETA;
       fromGrid += charge;
     }
 
-    const rate = isPeak(h) ? STATE.peakRate : STATE.offRate;
+    // Bill at peak rate during the 16-hour TOU peak window, off-peak rate otherwise
+    const rate = isPeakRate(h) ? peakRate : STATE.offRate;
     const cost = fromGrid * rate;
-    const credit = toGrid * STATE.offRate;
+    const credit = toGrid * STATE.exportRate;
     trace.push({ h, load: ld, solar: sol, fromSolar, fromBattery, fromGrid, toBattery, toGrid, soc, cost, credit });
   }
 
@@ -1463,9 +1538,10 @@ function simulateArbitrage(s) {
   const totalCredit = trace.reduce((a,t)=>a+t.credit, 0);
   const netCost = Math.max(0, totalCost - totalCredit);
 
+  // Baseline: TOU bill without battery (uses rate-defined peak window, not discharge window)
   let baseline = 0;
   for (let h = 0; h < 24; h++) {
-    const rate = isPeak(h) ? STATE.peakRate : STATE.offRate;
+    const rate = isPeakRate(h) ? peakRate : STATE.offRate;
     baseline += load[h] * rate;
   }
 
@@ -1473,7 +1549,9 @@ function simulateArbitrage(s) {
   const util = usable > 0 ? (kwhShifted / usable) * 100 : 0;
 
   return { trace, load, solar, baseline, totalCost, totalCredit, netCost,
-           dailySave: baseline - netCost, kwhShifted, util, peakHrs, usable, cont };
+           dailySave: baseline - netCost, kwhShifted, util,
+           peakHrs: dischargeHrs, ratePeakHrs: peakRateHrs,
+           usable, cont, peakRate };
 }
 
 function simulateBackup(s) {
@@ -1521,7 +1599,7 @@ function simulateSolar(s) {
     const rate = isPeak(h) ? STATE.peakRate : STATE.offRate;
     const cost = fromGrid * rate;
     // Net metering credit: conservative — credit at off-peak rate
-    const credit = toGrid * STATE.offRate;
+    const credit = toGrid * STATE.exportRate;
     trace.push({ h, load: ld, solar: sol, fromSolar, fromGrid, toGrid, cost, credit });
   }
 
@@ -1786,7 +1864,10 @@ function setupEvents() {
   });
   document.getElementById('peakRate').oninput = (e) => { STATE.peakRate = parseFloat(e.target.value) || 0; render(); };
   document.getElementById('offRate').oninput  = (e) => { STATE.offRate = parseFloat(e.target.value) || 0; render(); };
+  document.getElementById('winterPeakRate').oninput = (e) => { STATE.winterPeakRate = parseFloat(e.target.value) || 0; render(); };
+  document.getElementById('el1Rate').oninput = (e) => { STATE.el1Rate = parseFloat(e.target.value) || 0; render(); };
   document.getElementById('basicCharge').oninput = (e) => { STATE.basicCharge = parseFloat(e.target.value) || 0; render(); };
+  document.getElementById('exportRate').oninput = (e) => { STATE.exportRate = parseFloat(e.target.value) || 0; render(); };
   document.querySelectorAll('#windowSeg .seg-btn').forEach(b => b.onclick = () => {
     document.querySelectorAll('#windowSeg .seg-btn').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
@@ -1942,12 +2023,47 @@ function extractBillData(text) {
 }
 
 function parseGreenButton(text) {
+  // Strip BOM if present (Excel exports often have one)
+  text = text.replace(/^\uFEFF/, '');
   const lines = text.split(/\r?\n/).filter(l => l.trim().length);
   if (lines.length < 2) throw new Error('No data rows');
 
+  // Auto-detect delimiter: count occurrences of comma/tab/semicolon/pipe in first 10 rows
+  // (outside quotes — count chars in the raw text but normalize on the highest-frequency winner)
+  const sample = lines.slice(0, Math.min(10, lines.length)).join('\n');
+  const counts = {
+    ',':  (sample.match(/,/g) || []).length,
+    '\t': (sample.match(/\t/g) || []).length,
+    ';':  (sample.match(/;/g) || []).length,
+    '|':  (sample.match(/\|/g) || []).length,
+  };
+  const DELIM = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+
+  // RFC-4180-aware row parser: handles quoted fields with embedded delimiters
+  const splitCsvRow = (line) => {
+    const out = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i+1] === '"') { cur += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === DELIM && !inQuotes) {
+        out.push(cur); cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out.map(c => c.trim());
+  };
+  // Strip currency/commas from numeric strings before parseFloat
+  const cleanNum = (s) => parseFloat(String(s).replace(/[$,\s]/g, ''));
+
   let headerIdx = -1, headers = [];
   for (let i = 0; i < Math.min(lines.length, 30); i++) {
-    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, '').toLowerCase());
+    const cols = splitCsvRow(lines[i]).map(c => c.toLowerCase());
     if (cols.some(c => c.includes('usage') || c.includes('kwh') || c.includes('consumption'))) {
       if (cols.some(c => c.includes('date') || c.includes('time') || c.includes('start'))) {
         headerIdx = i; headers = cols; break;
@@ -1955,35 +2071,46 @@ function parseGreenButton(text) {
     }
   }
   if (headerIdx === -1) {
-    headers = lines[0].split(',').map(c => c.trim().toLowerCase());
+    headers = splitCsvRow(lines[0]).map(c => c.toLowerCase());
     headerIdx = 0;
   }
 
-  const dateIdx = headers.findIndex(h => h === 'date' || (h.includes('date') && !h.includes('time') && !h.includes('end')));
+  // For billing-cycle data with both START and END dates, prefer END DATE
+  // (it marks when the period closed and is a more reliable anchor for the period's usage)
+  const endIdx = headers.findIndex(h => h.includes('end') && h.includes('date'));
+  const startIdx = headers.findIndex(h => h.includes('start') && h.includes('date'));
+  const dateIdx = endIdx >= 0 ? endIdx
+                : startIdx >= 0 ? startIdx
+                : headers.findIndex(h => h === 'date' || (h.includes('date') && !h.includes('time')));
   const timeIdx = headers.findIndex(h => h.includes('start') && h.includes('time'));
   const combinedIdx = headers.findIndex(h =>
-    (h.includes('start') && !h.includes('time')) ||
-    h === 'time' ||
-    h.includes('service start') ||
-    h.includes('datetime') ||
-    h.includes('timestamp')
+    h === 'time' || h.includes('service start') || h.includes('datetime') || h.includes('timestamp')
   );
   const usageIdx = headers.findIndex(h => h.includes('usage') || h.includes('kwh') || h.includes('consumption'));
   if (usageIdx === -1) throw new Error('No usage/kWh column found');
 
+  // Sample date column to detect MM/DD/YYYY vs DD/MM/YYYY format
+  const sampleDates = [];
+  for (let i = headerIdx + 1; i < Math.min(lines.length, headerIdx + 30); i++) {
+    const cols = splitCsvRow(lines[i]);
+    if (dateIdx >= 0 && cols[dateIdx]) sampleDates.push(cols[dateIdx]);
+    else if (combinedIdx >= 0 && cols[combinedIdx]) sampleDates.push(cols[combinedIdx]);
+  }
+  const dateFormat = detectDateFormat(sampleDates);
+
   // Parse all rows into records
   const records = [];
   for (let i = headerIdx + 1; i < lines.length; i++) {
-    const cols = lines[i].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+    const cols = splitCsvRow(lines[i]);
     if (cols.length < 2) continue;
     let dtStr = null;
     if (dateIdx >= 0 && timeIdx >= 0) dtStr = cols[dateIdx] + ' ' + cols[timeIdx];
     else if (combinedIdx >= 0) dtStr = cols[combinedIdx];
     else if (dateIdx >= 0) dtStr = cols[dateIdx];
     else dtStr = cols[0];
-    const usage = parseFloat(cols[usageIdx]);
+    const usage = cleanNum(cols[usageIdx]);
     if (!isFinite(usage)) continue;
-    const dt = parseDate(dtStr);
+    const dt = parseDate(dtStr, dateFormat);
     if (!dt) continue;
     records.push({ dt, usage });
   }
@@ -2057,16 +2184,55 @@ function parseGreenButton(text) {
   return { hourly, meta };
 }
 
-function parseDate(str) {
+function parseDate(str, formatHint) {
   if (!str) return null;
-  str = str.replace(/\s+(EST|EDT|GMT|UTC|PST|PDT|CST|CDT|MST|MDT)$/i, '');
-  const d = new Date(str);
-  if (isNaN(d.getTime())) {
-    const m = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/);
-    if (m) return new Date(+m[3], +m[1]-1, +m[2], +m[4], +m[5]);
-    return null;
+  str = String(str).trim().replace(/\s+(EST|EDT|GMT|UTC|PST|PDT|CST|CDT|MST|MDT)$/i, '');
+  // ISO-like 2024-01-15 — unambiguous, parse natively first
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(str)) {
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) return d;
   }
-  return d;
+  // Numeric N/N/YYYY with optional time
+  const m = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (m) {
+    let a = +m[1], b = +m[2];
+    let year = +m[3]; if (year < 100) year += 2000;
+    const hr = m[4] ? +m[4] : 0, min = m[5] ? +m[5] : 0;
+    // Hint can be 'dmy' (Europe), 'mdy' (US), or undefined (auto)
+    let day, month;
+    if (formatHint === 'dmy') { day = a; month = b; }
+    else if (formatHint === 'mdy') { day = b; month = a; }
+    else {
+      // No hint: a value >12 in slot 1 means day-first; slot 2 >12 means month-first
+      if (a > 12) { day = a; month = b; }
+      else if (b > 12) { day = b; month = a; }
+      else { day = b; month = a; } // ambiguous — default to US m/d
+    }
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return new Date(year, month - 1, day, hr, min);
+    }
+  }
+  // Fallback to native
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Detect whether a column of date strings is DD/MM/YYYY or MM/DD/YYYY
+// by checking if any first-slot value exceeds 12 (must be day) or any
+// second-slot value exceeds 12 (must be month).
+function detectDateFormat(dateStrings) {
+  let dayFirstWin = 0, monthFirstWin = 0;
+  for (const s of dateStrings) {
+    if (!s) continue;
+    const m = String(s).match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.]\d{2,4}/);
+    if (!m) continue;
+    const a = +m[1], b = +m[2];
+    if (a > 12 && b <= 12) dayFirstWin++;
+    else if (b > 12 && a <= 12) monthFirstWin++;
+  }
+  if (dayFirstWin > monthFirstWin) return 'dmy';
+  if (monthFirstWin > dayFirstWin) return 'mdy';
+  return 'mdy'; // ambiguous → US default
 }
 
 function clearCsv() {
@@ -2229,14 +2395,50 @@ function renderSpecs() {
 
 function renderArbitrage() {
   const sB = setupB();
+  // Display sim uses current season's rate (matches chart)
   const rB = simulateArbitrage(sB);
-  document.getElementById('rDailySave').textContent = fmt$(Math.max(0, rB.dailySave));
-  document.getElementById('rAnnualSave').textContent = fmt$0(Math.max(0, rB.dailySave) * 365);
+
+  // Compute full annual bills: EL1 (flat rate, no battery) vs EL9 (TOU with battery)
+  // True savings = (what they'd pay on EL1) − (what they actually pay on EL9 with battery)
+  const computeAnnualBills = (setup) => {
+    // Run summer and winter sims with seasonal load shape + appropriate peak rate
+    const origSeason = setup.season;
+    setup.season = 'summer';
+    const summer = simulateArbitrage(setup, STATE.peakRate);
+    const summerDailyKwh = summer.load.reduce((a,b)=>a+b, 0);
+    setup.season = 'winter';
+    const winter = simulateArbitrage(setup, STATE.winterPeakRate);
+    const winterDailyKwh = winter.load.reduce((a,b)=>a+b, 0);
+    setup.season = origSeason;
+
+    // Total annual kWh: CSV authoritative, else compute from seasonal-shaped loads
+    let annualKwh;
+    if (setup.src === 'csv' && setup.csvMeta && setup.csvMeta.annual) {
+      annualKwh = setup.csvMeta.annual;
+    } else {
+      annualKwh = summerDailyKwh * SUMMER_DAYS + winterDailyKwh * WINTER_DAYS;
+    }
+
+    const el9Annual = summer.netCost * SUMMER_DAYS + winter.netCost * WINTER_DAYS + STATE.basicCharge * 12;
+    const el1Annual = annualKwh * STATE.el1Rate + STATE.basicCharge * 12;
+    const annualSave = el1Annual - el9Annual;
+    return { el1Annual, el9Annual, annualSave, annualKwh, summerNetCost: summer.netCost, winterNetCost: winter.netCost };
+  };
+
+  const billsB = computeAnnualBills(sB);
+  const annualSaveB = billsB.annualSave;
+
+  // Daily Savings tile: current-season daily EL1 cost − current-season daily EL9 cost
+  const dailyLoadCurrent = rB.load.reduce((a,b)=>a+b, 0);
+  const dailyEl1 = dailyLoadCurrent * STATE.el1Rate;
+  const dailySaveTrue = dailyEl1 - rB.netCost;
+
+  document.getElementById('rDailySave').textContent = fmt$(Math.max(0, dailySaveTrue));
+  document.getElementById('rAnnualSave').textContent = fmt$0(annualSaveB);
   document.getElementById('rKwhAvoided').textContent = fmtKwh(rB.kwhShifted) + ' kWh';
   document.getElementById('rUtil').textContent = Math.min(100, Math.max(0, rB.util)).toFixed(0) + '%';
 
   // ===== ROI panel for Arbitrage =====
-  const annualSaveB = Math.max(0, rB.dailySave) * 365;
   const costB = batterySystemCost(sB);
   const roiPanel = document.getElementById('roiPanelArb');
   if (sB.hasBatt && costB.gross > 0) {
@@ -2244,7 +2446,7 @@ function renderArbitrage() {
     const payback = paybackYears(costB.net, annualSaveB);
     const lifetime = lifetimeSavings(annualSaveB);
     const y25 = annualSaveB * Math.pow(1 + UTILITY_ESCALATOR, 24);
-    document.getElementById('roiArbConfig').textContent = `${BRANDS[sB.brand].name} ×${sB.qty} · ${costB.totalKwh.toFixed(1)} kWh usable storage`;
+    document.getElementById('roiArbConfig').textContent = `${BRANDS[sB.brand].name} ×${sB.qty} · EL1 ${fmt$0(billsB.el1Annual)} → Rate III ${fmt$0(billsB.el9Annual)}/yr`;
     document.getElementById('roiArbNet').textContent = fmt$0(costB.net);
     document.getElementById('roiArbY1').textContent = fmt$0(annualSaveB);
     document.getElementById('roiArbY25').textContent = fmt$0(y25);
@@ -2255,11 +2457,13 @@ function renderArbitrage() {
   }
 
   let rA = null;
+  let billsA = null;
   if (STATE.compare) {
     rA = simulateArbitrage(setupA());
-    document.getElementById('cmpA').textContent = fmt$0(Math.max(0, rA.dailySave) * 365);
-    document.getElementById('cmpB').textContent = fmt$0(Math.max(0, rB.dailySave) * 365);
-    const delta = (rB.dailySave - rA.dailySave) * 365;
+    billsA = computeAnnualBills(setupA());
+    document.getElementById('cmpA').textContent = fmt$0(billsA.annualSave);
+    document.getElementById('cmpB').textContent = fmt$0(annualSaveB);
+    const delta = annualSaveB - billsA.annualSave;
     document.getElementById('cmpD').textContent = (delta >= 0 ? '+$' : '−$') + Math.abs(Math.round(delta)).toLocaleString();
 
     // Per-setup spec lines so user can see what's actually different
@@ -2306,25 +2510,25 @@ function renderArbitrage() {
 
   document.getElementById('breakdown').innerHTML = `
     <div class="bd-card">
-      <div class="bd-title">Cost Without Battery + Solar</div>
-      <div class="bd-line"><span class="bd-line-key">Peak (${peakKwhBase.toFixed(1)} kWh @ $${STATE.peakRate.toFixed(2)})</span><span class="bd-line-val">${fmt$(peakCostBase)}</span></div>
-      <div class="bd-line"><span class="bd-line-key">Off-peak (${offKwhBase.toFixed(1)} kWh @ $${STATE.offRate.toFixed(2)})</span><span class="bd-line-val">${fmt$(offCostBase)}</span></div>
-      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Daily baseline</span><span class="bd-line-val" style="color:var(--red)">${fmt$(rB.baseline)}</span></div>
+      <div class="bd-title">Today (EL1 Standard, No Battery)</div>
+      <div class="bd-line"><span class="bd-line-key">Annual usage</span><span class="bd-line-val">${Math.round(billsB.annualKwh).toLocaleString()} kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">× EL1 flat rate</span><span class="bd-line-val">$${STATE.el1Rate.toFixed(2)}/kWh</span></div>
+      <div class="bd-line"><span class="bd-line-key">Basic service charge</span><span class="bd-line-val">${fmt$0(STATE.basicCharge * 12)}/yr</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Annual EL1 bill</span><span class="bd-line-val" style="color:var(--red);font-weight:700;">${fmt$0(billsB.el1Annual)}</span></div>
     </div>
     <div class="bd-card">
-      <div class="bd-title">Daily Energy Flow (Setup B)</div>
-      <div class="bd-line"><span class="bd-line-key">Solar produced</span><span class="bd-line-val" style="color:var(--teal)">${fmtKwh(solarKwh)} kWh</span></div>
-      <div class="bd-line"><span class="bd-line-key">Battery dispatched</span><span class="bd-line-val" style="color:var(--yellow)">${fmtKwh(rB.kwhShifted)} kWh</span></div>
-      <div class="bd-line"><span class="bd-line-key">Exported to grid</span><span class="bd-line-val">${fmtKwh(exportKwh)} kWh</span></div>
-      <div class="bd-line"><span class="bd-line-key">Peak grid spend</span><span class="bd-line-val">${fmt$(peakGridWith)}</span></div>
-      <div class="bd-line"><span class="bd-line-key">Off-peak grid spend</span><span class="bd-line-val">${fmt$(offGridWith)}</span></div>
-      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Net daily cost</span><span class="bd-line-val" style="color:var(--green)">${fmt$(rB.netCost)}</span></div>
+      <div class="bd-title">After Switch (Rate III TOU + Battery)</div>
+      <div class="bd-line"><span class="bd-line-key">Summer (122d) net cost</span><span class="bd-line-val">${fmt$0(billsB.summerNetCost * SUMMER_DAYS)}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Winter (243d) net cost</span><span class="bd-line-val">${fmt$0(billsB.winterNetCost * WINTER_DAYS)}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Basic service charge</span><span class="bd-line-val">${fmt$0(STATE.basicCharge * 12)}/yr</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Annual Rate III bill</span><span class="bd-line-val" style="color:var(--green);font-weight:700;">${fmt$0(billsB.el9Annual)}</span></div>
     </div>
     <div class="bd-card" style="background:linear-gradient(135deg, rgba(251,191,36,0.10), transparent); border-color:rgba(251,191,36,0.3);">
-      <div class="bd-title" style="color:var(--yellow);">Net Outcome (Setup B)</div>
-      <div class="bd-line"><span class="bd-line-key">Daily</span><span class="bd-line-val" style="color:var(--yellow);">${fmt$(Math.max(0, rB.dailySave))}</span></div>
-      <div class="bd-line"><span class="bd-line-key">Monthly</span><span class="bd-line-val" style="color:var(--yellow);">${fmt$(Math.max(0, rB.dailySave) * 30)}</span></div>
-      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Annual</span><span class="bd-line-val" style="color:var(--yellow);font-weight:700;">${fmt$0(Math.max(0, rB.dailySave) * 365)}</span></div>
+      <div class="bd-title" style="color:var(--yellow);">Annual Savings from Switch</div>
+      <div class="bd-line"><span class="bd-line-key">EL1 bill (current)</span><span class="bd-line-val">${fmt$0(billsB.el1Annual)}</span></div>
+      <div class="bd-line"><span class="bd-line-key">Rate III bill (proposed)</span><span class="bd-line-val">−${fmt$0(billsB.el9Annual)}</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="color:var(--text);font-weight:600;">Net savings</span><span class="bd-line-val" style="color:var(--yellow);font-weight:700;">${fmt$0(annualSaveB)}</span></div>
+      <div class="bd-line"><span class="bd-line-key" style="font-size:11px;color:var(--text-4);">Monthly avg</span><span class="bd-line-val" style="font-size:11px;color:var(--text-4);">${fmt$0(annualSaveB / 12)}</span></div>
     </div>
   `;
 }
@@ -2399,10 +2603,12 @@ function renderSolar() {
   const costSol = solarSystemCost(sB);
   const annualSaveSol = Math.max(0, rB.annualSave);
   const lifetimeSol = lifetimeSavings(annualSaveSol, { degradation: PANEL_DEGRADATION });
-  const paybackSol = paybackYears(costSol, annualSaveSol, { degradation: PANEL_DEGRADATION });
+  const paybackSol = paybackYears(costSol.net, annualSaveSol, { degradation: PANEL_DEGRADATION });
   const y25Save = annualSaveSol * Math.pow(1 + UTILITY_ESCALATOR, 24) * Math.pow(1 - PANEL_DEGRADATION, 24);
   document.getElementById('roiSolConfig').textContent = `${sB.solarKw.toFixed(1)} kW DC`;
-  document.getElementById('roiSolGross').textContent = fmt$0(costSol);
+  document.getElementById('roiSolGrossCost').textContent = fmt$0(costSol.gross);
+  document.getElementById('roiSolStateCredit').textContent = '−' + fmt$0(costSol.stateCredit);
+  document.getElementById('roiSolGross').textContent = fmt$0(costSol.net);
   document.getElementById('roiSolY1').textContent = fmt$0(annualSaveSol);
   document.getElementById('roiSolY25').textContent = fmt$0(y25Save);
   document.getElementById('roiSolPayback').textContent = isFinite(paybackSol) ? paybackSol.toFixed(1) + ' yrs' : '— yrs';
@@ -2420,7 +2626,7 @@ function renderSolar() {
     const summarizeSolar = (setup, result) => {
       if (!setup.hasSolar && STATE.mode !== 'solar') return 'No solar';
       const cost = solarSystemCost(setup);
-      const parts = [`${setup.solarKw.toFixed(1)} kW DC · ${fmt$0(cost)}`];
+      const parts = [`${setup.solarKw.toFixed(1)} kW DC · ${fmt$0(cost.net)}`];
       if ((setup.solarShade || 0) > 0) parts.push(`${setup.solarShade}% shade`);
       if ((setup.solarAdjust || 0) !== 0) parts.push(`${(setup.solarAdjust >= 0 ? '+' : '') + setup.solarAdjust}% adj`);
       parts.push(`${Math.round(result.annualProd).toLocaleString()} kWh/yr`);
@@ -2497,7 +2703,7 @@ const annotationsPlugin = {
       if (runs.length > 0) {
         const [a, b] = runs[0];
         const midX = (scales.x.getPixelForValue(a) + scales.x.getPixelForValue(b)) / 2;
-        ctx.fillText('PEAK WINDOW', midX, chartArea.top + 12);
+        ctx.fillText('DISCHARGE WINDOW', midX, chartArea.top + 12);
       }
       ctx.restore();
     }
@@ -2769,7 +2975,8 @@ function serializeState() {
   const pack = {
     m: STATE.mode === 'arbitrage' ? 'a' : STATE.mode === 'backup' ? 'b' : 's',
     c: STATE.compare ? 1 : 0,
-    pr: STATE.peakRate, or: STATE.offRate,
+    pr: STATE.peakRate, or: STATE.offRate, wpr: STATE.winterPeakRate,
+    bc: STATE.basicCharge, er: STATE.exportRate, e1: STATE.el1Rate,
     wt: STATE.winType, ws: STATE.winStart, we: STATE.winEnd,
     cr: STATE.crit,
     A: packSetup(STATE.setupA),
@@ -2794,8 +3001,12 @@ function restoreState() {
     const data = JSON.parse(decoded);
     STATE.mode = data.m === 'a' ? 'arbitrage' : data.m === 's' ? 'solar' : 'backup';
     STATE.compare = !!data.c;
-    STATE.peakRate = data.pr ?? 0.42;
-    STATE.offRate = data.or ?? 0.10;
+    STATE.peakRate = data.pr ?? 0.38;
+    STATE.offRate = data.or ?? 0.05;
+    STATE.winterPeakRate = data.wpr ?? 0.17;
+    STATE.basicCharge = data.bc ?? 22;
+    STATE.exportRate = data.er ?? 0.16;
+    STATE.el1Rate = data.e1 ?? 0.38;
     STATE.winType = data.wt || 'long';
     STATE.winStart = data.ws ?? 14;
     STATE.winEnd = data.we ?? 22;
@@ -2804,6 +3015,10 @@ function restoreState() {
     if (data.B) STATE.setupB = unpackSetup(data.B);
     document.getElementById('peakRate').value = STATE.peakRate;
     document.getElementById('offRate').value = STATE.offRate;
+    document.getElementById('winterPeakRate').value = STATE.winterPeakRate;
+    document.getElementById('basicCharge').value = STATE.basicCharge;
+    document.getElementById('exportRate').value = STATE.exportRate;
+    document.getElementById('el1Rate').value = STATE.el1Rate;
     document.querySelectorAll('#windowSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.win === STATE.winType));
     document.getElementById('customWin').classList.toggle('hidden', STATE.winType !== 'custom');
     document.getElementById('winStart').value = STATE.winStart;
@@ -2848,7 +3063,8 @@ function saveState() {
   try {
     const data = {
       mode: STATE.mode, compare: STATE.compare, activeSetup: STATE.activeSetup,
-      peakRate: STATE.peakRate, offRate: STATE.offRate,
+      peakRate: STATE.peakRate, offRate: STATE.offRate, winterPeakRate: STATE.winterPeakRate,
+      basicCharge: STATE.basicCharge, exportRate: STATE.exportRate, el1Rate: STATE.el1Rate,
       winType: STATE.winType, winStart: STATE.winStart, winEnd: STATE.winEnd,
       crit: STATE.crit,
       setupA: STATE.setupA, setupB: STATE.setupB,
@@ -2867,6 +3083,10 @@ function loadState() {
     if (d.activeSetup) STATE.activeSetup = d.activeSetup;
     if (typeof d.peakRate === 'number') STATE.peakRate = d.peakRate;
     if (typeof d.offRate === 'number') STATE.offRate = d.offRate;
+    if (typeof d.winterPeakRate === 'number') STATE.winterPeakRate = d.winterPeakRate;
+    if (typeof d.basicCharge === 'number') STATE.basicCharge = d.basicCharge;
+    if (typeof d.exportRate === 'number') STATE.exportRate = d.exportRate;
+    if (typeof d.el1Rate === 'number') STATE.el1Rate = d.el1Rate;
     if (d.winType) STATE.winType = d.winType;
     if (typeof d.winStart === 'number') STATE.winStart = d.winStart;
     if (typeof d.winEnd === 'number') STATE.winEnd = d.winEnd;
@@ -2912,6 +3132,10 @@ function applyLoadedStateToUI() {
   // Rates
   document.getElementById('peakRate').value = STATE.peakRate;
   document.getElementById('offRate').value = STATE.offRate;
+  document.getElementById('winterPeakRate').value = STATE.winterPeakRate;
+  document.getElementById('basicCharge').value = STATE.basicCharge;
+  document.getElementById('exportRate').value = STATE.exportRate;
+  document.getElementById('el1Rate').value = STATE.el1Rate;
   // Peak window
   document.querySelectorAll('#windowSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.win === STATE.winType));
   document.getElementById('customWin').classList.toggle('hidden', STATE.winType !== 'custom');

@@ -982,15 +982,23 @@
           <div class="csv-zone" id="csvZone" onclick="document.getElementById('csvFile').click()">
             <div class="csv-zone-text" id="csvZoneText"><strong>Drop CSV(s) or PDF bill here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button CSV · multi-file supported · or PDF bill</span></div>
             <div id="csvMetaBlock" class="hidden">
+              <div id="csvPartialWarn" class="hidden" style="background:rgba(239,68,68,0.10); border:1px solid rgba(239,68,68,0.35); border-radius:6px; padding:8px 10px; margin-bottom:10px; font-size:11.5px; color:#FCA5A5; line-height:1.4;">
+                <strong style="color:#EF4444;">⚠ Partial year data</strong> — annual estimate is extrapolated from <span id="csvPartialDays">—</span> days and may be inaccurate. Re-export from Con Ed covering a full 12 months, or if your data came as <strong>multiple files</strong>, drop them all together.
+              </div>
               <div class="csv-meta">
                 <div>Range: <span id="csvRange">—</span></div>
                 <div>Intervals: <span id="csvIntervals">—</span></div>
                 <div>Total: <span id="csvTotal">—</span></div>
                 <div>Daily avg: <span id="csvDailyAvg">—</span></div>
+                <div id="csvFilesRow" class="hidden" style="grid-column: 1 / -1;">Files merged: <span id="csvFilesCount" style="color:var(--green);font-weight:600;">—</span></div>
+                <div id="csvExportRow" class="hidden" style="grid-column: 1 / -1;">Solar export: <span id="csvExportKwh" style="color:var(--teal);">—</span></div>
                 <div style="grid-column: 1 / -1; padding-top: 6px; border-top: 1px solid var(--border); margin-top: 4px;">Annual est: <span id="csvAnnual" style="color: var(--yellow); font-weight: 600;">—</span></div>
               </div>
               <button class="csv-clear" onclick="event.stopPropagation(); clearCsv()">Clear file</button>
             </div>
+          </div>
+          <div id="csvHint" style="font-size:11px;color:var(--text-4); margin-top:8px; padding:8px 10px; background:rgba(251,191,36,0.06); border-left:2px solid var(--yellow); border-radius:4px; line-height:1.45;">
+            <strong style="color:var(--yellow);">Tip:</strong> Most Con Ed exports include a full 12 months in one CSV. If your export was split into multiple files (happens with mid-year meter changes like solar PTO), drop <strong>all of them together</strong> — click to open the picker, then Cmd/Ctrl+click each, or drag them onto the drop zone.
           </div>
           <input type="file" id="csvFile" accept=".csv,.pdf" multiple style="display:none" />
         </div>
@@ -1807,17 +1815,43 @@ function refreshControls() {
     zone.classList.add('has-file');
     document.getElementById('csvZoneText').innerHTML = `<strong>CSV loaded</strong><br><span style="font-size:11px;color:var(--text-4)">${s.csvMeta ? s.csvMeta.label : ''}</span>`;
     document.getElementById('csvMetaBlock').classList.remove('hidden');
+    document.getElementById('csvHint').classList.add('hidden');
     if (s.csvMeta) {
       document.getElementById('csvRange').textContent = s.csvMeta.range;
       document.getElementById('csvIntervals').textContent = s.csvMeta.intervals;
       document.getElementById('csvTotal').textContent = s.csvMeta.total.toFixed(0) + ' kWh';
       document.getElementById('csvDailyAvg').textContent = s.csvMeta.dailyAvg.toFixed(1) + ' kWh';
       document.getElementById('csvAnnual').textContent = Math.round(s.csvMeta.annual || (s.csvMeta.dailyAvg * 365)).toLocaleString() + ' kWh/yr';
+      // Partial-year warning (red banner above the meta grid)
+      const partial = document.getElementById('csvPartialWarn');
+      if (s.csvMeta.partialYear) {
+        partial.classList.remove('hidden');
+        document.getElementById('csvPartialDays').textContent = s.csvMeta.days;
+      } else {
+        partial.classList.add('hidden');
+      }
+      // Files-merged row (only when 2+ files uploaded)
+      const filesRow = document.getElementById('csvFilesRow');
+      if (s.csvMeta.filesCount && s.csvMeta.filesCount > 1) {
+        filesRow.classList.remove('hidden');
+        document.getElementById('csvFilesCount').textContent = s.csvMeta.filesCount + ' files';
+      } else {
+        filesRow.classList.add('hidden');
+      }
+      // Solar export row (only when meter has IMPORT/EXPORT schema)
+      const exportRow = document.getElementById('csvExportRow');
+      if (s.csvMeta.hasExport && s.csvMeta.exportKwh > 0) {
+        exportRow.classList.remove('hidden');
+        document.getElementById('csvExportKwh').textContent = Math.round(s.csvMeta.exportKwh).toLocaleString() + ' kWh';
+      } else {
+        exportRow.classList.add('hidden');
+      }
     }
   } else {
     zone.classList.remove('has-file');
-    document.getElementById('csvZoneText').innerHTML = `<strong>Drop CSV or PDF bill here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button CSV · or PDF electric bill</span>`;
+    document.getElementById('csvZoneText').innerHTML = `<strong>Drop CSV(s) or PDF bill here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button CSV · multi-file supported · or PDF bill</span>`;
     document.getElementById('csvMetaBlock').classList.add('hidden');
+    document.getElementById('csvHint').classList.remove('hidden');
   }
 }
 

@@ -985,6 +985,9 @@
               <div id="csvPartialWarn" class="hidden" style="background:rgba(239,68,68,0.10); border:1px solid rgba(239,68,68,0.35); border-radius:6px; padding:8px 10px; margin-bottom:10px; font-size:11.5px; color:#FCA5A5; line-height:1.4;">
                 <strong style="color:#EF4444;">⚠ Partial year data</strong> — annual estimate is extrapolated from <span id="csvPartialDays">—</span> days and may be inaccurate. Re-export from Con Ed covering a full 12 months, or if your data came as <strong>multiple files</strong>, drop them all together.
               </div>
+              <div id="csvNetMeteredWarn" class="hidden" style="background:rgba(20,184,166,0.10); border:1px solid rgba(20,184,166,0.35); border-radius:6px; padding:8px 10px; margin-bottom:10px; font-size:11.5px; color:#5EEAD4; line-height:1.4;">
+                <strong style="color:#14B8A6;">ℹ Existing solar detected</strong> — this CSV has negative USAGE values (home was exporting to grid). Implicit solar of <strong><span id="csvNetMeteredSolar">—</span> kWh/yr</strong> will charge the battery during the day. Reported annual is <strong>net</strong> of solar; gross load is ~<strong><span id="csvNetMeteredGross">—</span> kWh/yr</strong>.
+              </div>
               <div class="csv-meta">
                 <div>Range: <span id="csvRange">—</span></div>
                 <div>Intervals: <span id="csvIntervals">—</span></div>
@@ -1456,7 +1459,12 @@ const SEASONAL_MULT = {
 };
 
 function getLoadProfile(s) {
-  if (s.src === 'csv' && s.csvProfile) return s.csvProfile;
+  if (s.src === 'csv' && s.csvProfile) {
+    // CSV profile may contain negative values when the file is net-metered
+    // (older Con Ed exports for solar homes). Negatives represent excess solar
+    // going to the grid — those are handled in getSolarProfile, not load.
+    return s.csvProfile.map(v => Math.max(0, v));
+  }
   const shape = SHAPES[`${s.season}_${s.home}`] || SHAPES.summer_gas;
   const sum = shape.reduce((a,b)=>a+b, 0);
   const mult = (SEASONAL_MULT[s.home] && SEASONAL_MULT[s.home][s.season]) || 1.0;
@@ -1464,7 +1472,13 @@ function getLoadProfile(s) {
   return shape.map(v => (v / sum) * dailyForSeason);
 }
 function getSolarProfile(s) {
-  // In solar-only mode, always include solar even if hasSolar toggle is off
+  // Implicit solar: if CSV had negative usage (net-metered), surface those as solar
+  // generation. This lets the battery capture excess solar instead of treating it
+  // as paper export credit that hides real grid costs.
+  if (s.src === 'csv' && s.csvProfile && !s.hasSolar && STATE.mode !== 'solar') {
+    const implicit = s.csvProfile.map(v => v < 0 ? -v : 0);
+    if (implicit.some(v => v > 0)) return implicit;
+  }
   const includeSolar = s.hasSolar || STATE.mode === 'solar';
   if (!includeSolar) return new Array(24).fill(0);
   const curve = SOLAR_CURVES[s.season] || SOLAR_CURVES.summer;
@@ -1829,6 +1843,15 @@ function refreshControls() {
         document.getElementById('csvPartialDays').textContent = s.csvMeta.days;
       } else {
         partial.classList.add('hidden');
+      }
+      // Net-metered (existing solar) banner — teal, informational
+      const netMetered = document.getElementById('csvNetMeteredWarn');
+      if (s.csvMeta.hasNetMetered) {
+        netMetered.classList.remove('hidden');
+        document.getElementById('csvNetMeteredSolar').textContent = Math.round(s.csvMeta.implicitSolarAnnualKwh).toLocaleString();
+        document.getElementById('csvNetMeteredGross').textContent = Math.round(s.csvMeta.grossLoadAnnualKwh).toLocaleString();
+      } else {
+        netMetered.classList.add('hidden');
       }
       // Files-merged row (only when 2+ files uploaded)
       const filesRow = document.getElementById('csvFilesRow');
@@ -2199,10 +2222,24 @@ function parseGreenButton(input) {
   const annual = totalKwh * (365 / dayCount);
   const partialYear = dayCount < 300;
 
+  // Detect net-metered single-column data: any hours with negative average?
+  // (negative = excess solar exported, common in pre-PTO single-USAGE-column Con Ed exports)
+  const hasNetMetered = hourly.some(v => v < 0);
+  let implicitSolarKwh = 0;
+  let grossLoadKwh = 0;
+  if (hasNetMetered) {
+    implicitSolarKwh = hourly.reduce((a, v) => a + (v < 0 ? -v : 0), 0);
+    grossLoadKwh = hourly.reduce((a, v) => a + Math.max(0, v), 0);
+    // Annualize for display
+    implicitSolarKwh *= 365;
+    grossLoadKwh *= 365;
+  }
+
   let label = `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`;
   if (partialYear) label += ' ⚠ partial year';
   if (texts.length > 1) label = `${texts.length} files merged · ` + label;
   if (hasExportCol) label += ` · solar export: ${Math.round(totalExportKwh).toLocaleString()} kWh`;
+  if (hasNetMetered) label += ` · implicit solar: ~${Math.round(implicitSolarKwh).toLocaleString()} kWh/yr`;
 
   const meta = {
     range: `${firstDate.toISOString().slice(0, 10)} → ${lastDate.toISOString().slice(0, 10)}`,
@@ -2217,6 +2254,9 @@ function parseGreenButton(input) {
     filesCount: texts.length,
     exportKwh: totalExportKwh,
     hasExport: hasExportCol,
+    hasNetMetered: hasNetMetered,
+    implicitSolarAnnualKwh: implicitSolarKwh,
+    grossLoadAnnualKwh: grossLoadKwh,
     perFile: perFileSummary,
   };
   return { hourly, meta };

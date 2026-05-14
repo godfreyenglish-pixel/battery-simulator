@@ -3234,7 +3234,7 @@ function restoreState() {
   }
 }
 
-function copyShareLink() {
+async function copyShareLink() {
   // Optional: prompt for client name to enable click tracking. Blank = no tracking.
   const clientName = prompt(
     "Client name? (optional)\n\nEnter a name to track when they open this link — you'll get an email.\nLeave blank for an untracked link.",
@@ -3248,29 +3248,89 @@ function copyShareLink() {
     .replace(/^-+|-+$/g, '')
     .slice(0, 50);
 
-  let url = window.location.origin + window.location.pathname;
-  if (clientSlug) url += '?client=' + encodeURIComponent(clientSlug);
-  url += '#c=' + serializeState();
-
+  const stateEncoded = serializeState();
   const hasCsv = (STATE.setupA.src === 'csv' && STATE.setupA.csvProfile)
               || (STATE.setupB.src === 'csv' && STATE.setupB.csvProfile);
-  if (url.length > 8000) {
-    console.warn(`Share URL is ${url.length} chars — may be truncated by some apps.`);
+  const toast = document.getElementById('toast');
+
+  // Try to shorten via Apps Script first. Falls back to long hash URL if it fails
+  // or if the endpoint isn't configured.
+  let url = null;
+  if (TRACKING_ENDPOINT) {
+    toast.textContent = 'Generating short link…';
+    toast.classList.add('show');
+    try {
+      const apiUrl = new URL(TRACKING_ENDPOINT);
+      apiUrl.searchParams.set('action', 'save');
+      apiUrl.searchParams.set('state', stateEncoded);
+      // 8s timeout — Apps Script cold start can be slow
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(apiUrl.toString(), { signal: ctrl.signal });
+      clearTimeout(timer);
+      const data = await res.json();
+      if (data && data.id) {
+        url = window.location.origin + window.location.pathname + '?s=' + data.id;
+        if (clientSlug) url += '&client=' + encodeURIComponent(clientSlug);
+      } else {
+        console.warn('Short link API returned no id:', data);
+      }
+    } catch (e) {
+      console.warn('Short link failed, falling back to long URL:', e);
+    }
   }
+
+  // Fallback: long URL with state in the hash
+  if (!url) {
+    url = window.location.origin + window.location.pathname;
+    if (clientSlug) url += '?client=' + encodeURIComponent(clientSlug);
+    url += '#c=' + stateEncoded;
+  }
+  const isShort = url.length < 120;
+
   const finish = () => {
-    const t = document.getElementById('toast');
     const tracked = clientSlug ? ` · tracking ${clientSlug}` : '';
-    t.textContent = hasCsv
-      ? `Link copied · CSV included (${(url.length / 1024).toFixed(1)} KB)${tracked}`
-      : `Link copied · pre-loads this exact setup${tracked}`;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 2600);
+    if (isShort) {
+      toast.textContent = `Short link copied${tracked}`;
+    } else {
+      toast.textContent = hasCsv
+        ? `Link copied · CSV included (${(url.length / 1024).toFixed(1)} KB)${tracked}`
+        : `Link copied · pre-loads this exact setup${tracked}`;
+    }
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2600);
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url).then(finish).catch(() => prompt('Copy this link:', url));
   } else {
     prompt('Copy this link:', url);
   }
+}
+
+// Resolve a short link ID (?s=abc123) by fetching the saved state from Apps Script.
+// Returns true if state was successfully resolved and applied via the hash mechanism.
+async function resolveShortLink() {
+  const params = new URLSearchParams(window.location.search);
+  const shortId = params.get('s');
+  if (!shortId || !TRACKING_ENDPOINT) return false;
+  try {
+    const apiUrl = new URL(TRACKING_ENDPOINT);
+    apiUrl.searchParams.set('action', 'resolve');
+    apiUrl.searchParams.set('id', shortId);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(apiUrl.toString(), { signal: ctrl.signal });
+    clearTimeout(timer);
+    const data = await res.json();
+    if (data && data.state) {
+      // Inject as if it came from the hash, so restoreState picks it up
+      window.location.hash = 'c=' + data.state;
+      return true;
+    }
+  } catch (e) {
+    console.warn('Could not resolve short link:', e);
+  }
+  return false;
 }
 
 // ===================== CLICK TRACKING =====================
@@ -3411,12 +3471,15 @@ function render() {
 // ===================== INIT =====================
 buildCriticalList();
 setupEvents();
-// Priority: localStorage baseline → URL hash overrides → render
-const hadLocal = loadState();
-const hadHash = window.location.hash && window.location.hash.length > 3;
-if (hadLocal && !hadHash) applyLoadedStateToUI();
-restoreState();
-render();
+// Priority: short link (?s=) → URL hash (#c=) → localStorage → render
+(async () => {
+  const hadShort = await resolveShortLink();
+  const hadLocal = loadState();
+  const hadHash = window.location.hash && window.location.hash.length > 3;
+  if (hadLocal && !hadHash && !hadShort) applyLoadedStateToUI();
+  restoreState();
+  render();
+})();
 
 </script>
 

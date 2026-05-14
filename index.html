@@ -1580,7 +1580,14 @@ function simulateArbitrage(s, peakRateOverride) {
   }
 
   const totalCost = trace.reduce((a,t)=>a+t.cost, 0);
-  const totalCredit = trace.reduce((a,t)=>a+t.credit, 0);
+  let totalCredit = trace.reduce((a,t)=>a+t.credit, 0);
+  // When implicit solar is sourced from net-metered CSV (existing solar on the meter),
+  // the EL1 baseline kWh is ALREADY net of exports. Earning fresh VDER credits here
+  // double-counts the customer's solar offset and inflates Rate III savings.
+  // The battery's real value is shifting peak imports to off-peak, not the export credit.
+  if (s.src === 'csv' && s.csvMeta && s.csvMeta.hasNetMetered && !s.hasSolar) {
+    totalCredit = 0;
+  }
   const netCost = Math.max(0, totalCost - totalCredit);
 
   // Baseline: TOU bill without battery (uses rate-defined peak window, not discharge window)

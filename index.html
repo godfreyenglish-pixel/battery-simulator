@@ -1588,7 +1588,17 @@ function simulateArbitrage(s, peakRateOverride) {
   if (s.src === 'csv' && s.csvMeta && s.csvMeta.hasNetMetered && !s.hasSolar) {
     totalCredit = 0;
   }
-  const netCost = Math.max(0, totalCost - totalCredit);
+  // Steady-state correction: the simulator starts the battery at full SOC for chart
+  // readability, but in real operation the battery has to refill from the off-peak grid
+  // each cycle. Without this, daily cost only captures discharge benefit, not charging
+  // cost — daily totals come out artificially low (e.g. $0.28 instead of $1.40 for a
+  // 25 kWh/day home shifting 20 kWh through 2 EG4 batteries). The fix adds the cost to
+  // refill from end-of-day SOC back to starting SOC at the off-peak rate.
+  const finalSOC = trace[23].soc;
+  const refillKwh = Math.max(0, (usable - finalSOC) / ETA);
+  const refillCost = refillKwh * STATE.offRate;
+  const adjustedTotalCost = totalCost + refillCost;
+  const netCost = Math.max(0, adjustedTotalCost - totalCredit);
 
   // Baseline: TOU bill without battery (uses rate-defined peak window, not discharge window)
   let baseline = 0;

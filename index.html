@@ -980,7 +980,7 @@
         <!-- CSV upload -->
         <div id="csvBody" class="hidden">
           <div class="csv-zone" id="csvZone" onclick="document.getElementById('csvFile').click()">
-            <div class="csv-zone-text" id="csvZoneText"><strong>Drop CSV or PDF bill here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button CSV · or PDF electric bill</span></div>
+            <div class="csv-zone-text" id="csvZoneText"><strong>Drop CSV(s) or PDF bill here</strong> or click to upload<br><span style="font-size:11px;color:var(--text-4)">Con Ed Green Button CSV · multi-file supported · or PDF bill</span></div>
             <div id="csvMetaBlock" class="hidden">
               <div class="csv-meta">
                 <div>Range: <span id="csvRange">—</span></div>
@@ -992,7 +992,7 @@
               <button class="csv-clear" onclick="event.stopPropagation(); clearCsv()">Clear file</button>
             </div>
           </div>
-          <input type="file" id="csvFile" accept=".csv,.pdf" style="display:none" />
+          <input type="file" id="csvFile" accept=".csv,.pdf" multiple style="display:none" />
         </div>
 
         <!-- Always-visible annual usage indicator -->
@@ -1901,14 +1901,55 @@ function setupEvents() {
   document.getElementById('winStart').oninput = (e) => { STATE.winStart = parseInt(e.target.value); if (STATE.winType === 'custom') render(); };
   document.getElementById('winEnd').oninput   = (e) => { STATE.winEnd = parseInt(e.target.value);   if (STATE.winType === 'custom') render(); };
   document.getElementById('scrubSlider').oninput = (e) => setAnimHour(parseInt(e.target.value));
-  document.getElementById('csvFile').onchange = (e) => { const file = e.target.files[0]; if (file) handleCsv(file); };
+  document.getElementById('csvFile').onchange = (e) => { const files = Array.from(e.target.files || []); if (files.length) handleCsvFiles(files); };
   const zone = document.getElementById('csvZone');
   ['dragover','dragenter'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.style.borderColor = 'var(--yellow)'; }));
   ['dragleave','drop'].forEach(ev => zone.addEventListener(ev, e => { e.preventDefault(); zone.style.borderColor = ''; }));
-  zone.addEventListener('drop', e => { const file = e.dataTransfer.files[0]; if (file) handleCsv(file); });
+  zone.addEventListener('drop', e => { const files = Array.from(e.dataTransfer.files || []); if (files.length) handleCsvFiles(files); });
 }
 
 // ===================== CSV PARSING =====================
+// Multi-file dispatcher: read all CSVs and parse them together for true annual total.
+// PDFs are handled one at a time (one bill at a time).
+function handleCsvFiles(files) {
+  const csvFiles = files.filter(f => !(f.name || '').toLowerCase().endsWith('.pdf'));
+  const pdfFiles = files.filter(f => (f.name || '').toLowerCase().endsWith('.pdf'));
+  if (pdfFiles.length > 0) {
+    // Process first PDF, ignore the rest (PDFs are single-bill snapshots)
+    handlePdf(pdfFiles[0]);
+    if (csvFiles.length > 0) {
+      alert('Mixed PDF + CSV upload — only the PDF was processed. Re-upload just the CSV files together for full-year data.');
+    }
+    return;
+  }
+  if (csvFiles.length === 0) return;
+  if (csvFiles.length === 1) {
+    // Single CSV — use the simple path
+    handleCsv(csvFiles[0]);
+    return;
+  }
+  // Multi-CSV: read all files, then parse combined
+  const readers = csvFiles.map(f => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = e => resolve(e.target.result);
+    r.onerror = () => reject(new Error('Failed to read ' + f.name));
+    r.readAsText(f);
+  }));
+  Promise.all(readers).then(texts => {
+    try {
+      const profile = parseGreenButton(texts);  // array — parser handles
+      const s = activeSetup();
+      s.csvProfile = profile.hourly;
+      s.csvMeta = profile.meta;
+      s.src = 'csv';
+      refreshControls();
+      render();
+    } catch (err) {
+      alert('Could not parse CSV files: ' + err.message + '\n\nExpected Con Ed Green Button format. Files must have date/time and kWh columns.');
+    }
+  }).catch(err => alert('File read error: ' + err.message));
+}
+
 function handleCsv(file) {
   const name = (file.name || '').toLowerCase();
   if (name.endsWith('.pdf')) {
@@ -2045,14 +2086,116 @@ function extractBillData(text) {
   return result;
 }
 
-function parseGreenButton(text) {
-  // Strip BOM if present (Excel exports often have one)
-  text = text.replace(/^\uFEFF/, '');
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length);
-  if (lines.length < 2) throw new Error('No data rows');
+// Parse one or many CSV files (multi-file upload for full-year coverage).
+// Accepts either a string or an array of strings.
+function parseGreenButton(input) {
+  const texts = Array.isArray(input) ? input : [input];
+  if (texts.length === 0) throw new Error('No data provided');
 
-  // Auto-detect delimiter: count occurrences of comma/tab/semicolon/pipe in first 10 rows
-  // (outside quotes — count chars in the raw text but normalize on the highest-frequency winner)
+  // Parse each file independently and combine records
+  let allRecords = [];
+  let totalExportKwh = 0;
+  let hasExportCol = false;
+  const perFileSummary = [];
+
+  for (let f = 0; f < texts.length; f++) {
+    const section = parseCsvSection(texts[f]);
+    allRecords = allRecords.concat(section.records);
+    totalExportKwh += section.exportTotal;
+    if (section.hasExport) hasExportCol = true;
+    perFileSummary.push({
+      idx: f + 1,
+      rows: section.records.length,
+      kwh: section.records.reduce((a, r) => a + r.usage, 0),
+      export: section.exportTotal,
+      first: section.records[0]?.dt || null,
+      last: section.records[section.records.length - 1]?.dt || null,
+    });
+  }
+
+  if (allRecords.length === 0) throw new Error('No valid data rows parsed from any file');
+  allRecords.sort((a, b) => a.dt - b.dt);
+
+  const firstDate = allRecords[0].dt;
+  const lastDate = allRecords[allRecords.length - 1].dt;
+  const totalKwh = allRecords.reduce((s, r) => s + r.usage, 0);
+
+  // Median spacing between rows → detect interval type
+  const deltasMs = [];
+  for (let i = 1; i < allRecords.length; i++) deltasMs.push(allRecords[i].dt - allRecords[i-1].dt);
+  deltasMs.sort((a, b) => a - b);
+  const medianMs = deltasMs.length > 0 ? deltasMs[Math.floor(deltasMs.length / 2)] : 0;
+  const medianHours = medianMs / 3600000;
+  const medianDays = medianHours / 24;
+
+  let intervalLabel, hourly, dailyAvg, dayCount;
+  const s = activeSetup();
+  const shape = SHAPES[`${s.season}_${s.home}`] || SHAPES.summer_gas;
+  const shapeSum = shape.reduce((a, b) => a + b, 0);
+
+  if (medianHours < 2) {
+    // Hourly / 15-min / 30-min: bucket by hour, average across unique days
+    intervalLabel = medianHours < 0.4 ? '15-min interval' : medianHours < 0.9 ? '30-min interval' : 'Hourly';
+    const buckets = new Array(24).fill(0);
+    const dates = new Set();
+    for (const r of allRecords) {
+      buckets[r.dt.getHours()] += r.usage;
+      dates.add(r.dt.toISOString().slice(0, 10));
+    }
+    dayCount = Math.max(dates.size, 1);
+    hourly = buckets.map(v => v / dayCount);
+    dailyAvg = totalKwh / dayCount;
+    // Renormalize if hourly drift > 20%
+    const hSum = hourly.reduce((a, b) => a + b, 0);
+    if (hSum > 0 && Math.abs(hSum - dailyAvg) / dailyAvg > 0.2) {
+      hourly = hourly.map(v => (v / hSum) * dailyAvg);
+    }
+  } else if (medianDays < 7) {
+    intervalLabel = 'Daily summary';
+    dayCount = allRecords.length;
+    dailyAvg = totalKwh / dayCount;
+    hourly = shape.map(v => (v / shapeSum) * dailyAvg);
+  } else {
+    intervalLabel = `Billing cycle (~${Math.round(medianDays)}d rows)`;
+    dayCount = Math.max(1, Math.round((lastDate - firstDate) / 86400000) + Math.max(1, Math.round(medianDays)));
+    dailyAvg = totalKwh / dayCount;
+    hourly = shape.map(v => (v / shapeSum) * dailyAvg);
+  }
+
+  const annual = totalKwh * (365 / dayCount);
+  const partialYear = dayCount < 300;
+
+  let label = `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`;
+  if (partialYear) label += ' ⚠ partial year';
+  if (texts.length > 1) label = `${texts.length} files merged · ` + label;
+  if (hasExportCol) label += ` · solar export: ${Math.round(totalExportKwh).toLocaleString()} kWh`;
+
+  const meta = {
+    range: `${firstDate.toISOString().slice(0, 10)} → ${lastDate.toISOString().slice(0, 10)}`,
+    intervals: intervalLabel,
+    total: totalKwh,
+    dailyAvg: dailyAvg,
+    annual: annual,
+    days: dayCount,
+    rowCount: allRecords.length,
+    label: label,
+    partialYear: partialYear,
+    filesCount: texts.length,
+    exportKwh: totalExportKwh,
+    hasExport: hasExportCol,
+    perFile: perFileSummary,
+  };
+  return { hourly, meta };
+}
+
+// Parse one CSV file's text. Returns records[] + export totals if schema has EXPORT column.
+// Handles BOM, delimiter auto-detect, header search, quoted commas, IMPORT/EXPORT separation.
+function parseCsvSection(text) {
+  text = String(text || '').replace(/^\uFEFF/, '');
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+  if (lines.length < 2) return { records: [], exportTotal: 0, hasExport: false };
+
+  // Auto-detect delimiter
   const sample = lines.slice(0, Math.min(10, lines.length)).join('\n');
   const counts = {
     ',':  (sample.match(/,/g) || []).length,
@@ -2062,7 +2205,6 @@ function parseGreenButton(text) {
   };
   const DELIM = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
 
-  // RFC-4180-aware row parser: handles quoted fields with embedded delimiters
   const splitCsvRow = (line) => {
     const out = [];
     let cur = '';
@@ -2070,7 +2212,7 @@ function parseGreenButton(text) {
     for (let i = 0; i < line.length; i++) {
       const ch = line[i];
       if (ch === '"') {
-        if (inQuotes && line[i+1] === '"') { cur += '"'; i++; }
+        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
         else inQuotes = !inQuotes;
       } else if (ch === DELIM && !inQuotes) {
         out.push(cur); cur = '';
@@ -2081,13 +2223,13 @@ function parseGreenButton(text) {
     out.push(cur);
     return out.map(c => c.trim());
   };
-  // Strip currency/commas from numeric strings before parseFloat
   const cleanNum = (s) => parseFloat(String(s).replace(/[$,\s]/g, ''));
 
+  // Find header row — looks for a row that has BOTH a date-ish column AND a kwh/usage/import column
   let headerIdx = -1, headers = [];
   for (let i = 0; i < Math.min(lines.length, 30); i++) {
     const cols = splitCsvRow(lines[i]).map(c => c.toLowerCase());
-    if (cols.some(c => c.includes('usage') || c.includes('kwh') || c.includes('consumption'))) {
+    if (cols.some(c => c.includes('usage') || c.includes('kwh') || c.includes('consumption') || c.includes('import'))) {
       if (cols.some(c => c.includes('date') || c.includes('time') || c.includes('start'))) {
         headerIdx = i; headers = cols; break;
       }
@@ -2098,21 +2240,26 @@ function parseGreenButton(text) {
     headerIdx = 0;
   }
 
-  // For billing-cycle data with both START and END dates, prefer END DATE
-  // (it marks when the period closed and is a more reliable anchor for the period's usage)
+  // Date column: prefer END DATE > START DATE > generic date
   const endIdx = headers.findIndex(h => h.includes('end') && h.includes('date'));
-  const startIdx = headers.findIndex(h => h.includes('start') && h.includes('date'));
+  const startIdxDate = headers.findIndex(h => h.includes('start') && h.includes('date'));
   const dateIdx = endIdx >= 0 ? endIdx
-                : startIdx >= 0 ? startIdx
+                : startIdxDate >= 0 ? startIdxDate
                 : headers.findIndex(h => h === 'date' || (h.includes('date') && !h.includes('time')));
   const timeIdx = headers.findIndex(h => h.includes('start') && h.includes('time'));
   const combinedIdx = headers.findIndex(h =>
     h === 'time' || h.includes('service start') || h.includes('datetime') || h.includes('timestamp')
   );
-  const usageIdx = headers.findIndex(h => h.includes('usage') || h.includes('kwh') || h.includes('consumption'));
-  if (usageIdx === -1) throw new Error('No usage/kWh column found');
+  // kWh column: handles both "USAGE (kWh)" (pre-solar) and "IMPORT (kWh)" / "EXPORT (kWh)" (post-solar PTO).
+  // IMPORT is what the homeowner pulled from the grid — that's the gross consumption number for sizing.
+  // EXPORT is tracked separately so we know solar is on the meter without double-counting.
+  const importIdx = headers.findIndex(h => h.includes('import') && h.includes('kwh'));
+  const exportIdx = headers.findIndex(h => h.includes('export') && h.includes('kwh'));
+  const usageIdx  = importIdx >= 0 ? importIdx
+                  : headers.findIndex(h => h.includes('usage') || h.includes('consumption') || (h.includes('kwh') && !h.includes('export')));
+  if (usageIdx === -1) throw new Error('No usage/kWh/import column found in file');
 
-  // Sample date column to detect MM/DD/YYYY vs DD/MM/YYYY format
+  // Sample date column to detect MM/DD/YYYY vs DD/MM/YYYY
   const sampleDates = [];
   for (let i = headerIdx + 1; i < Math.min(lines.length, headerIdx + 30); i++) {
     const cols = splitCsvRow(lines[i]);
@@ -2121,10 +2268,13 @@ function parseGreenButton(text) {
   }
   const dateFormat = detectDateFormat(sampleDates);
 
-  // Parse all rows into records
   const records = [];
+  let exportTotal = 0;
   for (let i = headerIdx + 1; i < lines.length; i++) {
-    const cols = splitCsvRow(lines[i]);
+    const raw = lines[i];
+    // Skip any re-appearing header line (defensive)
+    if (/^\s*TYPE\s*[,;\t|]\s*DATE/i.test(raw)) continue;
+    const cols = splitCsvRow(raw);
     if (cols.length < 2) continue;
     let dtStr = null;
     if (dateIdx >= 0 && timeIdx >= 0) dtStr = cols[dateIdx] + ' ' + cols[timeIdx];
@@ -2135,76 +2285,13 @@ function parseGreenButton(text) {
     if (!isFinite(usage)) continue;
     const dt = parseDate(dtStr, dateFormat);
     if (!dt) continue;
+    if (exportIdx >= 0) {
+      const ex = cleanNum(cols[exportIdx]);
+      if (isFinite(ex)) exportTotal += ex;
+    }
     records.push({ dt, usage });
   }
-  if (records.length === 0) throw new Error('No valid data rows parsed');
-  records.sort((a, b) => a.dt - b.dt);
-
-  const firstDate = records[0].dt;
-  const lastDate = records[records.length - 1].dt;
-  const totalKwh = records.reduce((s, r) => s + r.usage, 0);
-
-  // Median spacing between rows → detect interval type
-  const deltasMs = [];
-  for (let i = 1; i < records.length; i++) deltasMs.push(records[i].dt - records[i-1].dt);
-  deltasMs.sort((a,b) => a - b);
-  const medianMs = deltasMs.length > 0 ? deltasMs[Math.floor(deltasMs.length/2)] : 0;
-  const medianHours = medianMs / 3600000;
-  const medianDays = medianHours / 24;
-
-  // Actual span in days (covers gaps; for monthly data this is the real elapsed time)
-  const spanDays = Math.max(1, Math.round((lastDate - firstDate) / 86400000) + Math.max(1, medianDays));
-
-  let intervalLabel, hourly, dailyAvg, dayCount;
-  const s = activeSetup();
-  const shape = SHAPES[`${s.season}_${s.home}`] || SHAPES.summer_gas;
-  const shapeSum = shape.reduce((a,b)=>a+b, 0);
-
-  if (medianHours < 2) {
-    // Hourly / 15-min / 30-min: bucket by hour, average across unique days
-    intervalLabel = medianHours < 0.4 ? '15-min interval' : medianHours < 0.9 ? '30-min interval' : 'Hourly';
-    const buckets = new Array(24).fill(0);
-    const dates = new Set();
-    for (const r of records) {
-      buckets[r.dt.getHours()] += r.usage;
-      dates.add(r.dt.toISOString().slice(0,10));
-    }
-    dayCount = Math.max(dates.size, 1);
-    hourly = buckets.map(v => v / dayCount);
-    dailyAvg = totalKwh / dayCount;
-    // Sanity check: if hourly sum way off from daily avg, renormalize
-    const hSum = hourly.reduce((a,b)=>a+b, 0);
-    if (hSum > 0 && Math.abs(hSum - dailyAvg) / dailyAvg > 0.2) {
-      hourly = hourly.map(v => (v / hSum) * dailyAvg);
-    }
-  } else if (medianDays < 7) {
-    // Daily summary (1 row per day): use typical shape scaled to daily avg
-    intervalLabel = 'Daily summary';
-    dayCount = records.length;
-    dailyAvg = totalKwh / dayCount;
-    hourly = shape.map(v => (v / shapeSum) * dailyAvg);
-  } else {
-    // Monthly / billing-cycle data: use date span, apply seasonal shape
-    intervalLabel = `Billing cycle (~${Math.round(medianDays)}d rows)`;
-    dayCount = spanDays;
-    dailyAvg = totalKwh / dayCount;
-    hourly = shape.map(v => (v / shapeSum) * dailyAvg);
-  }
-
-  // Annual estimate: scale total by 365/coveredDays
-  const annual = totalKwh * (365 / dayCount);
-
-  const meta = {
-    range: `${firstDate.toISOString().slice(0,10)} → ${lastDate.toISOString().slice(0,10)}`,
-    intervals: intervalLabel,
-    total: totalKwh,
-    dailyAvg: dailyAvg,
-    annual: annual,
-    days: dayCount,
-    rowCount: records.length,
-    label: `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`,
-  };
-  return { hourly, meta };
+  return { records, exportTotal, hasExport: exportIdx >= 0 };
 }
 
 function parseDate(str, formatHint) {

@@ -3235,19 +3235,34 @@ function restoreState() {
 }
 
 function copyShareLink() {
-  const url = window.location.origin + window.location.pathname + '#c=' + serializeState();
-  // Detect if CSV is included in either setup
+  // Optional: prompt for client name to enable click tracking. Blank = no tracking.
+  const clientName = prompt(
+    "Client name? (optional)\n\nEnter a name to track when they open this link — you'll get an email.\nLeave blank for an untracked link.",
+    ""
+  );
+  // If user cancelled (null), abort. If empty string, no tracking.
+  if (clientName === null) return;
+  const clientSlug = clientName.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+
+  let url = window.location.origin + window.location.pathname;
+  if (clientSlug) url += '?client=' + encodeURIComponent(clientSlug);
+  url += '#c=' + serializeState();
+
   const hasCsv = (STATE.setupA.src === 'csv' && STATE.setupA.csvProfile)
               || (STATE.setupB.src === 'csv' && STATE.setupB.csvProfile);
-  // Warn if URL is getting close to browser limits (~8KB safe, 32KB max)
   if (url.length > 8000) {
-    console.warn(`Share URL is ${url.length} chars — may be truncated by some apps. Consider clearing CSV data.`);
+    console.warn(`Share URL is ${url.length} chars — may be truncated by some apps.`);
   }
   const finish = () => {
     const t = document.getElementById('toast');
+    const tracked = clientSlug ? ` · tracking ${clientSlug}` : '';
     t.textContent = hasCsv
-      ? `Link copied · includes CSV usage data (${(url.length / 1024).toFixed(1)} KB)`
-      : 'Link copied · pre-loads this exact setup';
+      ? `Link copied · CSV included (${(url.length / 1024).toFixed(1)} KB)${tracked}`
+      : `Link copied · pre-loads this exact setup${tracked}`;
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), 2600);
   };
@@ -3256,6 +3271,41 @@ function copyShareLink() {
   } else {
     prompt('Copy this link:', url);
   }
+}
+
+// ===================== CLICK TRACKING =====================
+// Fires an invisible ping to Apps Script when a shared link is opened with ?client=name.
+// Skips bots / link-preview crawlers (iMessage, Slack, Twitter, FB, etc.) by UA detection
+// and a 2.5s delay (preview bots don't sustain JS execution that long).
+const TRACKING_ENDPOINT = 'https://script.google.com/macros/s/AKfycbzcOfX9J652V2UNPASbDRFaexPnLe_XHQwpkBwGww5Ds4R4UlFPY114ZJrjSIs-99FCFw/exec'; // PASTE YOUR APPS SCRIPT WEB APP URL HERE — leave blank to disable
+const BOT_UA = /bot|crawler|spider|preview|facebookexternalhit|slackbot|twitterbot|whatsapp|linkedinbot|telegrambot|discordbot|applebot|googlebot|bingbot|embed|fetch/i;
+
+function trackVisit() {
+  if (!TRACKING_ENDPOINT) return;
+  const params = new URLSearchParams(window.location.search);
+  const client = params.get('client');
+  if (!client) return;
+  if (BOT_UA.test(navigator.userAgent)) return;
+  // Wait 2.5s — gives real humans time to settle, filters out instant bounces
+  // and most JS-executing preview bots that don't linger on the page
+  setTimeout(() => {
+    try {
+      const u = new URL(TRACKING_ENDPOINT);
+      u.searchParams.set('client', client);
+      u.searchParams.set('ua', navigator.userAgent.slice(0, 200));
+      u.searchParams.set('ref', (document.referrer || 'direct').slice(0, 200));
+      u.searchParams.set('w', window.innerWidth);
+      u.searchParams.set('h', window.innerHeight);
+      u.searchParams.set('tz', Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+      fetch(u.toString(), { mode: 'no-cors', keepalive: true }).catch(() => {});
+    } catch (e) { /* silent */ }
+  }, 2500);
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', trackVisit);
+} else {
+  trackVisit();
 }
 
 // ===================== LOCAL STORAGE =====================

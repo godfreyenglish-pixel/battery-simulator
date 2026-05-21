@@ -1323,12 +1323,28 @@ function defaultSetup() {
     csvProfile: null, csvMeta: null,
   };
 }
+// Each tab has its own setup workspace. Arbitrage and Backup share the same
+// workspace (they describe the same battery + load — backup just shows runtime
+// for the battery you sized in arbitrage). Solar is fully independent so it
+// can be used as a standalone solar-only analysis tool without the battery/CSV
+// config leaking between tabs.
+function makeWorkspace(overrides) {
+  const ws = { setupA: defaultSetup(), setupB: defaultSetup() };
+  ws.setupA.hasBatt = false; // current scenario default = no battery
+  if (overrides) {
+    Object.assign(ws.setupA, overrides);
+    Object.assign(ws.setupB, overrides);
+  }
+  return ws;
+}
 const STATE = {
   mode: 'arbitrage',
   compare: false,
   activeSetup: 'B',
-  setupA: defaultSetup(),
-  setupB: defaultSetup(),
+  workspaces: {
+    arbBak: makeWorkspace(),                      // shared by arbitrage + backup
+    solar:  makeWorkspace({ hasSolar: true, hasBatt: false }), // solar-only tool
+  },
   peakRate: 0.38, offRate: 0.05, winterPeakRate: 0.17, basicCharge: 22, exportRate: 0.16, el1Rate: 0.38,
   winType: 'long', winStart: 14, winEnd: 22,
   crit: {
@@ -1337,7 +1353,22 @@ const STATE = {
   },
   animHour: -1, animPlaying: false, animTimer: null,
 };
-STATE.setupA.hasBatt = false; // current = no battery by default
+// Returns the workspace key for a given mode. Backup piggybacks on the arbitrage
+// workspace so the same battery config flows between the two tabs.
+function workspaceKey(mode) {
+  return (mode === 'solar') ? 'solar' : 'arbBak';
+}
+function currentWorkspace() { return STATE.workspaces[workspaceKey(STATE.mode)]; }
+// Backwards-compat shims so existing code that read STATE.setupA / STATE.setupB
+// still works — these now resolve against whichever workspace is active.
+Object.defineProperty(STATE, 'setupA', {
+  get() { return currentWorkspace().setupA; },
+  set(v) { currentWorkspace().setupA = v; },
+});
+Object.defineProperty(STATE, 'setupB', {
+  get() { return currentWorkspace().setupB; },
+  set(v) { currentWorkspace().setupB = v; },
+});
 
 const BRANDS = {
   eg4:   { name: 'EG4 16K',    kwh: 16,    contKw: 12, dod: 0.80, maxQty: 3 },
@@ -1762,6 +1793,10 @@ function setMode(m) {
   document.getElementById('compareRow').classList.toggle('hidden', !STATE.compare || m === 'backup');
   document.getElementById('heroLabel').classList.toggle('hidden', !STATE.compare || m === 'backup');
   pauseAnim();
+  // CRITICAL: workspaces are per-mode, so re-sync all DOM controls to the new
+  // workspace's values before rendering. Without this, sliders/toggles would
+  // still show the old workspace's state even though render() uses the new one.
+  refreshControls();
   render();
 }
 
@@ -3173,6 +3208,11 @@ function unpackSetup(p) {
   return out;
 }
 function serializeState() {
+  // New format: ws contains all workspaces. Keeps A/B at top level too for
+  // backward compat — old loaders that only know A/B still get a usable
+  // arbitrage state, and we ignore those on the new path.
+  const ab = STATE.workspaces.arbBak;
+  const so = STATE.workspaces.solar;
   const pack = {
     m: STATE.mode === 'arbitrage' ? 'a' : STATE.mode === 'backup' ? 'b' : 's',
     c: STATE.compare ? 1 : 0,
@@ -3180,8 +3220,12 @@ function serializeState() {
     bc: STATE.basicCharge, er: STATE.exportRate, e1: STATE.el1Rate,
     wt: STATE.winType, ws: STATE.winStart, we: STATE.winEnd,
     cr: STATE.crit,
-    A: packSetup(STATE.setupA),
-    B: packSetup(STATE.setupB),
+    A: packSetup(ab.setupA),  // backward-compat: arbBak setupA
+    B: packSetup(ab.setupB),  // backward-compat: arbBak setupB
+    ws2: {                    // new: all workspaces (avoids name clash with winStart)
+      ab: { A: packSetup(ab.setupA), B: packSetup(ab.setupB) },
+      so: { A: packSetup(so.setupA), B: packSetup(so.setupB) },
+    },
   };
   return btoa(unescape(encodeURIComponent(JSON.stringify(pack))));
 }
@@ -3212,8 +3256,21 @@ function restoreState() {
     STATE.winStart = data.ws ?? 14;
     STATE.winEnd = data.we ?? 22;
     if (data.cr) STATE.crit = data.cr;
-    if (data.A) STATE.setupA = unpackSetup(data.A);
-    if (data.B) STATE.setupB = unpackSetup(data.B);
+    // Restore workspaces. Prefer new ws2 format; fall back to legacy A/B as arbBak.
+    if (data.ws2) {
+      if (data.ws2.ab) {
+        if (data.ws2.ab.A) STATE.workspaces.arbBak.setupA = unpackSetup(data.ws2.ab.A);
+        if (data.ws2.ab.B) STATE.workspaces.arbBak.setupB = unpackSetup(data.ws2.ab.B);
+      }
+      if (data.ws2.so) {
+        if (data.ws2.so.A) STATE.workspaces.solar.setupA = unpackSetup(data.ws2.so.A);
+        if (data.ws2.so.B) STATE.workspaces.solar.setupB = unpackSetup(data.ws2.so.B);
+      }
+    } else {
+      // Legacy share: A/B at top level — load into arbBak workspace
+      if (data.A) STATE.workspaces.arbBak.setupA = unpackSetup(data.A);
+      if (data.B) STATE.workspaces.arbBak.setupB = unpackSetup(data.B);
+    }
     document.getElementById('peakRate').value = STATE.peakRate;
     document.getElementById('offRate').value = STATE.offRate;
     document.getElementById('winterPeakRate').value = STATE.winterPeakRate;
@@ -3249,8 +3306,11 @@ async function copyShareLink() {
     .slice(0, 50);
 
   const stateEncoded = serializeState();
-  const hasCsv = (STATE.setupA.src === 'csv' && STATE.setupA.csvProfile)
-              || (STATE.setupB.src === 'csv' && STATE.setupB.csvProfile);
+  const hasCsv = ['arbBak', 'solar'].some(k => {
+    const ws = STATE.workspaces[k];
+    return (ws.setupA.src === 'csv' && ws.setupA.csvProfile)
+        || (ws.setupB.src === 'csv' && ws.setupB.csvProfile);
+  });
   const toast = document.getElementById('toast');
 
   // Try to shorten via Apps Script first. Falls back to long hash URL if it fails
@@ -3378,6 +3438,8 @@ function saveState() {
       basicCharge: STATE.basicCharge, exportRate: STATE.exportRate, el1Rate: STATE.el1Rate,
       winType: STATE.winType, winStart: STATE.winStart, winEnd: STATE.winEnd,
       crit: STATE.crit,
+      workspaces: STATE.workspaces,
+      // Keep top-level setupA/B for backward compatibility on older builds
       setupA: STATE.setupA, setupB: STATE.setupB,
       savedAt: Date.now(),
     };
@@ -3402,8 +3464,14 @@ function loadState() {
     if (typeof d.winStart === 'number') STATE.winStart = d.winStart;
     if (typeof d.winEnd === 'number') STATE.winEnd = d.winEnd;
     if (d.crit) STATE.crit = d.crit;
-    if (d.setupA) STATE.setupA = d.setupA;
-    if (d.setupB) STATE.setupB = d.setupB;
+    // Restore per-mode workspaces if present; else migrate legacy top-level A/B to arbBak
+    if (d.workspaces) {
+      if (d.workspaces.arbBak) STATE.workspaces.arbBak = d.workspaces.arbBak;
+      if (d.workspaces.solar)  STATE.workspaces.solar  = d.workspaces.solar;
+    } else {
+      if (d.setupA) STATE.workspaces.arbBak.setupA = d.setupA;
+      if (d.setupB) STATE.workspaces.arbBak.setupB = d.setupB;
+    }
     return true;
   } catch(e) { return false; }
 }

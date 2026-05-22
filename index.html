@@ -1152,12 +1152,16 @@
               <div class="roi-value mono" id="roiArbNet" style="color: var(--yellow);">$0</div>
             </div>
             <div class="roi-cell">
-              <div class="roi-label">Yr 1 Savings</div>
-              <div class="roi-value mono" id="roiArbY1">$0</div>
-            </div>
-            <div class="roi-cell">
-              <div class="roi-label">Yr 25 Savings</div>
-              <div class="roi-value mono" id="roiArbY25">$0</div>
+              <div class="roi-label" style="display:flex; gap:6px; align-items:center;">
+                <span id="roiYearLabel">Yr 1 Savings</span>
+                <div id="roiYearSeg" style="display:flex; gap:2px; background:rgba(255,255,255,0.04); padding:2px; border-radius:5px;">
+                  <button class="yr-btn active" data-yr="1" style="background:var(--yellow);color:#0B1220;border:none;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;cursor:pointer;">1</button>
+                  <button class="yr-btn" data-yr="5" style="background:transparent;color:var(--text-3);border:none;font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;cursor:pointer;">5</button>
+                  <button class="yr-btn" data-yr="10" style="background:transparent;color:var(--text-3);border:none;font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;cursor:pointer;">10</button>
+                  <button class="yr-btn" data-yr="25" style="background:transparent;color:var(--text-3);border:none;font-size:10px;font-weight:600;padding:1px 6px;border-radius:3px;cursor:pointer;">25</button>
+                </div>
+              </div>
+              <div class="roi-value mono" id="roiArbYearVal">$0</div>
             </div>
             <div class="roi-cell">
               <div class="roi-label">Payback</div>
@@ -1352,6 +1356,7 @@ const STATE = {
     furnaceFan: false, well: false, microwave: false, tv: false, cpap: false,
   },
   animHour: -1, animPlaying: false, animTimer: null,
+  roiYear: 1,  // selected display year for the savings tile (1/5/10/25)
 };
 // Returns the workspace key for a given mode. Backup piggybacks on the arbitrage
 // workspace so the same battery config flows between the two tabs.
@@ -2000,6 +2005,11 @@ function setupEvents() {
   document.getElementById('el1Rate').oninput = (e) => { STATE.el1Rate = parseFloat(e.target.value) || 0; render(); };
   document.getElementById('basicCharge').oninput = (e) => { STATE.basicCharge = parseFloat(e.target.value) || 0; render(); };
   document.getElementById('exportRate').oninput = (e) => { STATE.exportRate = parseFloat(e.target.value) || 0; render(); };
+  // Multi-year escalator selector — flips the displayed savings tile through Yr 1/5/10/25
+  document.querySelectorAll('#roiYearSeg .yr-btn').forEach(btn => btn.onclick = () => {
+    STATE.roiYear = parseInt(btn.dataset.yr);
+    render();
+  });
   document.querySelectorAll('#windowSeg .seg-btn').forEach(b => b.onclick = () => {
     document.querySelectorAll('#windowSeg .seg-btn').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
@@ -2690,7 +2700,11 @@ function renderArbitrage() {
     const degradation = sB.hasSolar ? PANEL_DEGRADATION : 0;
     const payback = paybackYears(combinedNet, annualSaveB, { degradation });
     const lifetime = lifetimeSavings(annualSaveB, { degradation });
-    const y25 = annualSaveB * Math.pow(1 + UTILITY_ESCALATOR, 24) * Math.pow(1 - degradation, 24);
+    // Compute savings for the selected display year (compounded escalator + degradation)
+    const yr = STATE.roiYear || 1;
+    const yearSave = annualSaveB
+                   * Math.pow(1 + UTILITY_ESCALATOR, yr - 1)
+                   * Math.pow(1 - degradation, yr - 1);
     // Config line lists what's actually in the system
     const cfgParts = [];
     if (sB.hasBatt) cfgParts.push(`${BRANDS[sB.brand].name} ×${sB.qty}`);
@@ -2698,10 +2712,17 @@ function renderArbitrage() {
     cfgParts.push(`EL1 ${fmt$0(billsB.el1Annual)} → Rate III ${fmt$0(billsB.el9Annual)}/yr`);
     document.getElementById('roiArbConfig').textContent = cfgParts.join(' · ');
     document.getElementById('roiArbNet').textContent = fmt$0(combinedNet);
-    document.getElementById('roiArbY1').textContent = fmt$0(annualSaveB);
-    document.getElementById('roiArbY25').textContent = fmt$0(y25);
+    document.getElementById('roiYearLabel').textContent = `Yr ${yr} Savings`;
+    document.getElementById('roiArbYearVal').textContent = fmt$0(yearSave);
     document.getElementById('roiArbPayback').textContent = isFinite(payback) ? payback.toFixed(1) + ' yrs' : '— yrs';
     document.getElementById('roiArbLifetime').textContent = fmt$0(lifetime);
+    // Sync year segment button highlights
+    document.querySelectorAll('#roiYearSeg .yr-btn').forEach(btn => {
+      const isActive = parseInt(btn.dataset.yr) === yr;
+      btn.style.background = isActive ? 'var(--yellow)' : 'transparent';
+      btn.style.color = isActive ? '#0B1220' : 'var(--text-3)';
+      btn.style.fontWeight = isActive ? '700' : '600';
+    });
   } else {
     roiPanel.classList.add('hidden');
   }

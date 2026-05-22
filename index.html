@@ -2108,9 +2108,32 @@ async function handlePdf(file) {
       fullText += content.items.map(it => it.str).join(' ') + '\n';
     }
     const extracted = extractBillData(fullText);
+    // If auto-parse failed, fall back to manual entry instead of just rejecting
     if (!extracted.totalKwh || extracted.totalKwh < 10) {
-      alert('Could not find a kWh total in this PDF. Try uploading a Con Ed Green Button CSV instead, or use the Preset slider.\n\nIf you want me to support this bill format, send the PDF to your sales rep and we can tune the parser.');
-      return;
+      const manualKwh = prompt(
+        "Couldn't auto-detect the kWh total in this PDF (Con Ed bill formats vary).\n\n" +
+        "Look at the bill for the 'TOTAL ELECTRIC USE' or 'kWh USED' line. " +
+        "Enter the kWh number from the bill:",
+        ''
+      );
+      if (manualKwh === null) return;  // user cancelled
+      const kwhNum = parseFloat(String(manualKwh).replace(/[,$\s]/g, ''));
+      if (!isFinite(kwhNum) || kwhNum < 10) {
+        alert('That doesn\'t look like a valid kWh number. Try uploading the Con Ed Green Button CSV instead for the most accurate analysis.');
+        return;
+      }
+      extracted.totalKwh = kwhNum;
+      // Also prompt for days if we didn't get a date range
+      if (!extracted.periodDays || extracted.periodDays === 30) {
+        const manualDays = prompt(
+          'How many days does this bill cover? (Usually 28-33 for a monthly bill, leave blank for 30):',
+          '30'
+        );
+        if (manualDays !== null) {
+          const d = parseInt(manualDays);
+          if (isFinite(d) && d > 0 && d <= 366) extracted.periodDays = d;
+        }
+      }
     }
     // Build profile from extracted data
     const s = activeSetup();
@@ -2133,6 +2156,7 @@ async function handlePdf(file) {
       days: days,
       rowCount: 1,
       label: `PDF bill · ${days}d · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`,
+      partialYear: days < 300,
     };
     s.src = 'csv';
     refreshControls();
@@ -2147,19 +2171,26 @@ function extractBillData(text) {
   // Normalize whitespace
   const t = text.replace(/\s+/g, ' ');
 
-  // Try to find total kWh — multiple Con Ed patterns
+  // Try to find total kWh — exhaustive list of Con Ed (and similar utility) phrasings
   const kwhPatterns = [
     /total\s+electric\s+use[\s:]+([\d,]+\.?\d*)\s*kwh/i,
+    /total\s+electric\s+use\s+this\s+period[\s:]*([\d,]+\.?\d*)/i,
+    /electric\s+use\s+this\s+period[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
     /total\s+(?:electricity|electric|kwh)\s+(?:use|used|usage|consumption)[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
-    /(?:you used|total used|kwh used)[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
+    /(?:you used|total used|kwh used|kwh\s+used)[\s:]*([\d,]+\.?\d*)(?:\s*kwh?)?/i,
     /total\s+kwh\s*[:=]?\s*([\d,]+\.?\d*)/i,
-    /([\d,]{2,}\.?\d*)\s*kwh\s+(?:used|consumed|this period)/i,
+    /([\d,]{2,}\.?\d*)\s*kwh\s+(?:used|consumed|this\s+period)/i,
+    /electricity\s+used\s+since\s+last\s+meter\s+reading[\s:]*([\d,]+\.?\d*)/i,
+    /(?:total\s+)?energy\s+(?:use|used|consumption)[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
+    /electric\s+service[\s:]+([\d,]+\.?\d*)\s*kwh/i,
+    /usage[\s:]+([\d,]+\.?\d*)\s*kwh/i,
+    /([\d,]{2,}\.?\d*)\s*kilowatt[- ]hours/i,
   ];
   for (const pat of kwhPatterns) {
     const m = t.match(pat);
     if (m) {
       const v = parseFloat(m[1].replace(/,/g, ''));
-      if (isFinite(v) && v > 10) { result.totalKwh = v; break; }
+      if (isFinite(v) && v > 10 && v < 50000) { result.totalKwh = v; break; }
     }
   }
 

@@ -35,6 +35,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 <style>
   :root {
     --bg: #030712;
@@ -3345,9 +3346,8 @@ function unpackSetup(p) {
   return out;
 }
 function serializeState() {
-  // New format: ws contains all workspaces. Keeps A/B at top level too for
-  // backward compat — old loaders that only know A/B still get a usable
-  // arbitrage state, and we ignore those on the new path.
+  // Build state object. ws2 carries all workspaces; top-level A/B kept for
+  // backward compat only when ws2 would duplicate them (legacy loaders).
   const ab = STATE.workspaces.arbBak;
   const so = STATE.workspaces.solar;
   const pack = {
@@ -3357,28 +3357,65 @@ function serializeState() {
     bc: STATE.basicCharge, er: STATE.exportRate, e1: STATE.el1Rate,
     wt: STATE.winType, ws: STATE.winStart, we: STATE.winEnd,
     cr: STATE.crit,
-    A: packSetup(ab.setupA),  // backward-compat: arbBak setupA
-    B: packSetup(ab.setupB),  // backward-compat: arbBak setupB
-    ws2: {                    // new: all workspaces (avoids name clash with winStart)
-      ab: { A: packSetup(ab.setupA), B: packSetup(ab.setupB) },
-      so: { A: packSetup(so.setupA), B: packSetup(so.setupB) },
-    },
+    A: packSetup(ab.setupA),
+    B: packSetup(ab.setupB),
   };
-  return btoa(unescape(encodeURIComponent(JSON.stringify(pack))));
+  // Only include ws2 if solar workspace differs from defaults
+  const soA = packSetup(so.setupA);
+  const soB = packSetup(so.setupB);
+  const solarHasData = soA.sr === 'csv' || soB.sr === 'csv' || soA.hs || soB.hs;
+  if (solarHasData) {
+    pack.ws2 = {
+      ab: { A: pack.A, B: pack.B },
+      so: { A: soA, B: soB },
+    };
+  }
+  const json = JSON.stringify(pack);
+  // Compress with pako if available, fall back to plain base64
+  if (typeof pako !== 'undefined') {
+    try {
+      const compressed = pako.deflateRaw(new TextEncoder().encode(json));
+      return 'z:' + toBase64Url(compressed);
+    } catch (e) {
+      console.warn('Compression failed, using plain base64:', e);
+    }
+  }
+  return 'c:' + btoa(unescape(encodeURIComponent(json)));
+}
+
+// URL-safe base64: no +/= that balloon when percent-encoded in URLs
+function toBase64Url(uint8) {
+  let bin = '';
+  for (let i = 0; i < uint8.length; i++) bin += String.fromCharCode(uint8[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function fromBase64Url(str) {
+  const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
 }
 function restoreState() {
   const hash = window.location.hash;
   if (!hash || hash.length < 4) return;
   try {
-    const m = hash.match(/^#c=(.+)$/);
-    if (!m) return;
     let decoded;
-    try {
-      // New format: UTF-8 safe
-      decoded = decodeURIComponent(escape(atob(m[1])));
-    } catch (e) {
-      // Fallback: old format
-      decoded = atob(m[1]);
+    // Compressed format: #z=<deflate+base64url>
+    const mz = hash.match(/^#z=(.+)$/);
+    if (mz && typeof pako !== 'undefined') {
+      const bytes = fromBase64Url(mz[1]);
+      decoded = new TextDecoder().decode(pako.inflateRaw(bytes));
+    }
+    // Legacy format: #c=<plain-base64>
+    if (!decoded) {
+      const mc = hash.match(/^#c=(.+)$/);
+      if (!mc) return;
+      try {
+        decoded = decodeURIComponent(escape(atob(mc[1])));
+      } catch (e) {
+        decoded = atob(mc[1]);
+      }
     }
     const data = JSON.parse(decoded);
     STATE.mode = data.m === 'a' ? 'arbitrage' : data.m === 's' ? 'solar' : 'backup';
@@ -3442,7 +3479,13 @@ async function copyShareLink() {
     .replace(/^-+|-+$/g, '')
     .slice(0, 50);
 
-  const stateEncoded = serializeState();
+  // serializeState returns "z:<compressed>" or "c:<plain>"
+  const stateRaw = serializeState();
+  const colonIdx = stateRaw.indexOf(':');
+  const statePrefix = stateRaw.substring(0, colonIdx);   // 'z' or 'c'
+  const stateData = stateRaw.substring(colonIdx + 1);     // encoded payload
+  const hashFragment = '#' + statePrefix + '=' + stateData;
+
   const hasCsv = ['arbBak', 'solar'].some(k => {
     const ws = STATE.workspaces[k];
     return (ws.setupA.src === 'csv' && ws.setupA.csvProfile)
@@ -3450,8 +3493,7 @@ async function copyShareLink() {
   });
   const toast = document.getElementById('toast');
 
-  // Try to shorten via Apps Script first. Falls back to long hash URL if it fails
-  // or if the endpoint isn't configured.
+  // Try to shorten via Apps Script first. Falls back to hash URL if it fails.
   let url = null;
   if (TRACKING_ENDPOINT) {
     toast.textContent = 'Generating short link…';
@@ -3459,12 +3501,13 @@ async function copyShareLink() {
     try {
       const apiUrl = new URL(TRACKING_ENDPOINT);
       apiUrl.searchParams.set('action', 'save');
-      apiUrl.searchParams.set('state', stateEncoded);
-      // 8s timeout — Apps Script cold start can be slow
+      apiUrl.searchParams.set('state', statePrefix + ':' + stateData);
+      // 10s timeout — Apps Script cold start can be slow
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const timer = setTimeout(() => ctrl.abort(), 10000);
       const res = await fetch(apiUrl.toString(), { signal: ctrl.signal });
       clearTimeout(timer);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       if (data && data.id) {
         url = window.location.origin + window.location.pathname + '?s=' + data.id;
@@ -3473,15 +3516,15 @@ async function copyShareLink() {
         console.warn('Short link API returned no id:', data);
       }
     } catch (e) {
-      console.warn('Short link failed, falling back to long URL:', e);
+      console.warn('Short link failed, falling back to hash URL:', e);
     }
   }
 
-  // Fallback: long URL with state in the hash
+  // Fallback: hash URL with compressed state
   if (!url) {
     url = window.location.origin + window.location.pathname;
     if (clientSlug) url += '?client=' + encodeURIComponent(clientSlug);
-    url += '#c=' + stateEncoded;
+    url += hashFragment;
   }
   const isShort = url.length < 120;
 
@@ -3520,8 +3563,16 @@ async function resolveShortLink() {
     clearTimeout(timer);
     const data = await res.json();
     if (data && data.state) {
-      // Inject as if it came from the hash, so restoreState picks it up
-      window.location.hash = 'c=' + data.state;
+      // State stored as "z:<compressed>" or "c:<plain>" (or legacy plain base64)
+      const st = data.state;
+      if (st.startsWith('z:')) {
+        window.location.hash = 'z=' + st.substring(2);
+      } else if (st.startsWith('c:')) {
+        window.location.hash = 'c=' + st.substring(2);
+      } else {
+        // Legacy: plain base64 without prefix
+        window.location.hash = 'c=' + st;
+      }
       return true;
     }
   } catch (e) {
@@ -3676,7 +3727,7 @@ function render() {
 // ===================== INIT =====================
 buildCriticalList();
 setupEvents();
-// Priority: short link (?s=) → URL hash (#c=) → localStorage → render
+// Priority: short link (?s=) → URL hash (#z= or #c=) → localStorage → render
 (async () => {
   const hadShort = await resolveShortLink();
   const hadLocal = loadState();

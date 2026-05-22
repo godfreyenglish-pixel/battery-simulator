@@ -1052,6 +1052,16 @@
               <div id="csvNetMeteredWarn" class="hidden" style="background:rgba(20,184,166,0.10); border:1px solid rgba(20,184,166,0.35); border-radius:6px; padding:8px 10px; margin-bottom:10px; font-size:11.5px; color:#5EEAD4; line-height:1.4;">
                 <strong style="color:#14B8A6;">ℹ Existing solar detected</strong> — this CSV has negative USAGE values (home was exporting to grid). Implicit solar of <strong><span id="csvNetMeteredSolar">—</span> kWh/yr</strong> will charge the battery during the day. Reported annual is <strong>net</strong> of solar; gross load is ~<strong><span id="csvNetMeteredGross">—</span> kWh/yr</strong>.
               </div>
+              <div id="csvDateFilterRow" class="hidden" style="background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.25); border-radius:6px; padding:8px 10px; margin-bottom:10px; font-size:11.5px; color:var(--text-2); line-height:1.4;">
+                <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
+                  <span><strong style="color:var(--yellow);">📅 <span id="csvFullSpanLabel">30</span> months of data.</strong> Showing:</span>
+                  <div class="seg" id="csvDateFilterSeg" style="flex-shrink:0;">
+                    <button class="seg-btn active" data-filter="last12" onclick="refilterCsv('last12')">Last 12 mo</button>
+                    <button class="seg-btn" data-filter="last24" onclick="refilterCsv('last24')">Last 24 mo</button>
+                    <button class="seg-btn" data-filter="all" onclick="refilterCsv('all')">All data</button>
+                  </div>
+                </div>
+              </div>
               <div class="csv-meta">
                 <div>Range: <span id="csvRange">—</span></div>
                 <div>Intervals: <span id="csvIntervals">—</span></div>
@@ -1990,6 +2000,16 @@ function refreshControls() {
       } else {
         exportRow.classList.add('hidden');
       }
+      // Date range filter (only when CSV spans > 400 days)
+      const filterRow = document.getElementById('csvDateFilterRow');
+      if (s.csvMeta.fullSpanDays && s.csvMeta.fullSpanDays > 400) {
+        filterRow.classList.remove('hidden');
+        document.getElementById('csvFullSpanLabel').textContent = Math.round(s.csvMeta.fullSpanDays / 30);
+        const activeFilter = s.csvMeta.dateFilter || 'all';
+        document.querySelectorAll('#csvDateFilterSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === activeFilter));
+      } else {
+        filterRow.classList.add('hidden');
+      }
     }
   } else {
     zone.classList.remove('has-file');
@@ -2338,13 +2358,39 @@ function parseGreenButton(input) {
   if (allRecords.length === 0) throw new Error('No valid data rows parsed from any file');
   allRecords.sort((a, b) => a.dt - b.dt);
 
-  const firstDate = allRecords[0].dt;
-  const lastDate = allRecords[allRecords.length - 1].dt;
-  const totalKwh = allRecords.reduce((s, r) => s + r.usage, 0);
+  // Detect full span and auto-filter to last 12 months if > 400 days
+  const fullFirstDate = allRecords[0].dt;
+  const fullLastDate = allRecords[allRecords.length - 1].dt;
+  const fullSpanDays = Math.round((fullLastDate - fullFirstDate) / 86400000);
+  let filtered = allRecords;
+  let dateFilter = 'all';
+  if (fullSpanDays > 400) {
+    dateFilter = 'last12';
+    const cutoff = new Date(fullLastDate);
+    cutoff.setFullYear(cutoff.getFullYear() - 1);
+    filtered = allRecords.filter(r => r.dt >= cutoff);
+    if (filtered.length < 2) filtered = allRecords; // safety fallback
+  }
 
-  // Median spacing between rows → detect interval type
+  const profile = buildProfileFromRecords(filtered, texts.length, hasExportCol, totalExportKwh);
+  // Attach non-serializable extras for re-filtering
+  profile.meta.allRecords = allRecords;
+  profile.meta.dateFilter = dateFilter;
+  profile.meta.fullSpanDays = fullSpanDays;
+  profile.meta.fullRecordCount = allRecords.length;
+  profile.meta.fullTotalKwh = allRecords.reduce((s, r) => s + r.usage, 0);
+  return profile;
+}
+
+// Builds hourly profile + meta from a (possibly filtered) set of records.
+// Extracted so refilterCsv() can call it without re-parsing the CSV text.
+function buildProfileFromRecords(records, fileCount, hasExportCol, totalExportKwh) {
+  const firstDate = records[0].dt;
+  const lastDate = records[records.length - 1].dt;
+  const totalKwh = records.reduce((s, r) => s + r.usage, 0);
+
   const deltasMs = [];
-  for (let i = 1; i < allRecords.length; i++) deltasMs.push(allRecords[i].dt - allRecords[i-1].dt);
+  for (let i = 1; i < records.length; i++) deltasMs.push(records[i].dt - records[i-1].dt);
   deltasMs.sort((a, b) => a - b);
   const medianMs = deltasMs.length > 0 ? deltasMs[Math.floor(deltasMs.length / 2)] : 0;
   const medianHours = medianMs / 3600000;
@@ -2356,25 +2402,23 @@ function parseGreenButton(input) {
   const shapeSum = shape.reduce((a, b) => a + b, 0);
 
   if (medianHours < 2) {
-    // Hourly / 15-min / 30-min: bucket by hour, average across unique days
     intervalLabel = medianHours < 0.4 ? '15-min interval' : medianHours < 0.9 ? '30-min interval' : 'Hourly';
     const buckets = new Array(24).fill(0);
     const dates = new Set();
-    for (const r of allRecords) {
+    for (const r of records) {
       buckets[r.dt.getHours()] += r.usage;
       dates.add(r.dt.toISOString().slice(0, 10));
     }
     dayCount = Math.max(dates.size, 1);
     hourly = buckets.map(v => v / dayCount);
     dailyAvg = totalKwh / dayCount;
-    // Renormalize if hourly drift > 20%
     const hSum = hourly.reduce((a, b) => a + b, 0);
     if (hSum > 0 && Math.abs(hSum - dailyAvg) / dailyAvg > 0.2) {
       hourly = hourly.map(v => (v / hSum) * dailyAvg);
     }
   } else if (medianDays < 7) {
     intervalLabel = 'Daily summary';
-    dayCount = allRecords.length;
+    dayCount = records.length;
     dailyAvg = totalKwh / dayCount;
     hourly = shape.map(v => (v / shapeSum) * dailyAvg);
   } else {
@@ -2387,22 +2431,19 @@ function parseGreenButton(input) {
   const annual = totalKwh * (365 / dayCount);
   const partialYear = dayCount < 300;
 
-  // Detect net-metered single-column data: any hours with negative average?
-  // (negative = excess solar exported, common in pre-PTO single-USAGE-column Con Ed exports)
   const hasNetMetered = hourly.some(v => v < 0);
   let implicitSolarKwh = 0;
   let grossLoadKwh = 0;
   if (hasNetMetered) {
     implicitSolarKwh = hourly.reduce((a, v) => a + (v < 0 ? -v : 0), 0);
     grossLoadKwh = hourly.reduce((a, v) => a + Math.max(0, v), 0);
-    // Annualize for display
     implicitSolarKwh *= 365;
     grossLoadKwh *= 365;
   }
 
   let label = `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`;
   if (partialYear) label += ' ⚠ partial year';
-  if (texts.length > 1) label = `${texts.length} files merged · ` + label;
+  if (fileCount > 1) label = `${fileCount} files merged · ` + label;
   if (hasExportCol) label += ` · solar export: ${Math.round(totalExportKwh).toLocaleString()} kWh`;
   if (hasNetMetered) label += ` · implicit solar: ~${Math.round(implicitSolarKwh).toLocaleString()} kWh/yr`;
 
@@ -2413,18 +2454,52 @@ function parseGreenButton(input) {
     dailyAvg: dailyAvg,
     annual: annual,
     days: dayCount,
-    rowCount: allRecords.length,
+    rowCount: records.length,
     label: label,
     partialYear: partialYear,
-    filesCount: texts.length,
+    filesCount: fileCount,
     exportKwh: totalExportKwh,
     hasExport: hasExportCol,
     hasNetMetered: hasNetMetered,
     implicitSolarAnnualKwh: implicitSolarKwh,
     grossLoadAnnualKwh: grossLoadKwh,
-    perFile: perFileSummary,
   };
   return { hourly, meta };
+}
+
+// Re-filter CSV data to a different date range without re-parsing the file.
+function refilterCsv(mode) {
+  const s = activeSetup();
+  if (!s.csvMeta || !s.csvMeta.allRecords) return;
+  const all = s.csvMeta.allRecords;
+  const lastDate = all[all.length - 1].dt;
+  let filtered = all;
+
+  if (mode === 'last12') {
+    const cutoff = new Date(lastDate);
+    cutoff.setFullYear(cutoff.getFullYear() - 1);
+    filtered = all.filter(r => r.dt >= cutoff);
+  } else if (mode === 'last24') {
+    const cutoff = new Date(lastDate);
+    cutoff.setFullYear(cutoff.getFullYear() - 2);
+    filtered = all.filter(r => r.dt >= cutoff);
+  }
+  if (filtered.length < 2) filtered = all;
+
+  const profile = buildProfileFromRecords(filtered, s.csvMeta.filesCount || 1, s.csvMeta.hasExport, s.csvMeta.exportKwh || 0);
+  // Preserve non-serializable fields
+  profile.meta.allRecords = all;
+  profile.meta.dateFilter = mode;
+  profile.meta.fullSpanDays = s.csvMeta.fullSpanDays;
+  profile.meta.fullRecordCount = s.csvMeta.fullRecordCount;
+  profile.meta.fullTotalKwh = s.csvMeta.fullTotalKwh;
+
+  s.csvProfile = profile.hourly;
+  s.csvMeta = profile.meta;
+  // Update filter button highlights
+  document.querySelectorAll('#csvDateFilterSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === mode));
+  refreshControls();
+  render();
 }
 
 // Parse one CSV file's text. Returns records[] + export totals if schema has EXPORT column.

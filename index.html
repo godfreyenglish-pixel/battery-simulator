@@ -2234,8 +2234,14 @@ function extractBillData(text) {
   // Normalize whitespace
   const t = text.replace(/\s+/g, ' ');
 
-  // Try to find total kWh — exhaustive list of Con Ed (and similar utility) phrasings
+  // Try to find total kWh — exhaustive list of Con Ed (and similar utility) phrasings.
+  // NOTE: Order matters. Con Ed supply/delivery lines are the most reliable,
+  // so they go first. The generic "usage X kWh" pattern is restricted to avoid
+  // matching daily averages (e.g. "daily electric usage 40.21 kWh").
   const kwhPatterns = [
+    // Con Ed supply/delivery lines — most reliable, appear on every bill
+    /(?:Supply|Delivery)\s+([\d,]+\.?\d*)\s*kWh/i,
+    // Explicit total patterns
     /total\s+electric\s+use[\s:]+([\d,]+\.?\d*)\s*kwh/i,
     /total\s+electric\s+use\s+this\s+period[\s:]*([\d,]+\.?\d*)/i,
     /electric\s+use\s+this\s+period[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
@@ -2246,14 +2252,16 @@ function extractBillData(text) {
     /electricity\s+used\s+since\s+last\s+meter\s+reading[\s:]*([\d,]+\.?\d*)/i,
     /(?:total\s+)?energy\s+(?:use|used|consumption)[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
     /electric\s+service[\s:]+([\d,]+\.?\d*)\s*kwh/i,
-    /usage[\s:]+([\d,]+\.?\d*)\s*kwh/i,
+    // Generic "usage X kWh" — restricted to require "total" or "monthly" qualifier
+    // to avoid matching "daily electric usage 40.21 kWh" chart labels
+    /(?:total|monthly|billing|period)\s+usage[\s:]+([\d,]+\.?\d*)\s*kwh/i,
     /([\d,]{2,}\.?\d*)\s*kilowatt[- ]hours/i,
   ];
   for (const pat of kwhPatterns) {
     const m = t.match(pat);
     if (m) {
       const v = parseFloat(m[1].replace(/,/g, ''));
-      if (isFinite(v) && v > 10 && v < 50000) { result.totalKwh = v; break; }
+      if (isFinite(v) && v > 50 && v < 50000) { result.totalKwh = v; break; }
     }
   }
 

@@ -35,7 +35,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 <style>
   :root {
     --bg: #030712;
@@ -939,6 +938,14 @@
             </div>
           </div>
 
+          <div class="field">
+            <div class="field-label">
+              <span>Critical Load Panel <span style="font-size:11px;color:var(--text-4);font-weight:400;">· +$3,000</span></span>
+              <div class="switch on" id="clpSwitch"><div class="switch-track"><div class="switch-thumb"></div></div></div>
+            </div>
+            <div style="font-size:11px;color:var(--text-4);margin-top:4px;line-height:1.4;">Required for backup loads · toggle off if homeowner doesn't want backup power during outages</div>
+          </div>
+
           <div class="spec-grid">
             <div class="spec">
               <div class="spec-label">Total</div>
@@ -1051,16 +1058,6 @@
               </div>
               <div id="csvNetMeteredWarn" class="hidden" style="background:rgba(20,184,166,0.10); border:1px solid rgba(20,184,166,0.35); border-radius:6px; padding:8px 10px; margin-bottom:10px; font-size:11.5px; color:#5EEAD4; line-height:1.4;">
                 <strong style="color:#14B8A6;">ℹ Existing solar detected</strong> — this CSV has negative USAGE values (home was exporting to grid). Implicit solar of <strong><span id="csvNetMeteredSolar">—</span> kWh/yr</strong> will charge the battery during the day. Reported annual is <strong>net</strong> of solar; gross load is ~<strong><span id="csvNetMeteredGross">—</span> kWh/yr</strong>.
-              </div>
-              <div id="csvDateFilterRow" class="hidden" style="background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.25); border-radius:6px; padding:8px 10px; margin-bottom:10px; font-size:11.5px; color:var(--text-2); line-height:1.4;">
-                <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px;">
-                  <span><strong style="color:var(--yellow);">📅 <span id="csvFullSpanLabel">30</span> months of data.</strong> Showing:</span>
-                  <div class="seg" id="csvDateFilterSeg" style="flex-shrink:0;">
-                    <button class="seg-btn active" data-filter="last12" onclick="refilterCsv('last12')">Last 12 mo</button>
-                    <button class="seg-btn" data-filter="last24" onclick="refilterCsv('last24')">Last 24 mo</button>
-                    <button class="seg-btn" data-filter="all" onclick="refilterCsv('all')">All data</button>
-                  </div>
-                </div>
               </div>
               <div class="csv-meta">
                 <div>Range: <span id="csvRange">—</span></div>
@@ -1395,7 +1392,7 @@
 // ===================== STATE =====================
 function defaultSetup() {
   return {
-    hasBatt: true, brand: 'eg4', qty: 2,
+    hasBatt: true, brand: 'eg4', qty: 2, hasClp: true,
     hasSolar: false, solarKw: 8.0, solarShade: 0, solarAdjust: 0,
     src: 'preset', daily: 30, home: 'gas', season: 'summer',
     csvProfile: null, csvMeta: null,
@@ -1464,9 +1461,10 @@ const BATTERY_RTE = 0.90;                   // round-trip efficiency (EG4/LG ~ 9
 const NY_SOLAR_CREDIT_PCT = 0.25;           // NY state solar credit: 25% of system cost
 const NY_SOLAR_CREDIT_CAP = 5000;           // ...capped at $5,000 lifetime per residence
 
-// Battery pricing — EG4 figures match user's exact numbers (per kWh × kWh + $5k CLP+commission)
-// LG/Solis: $925/$635 per kWh + $3k base adder + $5k CLP+commission, per project knowledge
-const BATT_ADDER = 5000;                    // CLP $3k + commission $2k (baked into all configs)
+// Battery pricing — EG4 figures match user's exact numbers (per kWh × kWh + adders)
+// LG/Solis: $925/$635 per kWh + $3k base adder + adders, per project knowledge
+const CLP_COST = 3000;                      // Critical Load Panel — toggleable add-on
+const BATT_COMMISSION = 2000;               // Commission baked into all configs (non-toggleable)
 const BATT_BRAND_ADDER = { eg4: 0, lg: 3000, solis: 3000 };
 const BATT_PER_KWH = {
   eg4:   { 1: 1000, 2: 705, 3: 610 },
@@ -1492,9 +1490,11 @@ function batterySystemCost(s) {
   const qty = s.qty;
   const totalKwh = brand.kwh * qty;
   const perKwh = (BATT_PER_KWH[s.brand] && BATT_PER_KWH[s.brand][qty]) || BATT_PER_KWH.eg4[1];
-  const gross = totalKwh * perKwh + (BATT_BRAND_ADDER[s.brand] || 0) + BATT_ADDER;
+  // CLP defaults to true (most installs include it) — drop $3K when toggled off
+  const clpCost = (s.hasClp !== false) ? CLP_COST : 0;
+  const gross = totalKwh * perKwh + (BATT_BRAND_ADDER[s.brand] || 0) + BATT_COMMISSION + clpCost;
   const incentive = qty >= 2 ? NYSERDA[2] : NYSERDA[1];
-  return { gross, incentive, net: Math.max(0, gross - incentive), totalKwh, perKwh };
+  return { gross, incentive, net: Math.max(0, gross - incentive), totalKwh, perKwh, clpCost };
 }
 
 // 25-year compounded savings with utility escalator
@@ -1930,6 +1930,7 @@ function refreshControls() {
   const s = activeSetup();
   document.getElementById('battSwitch').classList.toggle('on', s.hasBatt);
   document.getElementById('battBody').style.display = s.hasBatt ? '' : 'none';
+  document.getElementById('clpSwitch').classList.toggle('on', s.hasClp !== false);
   document.querySelectorAll('#brandSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.brand === s.brand));
   document.getElementById('qtyDisplay').textContent = s.qty;
   document.getElementById('qtyLabel').textContent = s.qty;
@@ -2000,16 +2001,6 @@ function refreshControls() {
       } else {
         exportRow.classList.add('hidden');
       }
-      // Date range filter (only when CSV spans > 400 days)
-      const filterRow = document.getElementById('csvDateFilterRow');
-      if (s.csvMeta.fullSpanDays && s.csvMeta.fullSpanDays > 400) {
-        filterRow.classList.remove('hidden');
-        document.getElementById('csvFullSpanLabel').textContent = Math.round(s.csvMeta.fullSpanDays / 30);
-        const activeFilter = s.csvMeta.dateFilter || 'all';
-        document.querySelectorAll('#csvDateFilterSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === activeFilter));
-      } else {
-        filterRow.classList.add('hidden');
-      }
     }
   } else {
     zone.classList.remove('has-file');
@@ -2042,6 +2033,12 @@ function buildCriticalList() {
 function setupEvents() {
   document.querySelectorAll('.setup-tab').forEach(t => t.onclick = () => setActiveSetup(t.dataset.setup));
   document.getElementById('battSwitch').onclick = () => { const s = activeSetup(); s.hasBatt = !s.hasBatt; refreshControls(); render(); };
+  document.getElementById('clpSwitch').onclick = () => {
+    const s = activeSetup();
+    s.hasClp = (s.hasClp === false);  // toggle (default-true treats undefined as on)
+    refreshControls();
+    render();
+  };
   document.getElementById('solSwitch').onclick  = () => { const s = activeSetup(); s.hasSolar = !s.hasSolar; refreshControls(); render(); };
   document.querySelectorAll('#brandSeg .seg-btn').forEach(b => b.onclick = () => {
     const s = activeSetup(); s.brand = b.dataset.brand;
@@ -2255,14 +2252,8 @@ function extractBillData(text) {
   // Normalize whitespace
   const t = text.replace(/\s+/g, ' ');
 
-  // Try to find total kWh — exhaustive list of Con Ed (and similar utility) phrasings.
-  // NOTE: Order matters. Con Ed supply/delivery lines are the most reliable,
-  // so they go first. The generic "usage X kWh" pattern is restricted to avoid
-  // matching daily averages (e.g. "daily electric usage 40.21 kWh").
+  // Try to find total kWh — exhaustive list of Con Ed (and similar utility) phrasings
   const kwhPatterns = [
-    // Con Ed supply/delivery lines — most reliable, appear on every bill
-    /(?:Supply|Delivery)\s+([\d,]+\.?\d*)\s*kWh/i,
-    // Explicit total patterns
     /total\s+electric\s+use[\s:]+([\d,]+\.?\d*)\s*kwh/i,
     /total\s+electric\s+use\s+this\s+period[\s:]*([\d,]+\.?\d*)/i,
     /electric\s+use\s+this\s+period[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
@@ -2273,16 +2264,14 @@ function extractBillData(text) {
     /electricity\s+used\s+since\s+last\s+meter\s+reading[\s:]*([\d,]+\.?\d*)/i,
     /(?:total\s+)?energy\s+(?:use|used|consumption)[\s:]*([\d,]+\.?\d*)\s*kwh?/i,
     /electric\s+service[\s:]+([\d,]+\.?\d*)\s*kwh/i,
-    // Generic "usage X kWh" — restricted to require "total" or "monthly" qualifier
-    // to avoid matching "daily electric usage 40.21 kWh" chart labels
-    /(?:total|monthly|billing|period)\s+usage[\s:]+([\d,]+\.?\d*)\s*kwh/i,
+    /usage[\s:]+([\d,]+\.?\d*)\s*kwh/i,
     /([\d,]{2,}\.?\d*)\s*kilowatt[- ]hours/i,
   ];
   for (const pat of kwhPatterns) {
     const m = t.match(pat);
     if (m) {
       const v = parseFloat(m[1].replace(/,/g, ''));
-      if (isFinite(v) && v > 50 && v < 50000) { result.totalKwh = v; break; }
+      if (isFinite(v) && v > 10 && v < 50000) { result.totalKwh = v; break; }
     }
   }
 
@@ -2358,39 +2347,13 @@ function parseGreenButton(input) {
   if (allRecords.length === 0) throw new Error('No valid data rows parsed from any file');
   allRecords.sort((a, b) => a.dt - b.dt);
 
-  // Detect full span and auto-filter to last 12 months if > 400 days
-  const fullFirstDate = allRecords[0].dt;
-  const fullLastDate = allRecords[allRecords.length - 1].dt;
-  const fullSpanDays = Math.round((fullLastDate - fullFirstDate) / 86400000);
-  let filtered = allRecords;
-  let dateFilter = 'all';
-  if (fullSpanDays > 400) {
-    dateFilter = 'last12';
-    const cutoff = new Date(fullLastDate);
-    cutoff.setFullYear(cutoff.getFullYear() - 1);
-    filtered = allRecords.filter(r => r.dt >= cutoff);
-    if (filtered.length < 2) filtered = allRecords; // safety fallback
-  }
+  const firstDate = allRecords[0].dt;
+  const lastDate = allRecords[allRecords.length - 1].dt;
+  const totalKwh = allRecords.reduce((s, r) => s + r.usage, 0);
 
-  const profile = buildProfileFromRecords(filtered, texts.length, hasExportCol, totalExportKwh);
-  // Attach non-serializable extras for re-filtering
-  profile.meta.allRecords = allRecords;
-  profile.meta.dateFilter = dateFilter;
-  profile.meta.fullSpanDays = fullSpanDays;
-  profile.meta.fullRecordCount = allRecords.length;
-  profile.meta.fullTotalKwh = allRecords.reduce((s, r) => s + r.usage, 0);
-  return profile;
-}
-
-// Builds hourly profile + meta from a (possibly filtered) set of records.
-// Extracted so refilterCsv() can call it without re-parsing the CSV text.
-function buildProfileFromRecords(records, fileCount, hasExportCol, totalExportKwh) {
-  const firstDate = records[0].dt;
-  const lastDate = records[records.length - 1].dt;
-  const totalKwh = records.reduce((s, r) => s + r.usage, 0);
-
+  // Median spacing between rows → detect interval type
   const deltasMs = [];
-  for (let i = 1; i < records.length; i++) deltasMs.push(records[i].dt - records[i-1].dt);
+  for (let i = 1; i < allRecords.length; i++) deltasMs.push(allRecords[i].dt - allRecords[i-1].dt);
   deltasMs.sort((a, b) => a - b);
   const medianMs = deltasMs.length > 0 ? deltasMs[Math.floor(deltasMs.length / 2)] : 0;
   const medianHours = medianMs / 3600000;
@@ -2402,23 +2365,25 @@ function buildProfileFromRecords(records, fileCount, hasExportCol, totalExportKw
   const shapeSum = shape.reduce((a, b) => a + b, 0);
 
   if (medianHours < 2) {
+    // Hourly / 15-min / 30-min: bucket by hour, average across unique days
     intervalLabel = medianHours < 0.4 ? '15-min interval' : medianHours < 0.9 ? '30-min interval' : 'Hourly';
     const buckets = new Array(24).fill(0);
     const dates = new Set();
-    for (const r of records) {
+    for (const r of allRecords) {
       buckets[r.dt.getHours()] += r.usage;
       dates.add(r.dt.toISOString().slice(0, 10));
     }
     dayCount = Math.max(dates.size, 1);
     hourly = buckets.map(v => v / dayCount);
     dailyAvg = totalKwh / dayCount;
+    // Renormalize if hourly drift > 20%
     const hSum = hourly.reduce((a, b) => a + b, 0);
     if (hSum > 0 && Math.abs(hSum - dailyAvg) / dailyAvg > 0.2) {
       hourly = hourly.map(v => (v / hSum) * dailyAvg);
     }
   } else if (medianDays < 7) {
     intervalLabel = 'Daily summary';
-    dayCount = records.length;
+    dayCount = allRecords.length;
     dailyAvg = totalKwh / dayCount;
     hourly = shape.map(v => (v / shapeSum) * dailyAvg);
   } else {
@@ -2431,19 +2396,22 @@ function buildProfileFromRecords(records, fileCount, hasExportCol, totalExportKw
   const annual = totalKwh * (365 / dayCount);
   const partialYear = dayCount < 300;
 
+  // Detect net-metered single-column data: any hours with negative average?
+  // (negative = excess solar exported, common in pre-PTO single-USAGE-column Con Ed exports)
   const hasNetMetered = hourly.some(v => v < 0);
   let implicitSolarKwh = 0;
   let grossLoadKwh = 0;
   if (hasNetMetered) {
     implicitSolarKwh = hourly.reduce((a, v) => a + (v < 0 ? -v : 0), 0);
     grossLoadKwh = hourly.reduce((a, v) => a + Math.max(0, v), 0);
+    // Annualize for display
     implicitSolarKwh *= 365;
     grossLoadKwh *= 365;
   }
 
   let label = `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`;
   if (partialYear) label += ' ⚠ partial year';
-  if (fileCount > 1) label = `${fileCount} files merged · ` + label;
+  if (texts.length > 1) label = `${texts.length} files merged · ` + label;
   if (hasExportCol) label += ` · solar export: ${Math.round(totalExportKwh).toLocaleString()} kWh`;
   if (hasNetMetered) label += ` · implicit solar: ~${Math.round(implicitSolarKwh).toLocaleString()} kWh/yr`;
 
@@ -2454,52 +2422,18 @@ function buildProfileFromRecords(records, fileCount, hasExportCol, totalExportKw
     dailyAvg: dailyAvg,
     annual: annual,
     days: dayCount,
-    rowCount: records.length,
+    rowCount: allRecords.length,
     label: label,
     partialYear: partialYear,
-    filesCount: fileCount,
+    filesCount: texts.length,
     exportKwh: totalExportKwh,
     hasExport: hasExportCol,
     hasNetMetered: hasNetMetered,
     implicitSolarAnnualKwh: implicitSolarKwh,
     grossLoadAnnualKwh: grossLoadKwh,
+    perFile: perFileSummary,
   };
   return { hourly, meta };
-}
-
-// Re-filter CSV data to a different date range without re-parsing the file.
-function refilterCsv(mode) {
-  const s = activeSetup();
-  if (!s.csvMeta || !s.csvMeta.allRecords) return;
-  const all = s.csvMeta.allRecords;
-  const lastDate = all[all.length - 1].dt;
-  let filtered = all;
-
-  if (mode === 'last12') {
-    const cutoff = new Date(lastDate);
-    cutoff.setFullYear(cutoff.getFullYear() - 1);
-    filtered = all.filter(r => r.dt >= cutoff);
-  } else if (mode === 'last24') {
-    const cutoff = new Date(lastDate);
-    cutoff.setFullYear(cutoff.getFullYear() - 2);
-    filtered = all.filter(r => r.dt >= cutoff);
-  }
-  if (filtered.length < 2) filtered = all;
-
-  const profile = buildProfileFromRecords(filtered, s.csvMeta.filesCount || 1, s.csvMeta.hasExport, s.csvMeta.exportKwh || 0);
-  // Preserve non-serializable fields
-  profile.meta.allRecords = all;
-  profile.meta.dateFilter = mode;
-  profile.meta.fullSpanDays = s.csvMeta.fullSpanDays;
-  profile.meta.fullRecordCount = s.csvMeta.fullRecordCount;
-  profile.meta.fullTotalKwh = s.csvMeta.fullTotalKwh;
-
-  s.csvProfile = profile.hourly;
-  s.csvMeta = profile.meta;
-  // Update filter button highlights
-  document.querySelectorAll('#csvDateFilterSeg .seg-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === mode));
-  refreshControls();
-  render();
 }
 
 // Parse one CSV file's text. Returns records[] + export totals if schema has EXPORT column.
@@ -3388,7 +3322,7 @@ function chartOptions(yLabel, y1Label) {
 
 // ===================== URL STATE =====================
 function packSetup(s) {
-  const base = { hb: s.hasBatt?1:0, br: s.brand, q: s.qty, hs: s.hasSolar?1:0, sk: s.solarKw, ss: s.solarShade || 0, sa: s.solarAdjust || 0, sr: s.src, d: s.daily, h: s.home, se: s.season };
+  const base = { hb: s.hasBatt?1:0, br: s.brand, q: s.qty, cl: (s.hasClp !== false) ? 1 : 0, hs: s.hasSolar?1:0, sk: s.solarKw, ss: s.solarShade || 0, sa: s.solarAdjust || 0, sr: s.src, d: s.daily, h: s.home, se: s.season };
   // Include CSV hourly profile (rounded to 2 decimals to save bytes) + key meta
   if (s.src === 'csv' && s.csvProfile && s.csvMeta) {
     base.cp = s.csvProfile.map(v => Math.round(v * 100) / 100);
@@ -3404,7 +3338,8 @@ function packSetup(s) {
   return base;
 }
 function unpackSetup(p) {
-  const out = { hasBatt: !!p.hb, brand: p.br || 'eg4', qty: p.q || 2, hasSolar: !!p.hs, solarKw: p.sk || 8.0, solarShade: p.ss || 0, solarAdjust: p.sa || 0, src: p.sr || 'preset', daily: p.d || 30, home: p.h || 'gas', season: p.se || 'summer', csvProfile: null, csvMeta: null };
+  // hasClp: missing in old shares = true (default-on); explicit 0 = off
+  const out = { hasBatt: !!p.hb, brand: p.br || 'eg4', qty: p.q || 2, hasClp: (p.cl === undefined || p.cl === null) ? true : !!p.cl, hasSolar: !!p.hs, solarKw: p.sk || 8.0, solarShade: p.ss || 0, solarAdjust: p.sa || 0, src: p.sr || 'preset', daily: p.d || 30, home: p.h || 'gas', season: p.se || 'summer', csvProfile: null, csvMeta: null };
   if (p.cp && Array.isArray(p.cp) && p.cp.length === 24 && p.cm) {
     out.csvProfile = p.cp;
     out.csvMeta = {
@@ -3421,8 +3356,9 @@ function unpackSetup(p) {
   return out;
 }
 function serializeState() {
-  // Build state object. ws2 carries all workspaces; top-level A/B kept for
-  // backward compat only when ws2 would duplicate them (legacy loaders).
+  // New format: ws contains all workspaces. Keeps A/B at top level too for
+  // backward compat — old loaders that only know A/B still get a usable
+  // arbitrage state, and we ignore those on the new path.
   const ab = STATE.workspaces.arbBak;
   const so = STATE.workspaces.solar;
   const pack = {
@@ -3432,65 +3368,28 @@ function serializeState() {
     bc: STATE.basicCharge, er: STATE.exportRate, e1: STATE.el1Rate,
     wt: STATE.winType, ws: STATE.winStart, we: STATE.winEnd,
     cr: STATE.crit,
-    A: packSetup(ab.setupA),
-    B: packSetup(ab.setupB),
+    A: packSetup(ab.setupA),  // backward-compat: arbBak setupA
+    B: packSetup(ab.setupB),  // backward-compat: arbBak setupB
+    ws2: {                    // new: all workspaces (avoids name clash with winStart)
+      ab: { A: packSetup(ab.setupA), B: packSetup(ab.setupB) },
+      so: { A: packSetup(so.setupA), B: packSetup(so.setupB) },
+    },
   };
-  // Only include ws2 if solar workspace differs from defaults
-  const soA = packSetup(so.setupA);
-  const soB = packSetup(so.setupB);
-  const solarHasData = soA.sr === 'csv' || soB.sr === 'csv' || soA.hs || soB.hs;
-  if (solarHasData) {
-    pack.ws2 = {
-      ab: { A: pack.A, B: pack.B },
-      so: { A: soA, B: soB },
-    };
-  }
-  const json = JSON.stringify(pack);
-  // Compress with pako if available, fall back to plain base64
-  if (typeof pako !== 'undefined') {
-    try {
-      const compressed = pako.deflateRaw(new TextEncoder().encode(json));
-      return 'z:' + toBase64Url(compressed);
-    } catch (e) {
-      console.warn('Compression failed, using plain base64:', e);
-    }
-  }
-  return 'c:' + btoa(unescape(encodeURIComponent(json)));
-}
-
-// URL-safe base64: no +/= that balloon when percent-encoded in URLs
-function toBase64Url(uint8) {
-  let bin = '';
-  for (let i = 0; i < uint8.length; i++) bin += String.fromCharCode(uint8[i]);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-function fromBase64Url(str) {
-  const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+  return btoa(unescape(encodeURIComponent(JSON.stringify(pack))));
 }
 function restoreState() {
   const hash = window.location.hash;
   if (!hash || hash.length < 4) return;
   try {
+    const m = hash.match(/^#c=(.+)$/);
+    if (!m) return;
     let decoded;
-    // Compressed format: #z=<deflate+base64url>
-    const mz = hash.match(/^#z=(.+)$/);
-    if (mz && typeof pako !== 'undefined') {
-      const bytes = fromBase64Url(mz[1]);
-      decoded = new TextDecoder().decode(pako.inflateRaw(bytes));
-    }
-    // Legacy format: #c=<plain-base64>
-    if (!decoded) {
-      const mc = hash.match(/^#c=(.+)$/);
-      if (!mc) return;
-      try {
-        decoded = decodeURIComponent(escape(atob(mc[1])));
-      } catch (e) {
-        decoded = atob(mc[1]);
-      }
+    try {
+      // New format: UTF-8 safe
+      decoded = decodeURIComponent(escape(atob(m[1])));
+    } catch (e) {
+      // Fallback: old format
+      decoded = atob(m[1]);
     }
     const data = JSON.parse(decoded);
     STATE.mode = data.m === 'a' ? 'arbitrage' : data.m === 's' ? 'solar' : 'backup';
@@ -3554,13 +3453,7 @@ async function copyShareLink() {
     .replace(/^-+|-+$/g, '')
     .slice(0, 50);
 
-  // serializeState returns "z:<compressed>" or "c:<plain>"
-  const stateRaw = serializeState();
-  const colonIdx = stateRaw.indexOf(':');
-  const statePrefix = stateRaw.substring(0, colonIdx);   // 'z' or 'c'
-  const stateData = stateRaw.substring(colonIdx + 1);     // encoded payload
-  const hashFragment = '#' + statePrefix + '=' + stateData;
-
+  const stateEncoded = serializeState();
   const hasCsv = ['arbBak', 'solar'].some(k => {
     const ws = STATE.workspaces[k];
     return (ws.setupA.src === 'csv' && ws.setupA.csvProfile)
@@ -3568,7 +3461,8 @@ async function copyShareLink() {
   });
   const toast = document.getElementById('toast');
 
-  // Try to shorten via Apps Script first. Falls back to hash URL if it fails.
+  // Try to shorten via Apps Script first. Falls back to long hash URL if it fails
+  // or if the endpoint isn't configured.
   let url = null;
   if (TRACKING_ENDPOINT) {
     toast.textContent = 'Generating short link…';
@@ -3576,13 +3470,12 @@ async function copyShareLink() {
     try {
       const apiUrl = new URL(TRACKING_ENDPOINT);
       apiUrl.searchParams.set('action', 'save');
-      apiUrl.searchParams.set('state', statePrefix + ':' + stateData);
-      // 10s timeout — Apps Script cold start can be slow
+      apiUrl.searchParams.set('state', stateEncoded);
+      // 8s timeout — Apps Script cold start can be slow
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 10000);
+      const timer = setTimeout(() => ctrl.abort(), 8000);
       const res = await fetch(apiUrl.toString(), { signal: ctrl.signal });
       clearTimeout(timer);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       if (data && data.id) {
         url = window.location.origin + window.location.pathname + '?s=' + data.id;
@@ -3591,15 +3484,15 @@ async function copyShareLink() {
         console.warn('Short link API returned no id:', data);
       }
     } catch (e) {
-      console.warn('Short link failed, falling back to hash URL:', e);
+      console.warn('Short link failed, falling back to long URL:', e);
     }
   }
 
-  // Fallback: hash URL with compressed state
+  // Fallback: long URL with state in the hash
   if (!url) {
     url = window.location.origin + window.location.pathname;
     if (clientSlug) url += '?client=' + encodeURIComponent(clientSlug);
-    url += hashFragment;
+    url += '#c=' + stateEncoded;
   }
   const isShort = url.length < 120;
 
@@ -3638,16 +3531,8 @@ async function resolveShortLink() {
     clearTimeout(timer);
     const data = await res.json();
     if (data && data.state) {
-      // State stored as "z:<compressed>" or "c:<plain>" (or legacy plain base64)
-      const st = data.state;
-      if (st.startsWith('z:')) {
-        window.location.hash = 'z=' + st.substring(2);
-      } else if (st.startsWith('c:')) {
-        window.location.hash = 'c=' + st.substring(2);
-      } else {
-        // Legacy: plain base64 without prefix
-        window.location.hash = 'c=' + st;
-      }
+      // Inject as if it came from the hash, so restoreState picks it up
+      window.location.hash = 'c=' + data.state;
       return true;
     }
   } catch (e) {
@@ -3802,7 +3687,7 @@ function render() {
 // ===================== INIT =====================
 buildCriticalList();
 setupEvents();
-// Priority: short link (?s=) → URL hash (#z= or #c=) → localStorage → render
+// Priority: short link (?s=) → URL hash (#c=) → localStorage → render
 (async () => {
   const hadShort = await resolveShortLink();
   const hadLocal = loadState();

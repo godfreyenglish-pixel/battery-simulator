@@ -3998,7 +3998,34 @@ setupEvents();
     injectUI();
     setTimeout(checkUrlUtility, 300);
   }
+// ── UTILITY PERSISTENCE ──
+  // Hook into saveState to persist utility + shoulderRate
+  var _origSaveState = window.saveState;
+  window.saveState = function() {
+    _origSaveState();
+    try {
+      var saved = JSON.parse(localStorage.getItem('rivertown-battery-sim-v1') || '{}');
+      saved.utility = STATE.utility;
+      saved.shoulderRate = STATE.shoulderRate;
+      localStorage.setItem('rivertown-battery-sim-v1', JSON.stringify(saved));
+    } catch(e) {}
+  };
 
+  // On load: restore utility from saved state (runs after main app init)
+  function restoreUtility() {
+    try {
+      var saved = JSON.parse(localStorage.getItem('rivertown-battery-sim-v1') || '{}');
+      if (saved.utility && saved.utility !== 'conEd') {
+        switchUtility(saved.utility);
+        if (saved.shoulderRate !== undefined) {
+          STATE.shoulderRate = saved.shoulderRate;
+          var si = document.getElementById('shoulderRate');
+          if (si) si.value = STATE.shoulderRate;
+        }
+      }
+    } catch(e) {}
+  }
+  setTimeout(restoreUtility, 600);
   console.log('[O&R Utility Patch] Loaded successfully.');
 })();
 </script>

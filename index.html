@@ -3998,34 +3998,31 @@ setupEvents();
     injectUI();
     setTimeout(checkUrlUtility, 300);
   }
-// ── UTILITY PERSISTENCE ──
-  // Hook into saveState to persist utility + shoulderRate
-  var _origSaveState = window.saveState;
-  window.saveState = function() {
-    _origSaveState();
+// ── UTILITY PERSISTENCE (dedicated key, immune to main app saveState) ──
+  var _origSwitchUtil = window.switchUtility;
+  window.switchUtility = function(id) {
+    _origSwitchUtil(id);
     try {
-      var saved = JSON.parse(localStorage.getItem('rivertown-battery-sim-v1') || '{}');
-      saved.utility = STATE.utility;
-      saved.shoulderRate = STATE.shoulderRate;
-      localStorage.setItem('rivertown-battery-sim-v1', JSON.stringify(saved));
+      localStorage.setItem('rivertown-utility', id);
+      if (id === 'oru') localStorage.setItem('rivertown-shoulderRate', String(STATE.shoulderRate));
     } catch(e) {}
   };
 
-  // On load: restore utility from saved state (runs after main app init)
-  function restoreUtility() {
+  setTimeout(function() {
     try {
-      var saved = JSON.parse(localStorage.getItem('rivertown-battery-sim-v1') || '{}');
-      if (saved.utility && saved.utility !== 'conEd') {
-        switchUtility(saved.utility);
-        if (saved.shoulderRate !== undefined) {
-          STATE.shoulderRate = saved.shoulderRate;
+      var savedUtil = localStorage.getItem('rivertown-utility');
+      if (savedUtil && savedUtil !== 'conEd') {
+        switchUtility(savedUtil);
+        var savedSh = localStorage.getItem('rivertown-shoulderRate');
+        if (savedSh) {
+          STATE.shoulderRate = parseFloat(savedSh);
           var si = document.getElementById('shoulderRate');
           if (si) si.value = STATE.shoulderRate;
         }
+        render();
       }
     } catch(e) {}
-  }
-  setTimeout(restoreUtility, 600);
+  }, 600);
   console.log('[O&R Utility Patch] Loaded successfully.');
 })();
 </script>

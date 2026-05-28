@@ -3722,7 +3722,7 @@ setupEvents();
     oru: {
       id: 'oru', label: 'Orange & Rockland',
       peakRate: 0.31, winterPeakRate: 0.16, offRate: 0.09, shoulderRate: 0.16,
-      el1Rate: 0.208, basicCharge: 29, exportRate: 0.10,
+      el1Rate: 0.208, basicCharge: 29, exportRate: 0.208,
       touTitle: 'O&R TOU (Time-of-Use Rate)',
       flatTitle: 'SC-1 Standard Rate (current bill)',
       summerPeakWindow: [12, 19],  // 12pm-7pm M-F Jun-Sep
@@ -3734,7 +3734,7 @@ setupEvents();
       offDesc: '9 PM\u201310 AM year-round',
       flatHelp: 'O&R SC-1 all-in rate \u2248 $0.208/kWh (delivery + supply)',
       chargeHelp: 'O&R default ~$29/mo',
-      exportHelp: 'Net metering credit \u00B7 O&R \u2248 $0.10/kWh'
+      exportHelp: '1:1 retail net metering \u00B7 O&R \u2248 $0.208/kWh'
     }
   };
   window.UTILITY_PRESETS = UTILITY_PRESETS;

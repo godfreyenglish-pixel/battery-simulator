@@ -4023,6 +4023,25 @@ setupEvents();
       }
     } catch(e) {}
   }, 600);
+  // ── EXPANDED CRITICAL LOADS (Westchester-specific) ──
+  // Add new loads to CRIT_LOADS constant
+  CRIT_LOADS.sumpPump     = { name: 'Sump Pump',             watts: 500,  duty: 0.25 };
+  CRIT_LOADS.garageDoor   = { name: 'Garage Door Opener',    watts: 550,  duty: 0.02 };
+  CRIT_LOADS.security     = { name: 'Security System',       watts: 30,   duty: 1.00 };
+  CRIT_LOADS.freezer      = { name: 'Standalone Freezer',    watts: 120,  duty: 0.35 };
+  CRIT_LOADS.ejectorPump  = { name: 'Sewer / Ejector Pump',  watts: 750,  duty: 0.05 };
+  CRIT_LOADS.evCharger    = { name: 'EV Charger (L2)',       watts: 7600, duty: 0.30 };
+  CRIT_LOADS.dehumidifier = { name: 'Dehumidifier',          watts: 500,  duty: 0.50 };
+  CRIT_LOADS.waterHeater  = { name: 'Electric Water Heater', watts: 4500, duty: 0.15 };
+
+  // Add defaults to STATE.crit (all off)
+  var newLoads = ['sumpPump','garageDoor','security','freezer','ejectorPump','evCharger','dehumidifier','waterHeater'];
+  newLoads.forEach(function(k) {
+    if (STATE.crit[k] === undefined) STATE.crit[k] = false;
+  });
+
+  // Rebuild the critical loads UI
+  buildCriticalList();
   console.log('[O&R Utility Patch] Loaded successfully.');
 })();
 </script>

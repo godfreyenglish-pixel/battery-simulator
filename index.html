@@ -1388,7 +1388,7 @@
 
 <div class="toast" id="toast">Link copied to clipboard</div>
 
-<script>
+
 // ===================== STATE =====================
 function defaultSetup() {
   return {
@@ -4002,5 +4002,134 @@ setupEvents();
   console.log('[O&R Utility Patch] Loaded successfully.');
 })();
 </script>
+    <script>// ================================================================
+// AUTO DISPATCH OPTIMIZER — Battery Load Simulator
+// Add as <script> block after the O&R utility patch in index.html
+// ================================================================
+(function() {
+  'use strict';
+
+  function formatHour(h) {
+    if (h === 0 || h === 24) return '12 AM';
+    if (h === 12) return '12 PM';
+    if (h < 12) return h + ' AM';
+    return (h - 12) + ' PM';
+  }
+
+  // Iterate every contiguous discharge window (4-10 hr) within the
+  // utility's peak+shoulder band, simulate each, pick highest blended annual savings
+  function findOptimalWindow(setup) {
+    var u = (typeof UTILITY_PRESETS !== 'undefined' && STATE.utility)
+      ? UTILITY_PRESETS[STATE.utility] : null;
+    var searchStart = (u && u.id === 'oru') ? 10 : 8;
+    var searchEnd = (u && u.id === 'oru') ? 21 : 24;
+    var minDur = 4, maxDur = Math.min(10, searchEnd - searchStart);
+    var bestSave = -Infinity, bestStart = searchStart, bestEnd = searchEnd;
+    var origSeason = setup.season;
+    var origWinType = STATE.winType, origWinStart = STATE.winStart, origWinEnd = STATE.winEnd;
+
+    for (var dur = minDur; dur <= maxDur; dur++) {
+      for (var start = searchStart; start + dur <= searchEnd; start++) {
+        STATE.winType = 'custom';
+        STATE.winStart = start;
+        STATE.winEnd = start + dur;
+
+        setup.season = 'summer';
+        var sumD = simulateArbitrage(setup).dailySave;
+        setup.season = 'winter';
+        var winD = simulateArbitrage(setup).dailySave;
+        var blend = (sumD * 122) + (winD * 243);
+
+        if (blend > bestSave) { bestSave = blend; bestStart = start; bestEnd = start + dur; }
+      }
+    }
+
+    // Restore originals before returning
+    setup.season = origSeason;
+    STATE.winType = origWinType;
+    STATE.winStart = origWinStart;
+    STATE.winEnd = origWinEnd;
+
+    return { start: bestStart, end: bestEnd, duration: bestEnd - bestStart, blendedAnnual: bestSave };
+  }
+  window.findOptimalWindow = findOptimalWindow;
+
+  // Apply the optimal window and update UI
+  function applyOptimalWindow() {
+    var s = STATE.setupA;
+    if (!s.hasBatt) return null;
+    var opt = findOptimalWindow(s);
+
+    STATE.winType = 'custom';
+    STATE.winStart = opt.start;
+    STATE.winEnd = opt.end;
+    var wsEl = document.getElementById('winStart');
+    var weEl = document.getElementById('winEnd');
+    if (wsEl) wsEl.value = opt.start;
+    if (weEl) weEl.value = opt.end;
+
+    // Deactivate all window preset buttons, activate Auto
+    document.querySelectorAll('#windowSeg .seg-btn').forEach(function(b) {
+      b.classList.remove('active');
+      b.style.background = 'var(--card)';
+      b.style.color = 'var(--text-muted)';
+    });
+    var ab = document.getElementById('autoOptBtn');
+    if (ab) { ab.classList.add('active'); ab.style.background = 'var(--accent)'; ab.style.color = 'var(--bg)'; }
+
+    // Show optimization badge
+    var badge = document.getElementById('autoBadge');
+    var winSeg = document.getElementById('windowSeg');
+    if (!badge && winSeg) {
+      badge = document.createElement('div');
+      badge.id = 'autoBadge';
+      badge.style.cssText = 'margin-top:8px;padding:6px 10px;border-radius:6px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.3);font-size:11px;color:var(--accent);font-weight:600';
+      winSeg.insertAdjacentElement('afterend', badge);
+    }
+    if (badge) {
+      badge.innerHTML = '\u26A1 Optimized: ' + formatHour(opt.start) + ' \u2013 ' + formatHour(opt.end) +
+        ' (' + opt.duration + ' hrs) \u00B7 $' + opt.blendedAnnual.toFixed(0) + '/yr blended';
+    }
+
+    refreshControls();
+    render();
+    console.log('[Auto Optimizer] Best: ' + formatHour(opt.start) + '-' + formatHour(opt.end) + ' | $' + opt.blendedAnnual.toFixed(0) + '/yr');
+    return opt;
+  }
+  window.applyOptimalWindow = applyOptimalWindow;
+
+  // Inject "Auto" button into #windowSeg
+  var winSeg = document.getElementById('windowSeg');
+  if (winSeg && !document.getElementById('autoOptBtn')) {
+    var autoBtn = document.createElement('button');
+    autoBtn.id = 'autoOptBtn';
+    autoBtn.className = 'seg-btn';
+    autoBtn.textContent = 'Auto';
+    autoBtn.style.cssText = 'flex:1;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--card);color:var(--text-muted);transition:all 0.15s';
+    autoBtn.addEventListener('click', function() { applyOptimalWindow(); });
+    winSeg.insertBefore(autoBtn, winSeg.firstChild);
+  }
+
+  // Auto-run when new CSV data loads
+  var _origRender = window.render;
+  var lastCsvMeta = STATE.setupA.csvMeta ? JSON.stringify(STATE.setupA.csvMeta) : null;
+  window.render = function() {
+    _origRender();
+    var cur = STATE.setupA.csvMeta ? JSON.stringify(STATE.setupA.csvMeta) : null;
+    if (cur && cur !== lastCsvMeta && STATE.setupA.hasBatt) {
+      lastCsvMeta = cur;
+      setTimeout(function() { applyOptimalWindow(); }, 300);
+    }
+  };
+
+  // If CSV already loaded on page init, run immediately
+  if (STATE.setupA.csvMeta && STATE.setupA.hasBatt) {
+    lastCsvMeta = JSON.stringify(STATE.setupA.csvMeta);
+    setTimeout(function() { applyOptimalWindow(); }, 500);
+  }
+
+  console.log('[Auto Optimizer] Loaded. Click "Auto" or call applyOptimalWindow().');
+})();
+      </script>
 </body>
 </html>

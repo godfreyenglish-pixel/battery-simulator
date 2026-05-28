@@ -3698,6 +3698,314 @@ setupEvents();
 })();
 
 </script>
+</script> // ================================================================
+// O&R UTILITY SUPPORT PATCH — Battery Load Simulator
+// File: oru-utility-patch.js
+// Inject as <script src="oru-utility-patch.js"></script> after main script
+// OR inline at the bottom of index.html inside a <script> block
+// ================================================================
+(function() {
+  'use strict';
 
+  // ── UTILITY PRESETS ──
+  var UTILITY_PRESETS = {
+    conEd: {
+      id: 'conEd', label: 'Con Edison',
+      peakRate: 0.38, winterPeakRate: 0.18, offRate: 0.05, shoulderRate: 0,
+      el1Rate: 0.36, basicCharge: 22, exportRate: 0.16,
+      touTitle: 'Rate III TOU (Voluntary Plan)',
+      flatTitle: 'EL1 Standard Rate (current bill)',
+      summerPeakWindow: [8, 24], winterPeakWindow: [8, 24],
+      summerShoulder: null, winterShoulder: null,
+      peakDesc: 'Jun\u2013Sep \u00B7 8 AM\u2013midnight',
+      winterDesc: 'Oct\u2013May \u00B7 8 AM\u2013midnight',
+      offDesc: 'midnight\u20138 AM year-round',
+      flatHelp: 'Con Ed flat residential rate \u00B7 Westchester all-in \u2248 $0.38/kWh',
+      chargeHelp: 'Con Ed default ~$22/mo',
+      exportHelp: 'VDER value-stack credit \u00B7 Con Ed Zone H \u2248 $0.16/kWh'
+    },
+    oru: {
+      id: 'oru', label: 'Orange & Rockland',
+      peakRate: 0.31, winterPeakRate: 0.16, offRate: 0.09, shoulderRate: 0.16,
+      el1Rate: 0.208, basicCharge: 29, exportRate: 0.10,
+      touTitle: 'O&R TOU (Time-of-Use Rate)',
+      flatTitle: 'SC-1 Standard Rate (current bill)',
+      summerPeakWindow: [12, 19],  // 12pm-7pm M-F Jun-Sep
+      winterPeakWindow: [10, 21],  // 10am-9pm M-F Oct-May
+      summerShoulder: [[10,12],[19,21]], // 10am-12pm & 7pm-9pm summer
+      winterShoulder: null,
+      peakDesc: 'Jun\u2013Sep \u00B7 12 PM\u20137 PM Mon-Fri',
+      winterDesc: 'Oct\u2013May \u00B7 10 AM\u20139 PM Mon-Fri',
+      offDesc: '9 PM\u201310 AM year-round',
+      flatHelp: 'O&R SC-1 all-in rate \u2248 $0.208/kWh (delivery + supply)',
+      chargeHelp: 'O&R default ~$29/mo',
+      exportHelp: 'Net metering credit \u00B7 O&R \u2248 $0.10/kWh'
+    }
+  };
+  window.UTILITY_PRESETS = UTILITY_PRESETS;
+
+  // ── STATE FIELDS ──
+  if (!STATE.utility) STATE.utility = 'conEd';
+  if (STATE.shoulderRate === undefined) STATE.shoulderRate = 0;
+
+  // ── HOUR RATE (shoulder-aware) ──
+  window.getHourRate = function(h, season) {
+    var u = UTILITY_PRESETS[STATE.utility];
+    var pw = season === 'summer' ? u.summerPeakWindow : u.winterPeakWindow;
+    var sh = season === 'summer' ? u.summerShoulder : u.winterShoulder;
+    if (h >= pw[0] && h < pw[1]) {
+      return { rate: season === 'summer' ? STATE.peakRate : STATE.winterPeakRate, tier: 'peak' };
+    }
+    if (sh) {
+      for (var i = 0; i < sh.length; i++) {
+        if (h >= sh[i][0] && h < sh[i][1]) return { rate: STATE.shoulderRate, tier: 'shoulder' };
+      }
+    }
+    return { rate: STATE.offRate, tier: 'offpeak' };
+  };
+
+  // ── OVERRIDE simulateArbitrage ──
+  var _origSimArb = window.simulateArbitrage;
+  window.simulateArbitrage = function(s, peakRateOverride) {
+    if (STATE.utility === 'conEd') return _origSimArb(s, peakRateOverride);
+
+    var load = getLoadProfile(s);
+    var solar = getSolarProfile(s);
+    var specs = batterySpecs(s);
+    var usable = specs.usable, cont = specs.cont;
+    var dw = getDischargeWindow();
+    var dischargeHrs = peakHoursInWindow(dw.start, dw.end);
+    var ETA = Math.sqrt(0.90);
+    var season = s.season;
+    var trace = [];
+    var soc = usable;
+
+    for (var h = 0; h < 24; h++) {
+      var ld = load[h], sol = solar[h];
+      var netLoad = ld - sol;
+      var fromSolar = Math.min(ld, sol);
+      var fromBattery = 0, fromGrid = 0, toBattery = 0, toGrid = 0;
+
+      if (netLoad > 0) {
+        if (dischargeHrs.includes(h) && s.hasBatt && soc > 0) {
+          var maxD = Math.min(cont, netLoad, soc * ETA);
+          fromBattery = maxD;
+          soc -= fromBattery / ETA;
+          netLoad -= fromBattery;
+        }
+        fromGrid = netLoad;
+      } else {
+        var excess = -netLoad;
+        if (s.hasBatt && soc < usable) {
+          var space = usable - soc;
+          var maxC = Math.min(space / ETA, excess, cont);
+          toBattery = maxC;
+          soc += toBattery * ETA;
+          excess -= toBattery;
+        }
+        toGrid = excess;
+      }
+
+      var hr = getHourRate(h, season);
+      // Off-peak grid charging
+      if (hr.tier === 'offpeak' && s.hasBatt && soc < usable) {
+        var sp = usable - soc;
+        var ch = Math.min(sp / ETA, cont * 0.5);
+        soc += ch * ETA;
+        fromGrid += ch;
+      }
+
+      var cost = fromGrid * hr.rate;
+      var credit = toGrid * STATE.exportRate;
+      trace.push({h:h, load:ld, solar:sol, fromSolar:fromSolar, fromBattery:fromBattery,
+                  fromGrid:fromGrid, toBattery:toBattery, toGrid:toGrid, soc:soc,
+                  cost:cost, credit:credit, tier:hr.tier, rate:hr.rate});
+    }
+
+    var totalCost = 0, totalCredit = 0, kwhShifted = 0;
+    for (var i = 0; i < trace.length; i++) {
+      totalCost += trace[i].cost;
+      totalCredit += trace[i].credit;
+      kwhShifted += trace[i].fromBattery;
+    }
+    var netCost = Math.max(0, totalCost - totalCredit);
+
+    var baseline = 0;
+    for (var h2 = 0; h2 < 24; h2++) {
+      baseline += load[h2] * getHourRate(h2, season).rate;
+    }
+
+    var util = usable > 0 ? (kwhShifted / usable) * 100 : 0;
+    var peakRate = season === 'summer' ? STATE.peakRate : STATE.winterPeakRate;
+
+    return {trace:trace, load:load, solar:solar, baseline:baseline,
+            totalCost:totalCost, totalCredit:totalCredit, netCost:netCost,
+            dailySave:baseline - netCost, kwhShifted:kwhShifted,
+            util:util, peakHrs:dischargeHrs, usable:usable, cont:cont, peakRate:peakRate};
+  };
+
+  // ── OVERRIDE renderArbitrage (label patching) ──
+  var _origRenderArb = window.renderArbitrage;
+  window.renderArbitrage = function() {
+    _origRenderArb();
+    if (STATE.utility !== 'oru') return;
+
+    // Replace EL1 -> SC-1, Rate III -> O&R TOU in text nodes
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+    while (walker.nextNode()) {
+      var node = walker.currentNode;
+      // Skip the utility selector buttons
+      if (node.parentElement && node.parentElement.closest('#utilitySeg')) continue;
+      if (node.nodeValue.includes('EL1')) {
+        node.nodeValue = node.nodeValue.replace(/EL1/g, 'SC-1');
+      }
+      if (node.nodeValue.includes('Rate III')) {
+        node.nodeValue = node.nodeValue.replace(/Rate III/g, 'O&R TOU');
+      }
+      if (node.nodeValue.includes('Con Edison')) {
+        node.nodeValue = node.nodeValue.replace(/Con Edison/g, 'Orange & Rockland');
+      }
+      if (node.nodeValue.includes('Con Ed')) {
+        node.nodeValue = node.nodeValue.replace(/Con Ed(?!ison)/g, 'O&R');
+      }
+    }
+
+    // Restore utility selector labels
+    var conEdBtn = document.querySelector('#utilitySeg [data-utility="conEd"]');
+    var oruBtn = document.querySelector('#utilitySeg [data-utility="oru"]');
+    if (conEdBtn) conEdBtn.textContent = 'Con Edison';
+    if (oruBtn) oruBtn.textContent = 'O&R';
+  };
+
+  // ── switchUtility ──
+  window.switchUtility = function(id) {
+    var u = UTILITY_PRESETS[id];
+    if (!u) return;
+    STATE.utility = id;
+    STATE.peakRate = u.peakRate;
+    STATE.winterPeakRate = u.winterPeakRate;
+    STATE.offRate = u.offRate;
+    STATE.shoulderRate = u.shoulderRate;
+    STATE.el1Rate = u.el1Rate;
+    STATE.basicCharge = u.basicCharge;
+    STATE.exportRate = u.exportRate;
+
+    // Update DOM inputs
+    ['peakRate','winterPeakRate','offRate','el1Rate','basicCharge','exportRate'].forEach(function(k) {
+      var el = document.getElementById(k);
+      if (el) el.value = u[k];
+    });
+
+    // Update card title
+    var card = document.getElementById('peakRate').closest('.card');
+    var title = card.querySelector('.card-title');
+    if (title) title.textContent = u.touTitle;
+
+    // Update field labels
+    var labels = card.querySelectorAll('.field-label');
+    labels.forEach(function(lbl) {
+      var txt = lbl.textContent;
+      if (txt.includes('Summer Peak')) {
+        lbl.innerHTML = 'Summer Peak Rate <span class="rate-dim">$/kWh \u00B7 ' + u.peakDesc + '</span>';
+      } else if (txt.includes('Winter Peak')) {
+        lbl.innerHTML = 'Winter Peak Rate <span class="rate-dim">$/kWh \u00B7 ' + u.winterDesc + '</span>';
+      } else if (txt.includes('Off-Peak')) {
+        lbl.innerHTML = 'Off-Peak Rate <span class="rate-dim">$/kWh \u00B7 ' + u.offDesc + '</span>';
+      } else if (txt.includes('Standard Rate') || txt.includes('EL1') || txt.includes('SC-1')) {
+        lbl.innerHTML = u.flatTitle + ' <span class="rate-dim">$/kWh</span>';
+      }
+    });
+
+    // Update help text
+    var helps = card.querySelectorAll('.field-help');
+    helps.forEach(function(h) {
+      var txt = h.textContent;
+      if (txt.includes('flat residential') || txt.includes('EL1') || txt.includes('SC-1')) {
+        h.textContent = u.flatHelp;
+      } else if (txt.includes('default ~$')) {
+        h.textContent = u.chargeHelp;
+      } else if (txt.includes('VDER') || txt.includes('Net metering') || txt.includes('credit')) {
+        h.textContent = u.exportHelp;
+      }
+    });
+
+    // Show/hide shoulder rate
+    var sRow = document.getElementById('shoulderRateRow');
+    if (sRow) sRow.style.display = (id === 'oru') ? '' : 'none';
+
+    // Update selector buttons
+    document.querySelectorAll('#utilitySeg .seg-btn').forEach(function(b) {
+      var isActive = b.dataset.utility === id;
+      b.classList.toggle('active', isActive);
+      b.style.background = isActive ? 'var(--accent)' : 'var(--card)';
+      b.style.color = isActive ? 'var(--bg)' : 'var(--text-muted)';
+    });
+
+    refreshControls();
+    render();
+  };
+
+  // ── INJECT UI ──
+  function injectUI() {
+    var rateCard = document.getElementById('peakRate').closest('.card');
+    var rateTitle = rateCard.querySelector('.card-title');
+
+    // Utility selector
+    var sel = document.createElement('div');
+    sel.id = 'utilitySelector';
+    sel.style.cssText = 'margin-bottom:16px';
+    sel.innerHTML =
+      '<div class="field-label" style="margin-bottom:8px">Utility</div>' +
+      '<div id="utilitySeg" class="seg-group" style="display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid var(--border)">' +
+        '<button class="seg-btn active" data-utility="conEd" style="flex:1;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--accent);color:var(--bg)">Con Edison</button>' +
+        '<button class="seg-btn" data-utility="oru" style="flex:1;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--card);color:var(--text-muted)">O&R</button>' +
+      '</div>';
+    rateTitle.insertAdjacentElement('afterend', sel);
+
+    document.querySelectorAll('#utilitySeg .seg-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() { switchUtility(btn.dataset.utility); });
+    });
+
+    // Shoulder rate input (hidden by default)
+    var offField = document.getElementById('offRate').closest('.field');
+    var shDiv = document.createElement('div');
+    shDiv.id = 'shoulderRateRow';
+    shDiv.className = 'field';
+    shDiv.style.display = 'none';
+    shDiv.innerHTML =
+      '<label class="field-label">Shoulder Peak Rate <span class="rate-dim">$/kWh \u00B7 10 AM\u201312 PM & 7\u20139 PM summer</span></label>' +
+      '<input type="number" id="shoulderRate" step="0.01" value="0.16" class="rate-input">';
+    offField.insertAdjacentElement('afterend', shDiv);
+
+    document.getElementById('shoulderRate').addEventListener('input', function(e) {
+      STATE.shoulderRate = parseFloat(e.target.value) || 0;
+      render();
+    });
+  }
+
+  // ── URL PARAM RESTORE ──
+  function checkUrlUtility() {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('utility') === 'oru') {
+      switchUtility('oru');
+      if (params.get('shoulderRate')) {
+        STATE.shoulderRate = parseFloat(params.get('shoulderRate'));
+        var si = document.getElementById('shoulderRate');
+        if (si) si.value = STATE.shoulderRate;
+      }
+    }
+  }
+
+  // ── INIT ──
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() { injectUI(); setTimeout(checkUrlUtility, 300); });
+  } else {
+    injectUI();
+    setTimeout(checkUrlUtility, 300);
+  }
+
+  console.log('[O&R Utility Patch] Loaded successfully.');
+})();
+</script>
 </body>
 </html>

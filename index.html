@@ -4438,5 +4438,132 @@ setupEvents();
   console.log('[TOU Summary] Loaded. Click "TOU Summary" in load profile source.');
 })();
   </script>
+  <script>// BACKUP QUANTITY + HEAT PUMPS — Battery Load Simulator
+// Adds quantity selectors to critical loads and heat pump entries
+(function() {
+  'use strict';
+
+  // ── ADD HEAT PUMP LOADS ──
+  CRIT_LOADS.heatPumpMini = { name: 'Mini-Split Heat Pump (per head)', watts: 1200, duty: 0.40 };
+  CRIT_LOADS.heatPumpCentral = { name: 'Central Heat Pump', watts: 4500, duty: 0.35 };
+
+  // ── CONVERT STATE.crit FROM BOOLEAN TO QUANTITY ──
+  for (var k in STATE.crit) {
+    if (typeof STATE.crit[k] === 'boolean') STATE.crit[k] = STATE.crit[k] ? 1 : 0;
+  }
+  if (STATE.crit.heatPumpMini === undefined) STATE.crit.heatPumpMini = 0;
+  if (STATE.crit.heatPumpCentral === undefined) STATE.crit.heatPumpCentral = 0;
+
+  // ── OVERRIDE buildCriticalList WITH QUANTITY CONTROLS ──
+  window.buildCriticalList = function() {
+    var el = document.getElementById('criticalList');
+    if (!el) return;
+    var html = '';
+    for (var k in CRIT_LOADS) {
+      var item = CRIT_LOADS[k];
+      var qty = STATE.crit[k] || 0;
+      var isOn = qty > 0;
+      html +=
+        '<div class="check-row' + (isOn ? ' on' : '') + '" data-key="' + k + '" style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05)">' +
+          '<div style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer" onclick="toggleCritLoad(\'' + k + '\')">' +
+            '<div style="width:20px;height:20px;border-radius:4px;border:2px solid ' + (isOn ? 'var(--accent)' : 'rgba(255,255,255,0.2)') + ';background:' + (isOn ? 'var(--accent)' : 'transparent') + ';display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--bg);flex-shrink:0">' + (isOn ? '\u2713' : '') + '</div>' +
+            '<span style="font-size:13px;color:' + (isOn ? 'var(--text)' : 'var(--text-muted)') + '">' + item.name + '</span>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:6px">' +
+            '<span style="font-size:12px;color:var(--text-muted);min-width:50px;text-align:right">' + item.watts + 'W</span>' +
+            '<div style="display:flex;align-items:center;gap:2px;margin-left:8px">' +
+              '<button onclick="critQty(\'' + k + '\',-1)" style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text-muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">\u2212</button>' +
+              '<span style="min-width:24px;text-align:center;font-size:13px;font-weight:600;color:' + (isOn ? 'var(--accent)' : 'var(--text-muted)') + '">' + qty + '</span>' +
+              '<button onclick="critQty(\'' + k + '\',1)" style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text-muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">+</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+    }
+    el.innerHTML = html;
+  };
+
+  window.toggleCritLoad = function(key) {
+    STATE.crit[key] = STATE.crit[key] > 0 ? 0 : 1;
+    buildCriticalList();
+    render();
+  };
+
+  window.critQty = function(key, delta) {
+    STATE.crit[key] = Math.max(0, Math.min(10, (STATE.crit[key] || 0) + delta));
+    buildCriticalList();
+    render();
+  };
+
+  // ── QUANTITY-AWARE HELPERS ──
+  window.getCritAvgDraw = function() {
+    var total = 0;
+    for (var k in STATE.crit) {
+      var qty = STATE.crit[k] || 0;
+      if (qty > 0 && CRIT_LOADS[k]) total += CRIT_LOADS[k].watts * CRIT_LOADS[k].duty * qty;
+    }
+    return total;
+  };
+
+  window.getCritPeakDraw = function() {
+    var total = 0;
+    for (var k in STATE.crit) {
+      var qty = STATE.crit[k] || 0;
+      if (qty > 0 && CRIT_LOADS[k]) total += CRIT_LOADS[k].watts * qty;
+    }
+    return total;
+  };
+
+  // ── OVERRIDE renderBackup FOR QUANTITY MATH ──
+  var _origRenderBackup = window.renderBackup;
+  window.renderBackup = function() {
+    _origRenderBackup();
+
+    var avgDraw = getCritAvgDraw();
+    var peakDraw = getCritPeakDraw();
+    var specs = batterySpecs(STATE.setupA);
+    var runtime = avgDraw > 0 ? (specs.usable * 1000 / avgDraw) : 0;
+
+    // Patch the breakdown cards
+    document.querySelectorAll('.bk-stat-val, .bk-val').forEach(function(el) {
+      var label = el.previousElementSibling || el.parentElement.querySelector('.bk-stat-label, .bk-label');
+      if (!label) return;
+      var txt = label.textContent;
+      if (txt.includes('Critical draw') || txt.includes('Critical Draw')) {
+        el.textContent = (avgDraw / 1000).toFixed(2) + ' kW';
+      }
+      if (txt.includes('Critical runtime') || txt.includes('Critical Runtime')) {
+        if (runtime > 48) {
+          el.textContent = Math.floor(runtime/24) + 'd ' + Math.round(runtime%24) + 'hr';
+        } else {
+          el.textContent = runtime.toFixed(1) + ' hr';
+        }
+      }
+      if (txt.includes('Peak load') || txt.includes('Peak Load')) {
+        el.textContent = (peakDraw / 1000).toFixed(2) + ' kW';
+      }
+    });
+
+    // Update the selected loads list with quantity labels
+    var critTable = document.querySelector('.bk-crit-list');
+    if (critTable) {
+      var tableHtml = '';
+      for (var k in STATE.crit) {
+        var qty = STATE.crit[k] || 0;
+        if (qty > 0 && CRIT_LOADS[k]) {
+          var item = CRIT_LOADS[k];
+          var label = item.name + (qty > 1 ? ' \u00D7' + qty : '');
+          var avgW = Math.round(item.watts * item.duty * qty);
+          tableHtml += '<div class="bk-crit-row" style="display:flex;justify-content:space-between;padding:4px 0"><span>' + label + '</span><span class="mono">' + avgW + ' W avg</span></div>';
+        }
+      }
+      critTable.innerHTML = tableHtml;
+    }
+  };
+
+  // ── INIT ──
+  buildCriticalList();
+  console.log('[Backup Qty] Loaded. Heat pumps added, quantity controls active.');
+})();
+    </script>
 </body>
 </html>

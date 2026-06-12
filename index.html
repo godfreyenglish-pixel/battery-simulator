@@ -1067,6 +1067,7 @@
                 <div id="csvFilesRow" class="hidden" style="grid-column: 1 / -1;">Files merged: <span id="csvFilesCount" style="color:var(--green);font-weight:600;">—</span></div>
                 <div id="csvExportRow" class="hidden" style="grid-column: 1 / -1;">Solar export: <span id="csvExportKwh" style="color:var(--teal);">—</span></div>
                 <div style="grid-column: 1 / -1; padding-top: 6px; border-top: 1px solid var(--border); margin-top: 4px;">Annual est: <span id="csvAnnual" style="color: var(--yellow); font-weight: 600;">—</span></div>
+                <div id="csvTtmRow" class="hidden" style="grid-column: 1 / -1; font-size: 11px; color: var(--text-4); font-style: italic; letter-spacing: 0.02em; margin-top: 2px;">TTM window: <span id="csvTtmWindow">—</span></div>
               </div>
               <button class="csv-clear" onclick="event.stopPropagation(); clearCsv()">Clear file</button>
             </div>
@@ -1968,6 +1969,15 @@ function refreshControls() {
       document.getElementById('csvTotal').textContent = s.csvMeta.total.toFixed(0) + ' kWh';
       document.getElementById('csvDailyAvg').textContent = s.csvMeta.dailyAvg.toFixed(1) + ' kWh';
       document.getElementById('csvAnnual').textContent = Math.round(s.csvMeta.annual || (s.csvMeta.dailyAvg * 365)).toLocaleString() + ' kWh/yr';
+      // TTM window line (shown when billing data was trimmed to trailing 12 months)
+      const ttmRow = document.getElementById('csvTtmRow');
+      if (s.csvMeta.isTtm && s.csvMeta.ttmStart && s.csvMeta.ttmEnd) {
+        const fmt = d => { const [y,m] = d.split('-'); return `${m}/${y.slice(2)}`; };
+        document.getElementById('csvTtmWindow').textContent = `${fmt(s.csvMeta.ttmStart)} → ${fmt(s.csvMeta.ttmEnd)} · trailing 12 months`;
+        ttmRow.classList.remove('hidden');
+      } else {
+        ttmRow.classList.add('hidden');
+      }
       // Partial-year warning (red banner above the meta grid)
       const partial = document.getElementById('csvPartialWarn');
       if (s.csvMeta.partialYear) {
@@ -2347,9 +2357,9 @@ function parseGreenButton(input) {
   if (allRecords.length === 0) throw new Error('No valid data rows parsed from any file');
   allRecords.sort((a, b) => a.dt - b.dt);
 
-  const firstDate = allRecords[0].dt;
-  const lastDate = allRecords[allRecords.length - 1].dt;
-  const totalKwh = allRecords.reduce((s, r) => s + r.usage, 0);
+  let firstDate = allRecords[0].dt;
+  let lastDate = allRecords[allRecords.length - 1].dt;
+  let totalKwh = allRecords.reduce((s, r) => s + r.usage, 0);
 
   // Median spacing between rows → detect interval type
   const deltasMs = [];
@@ -2388,9 +2398,34 @@ function parseGreenButton(input) {
     hourly = shape.map(v => (v / shapeSum) * dailyAvg);
   } else {
     intervalLabel = `Billing cycle (~${Math.round(medianDays)}d rows)`;
-    dayCount = Math.max(1, Math.round((lastDate - firstDate) / 86400000) + Math.max(1, Math.round(medianDays)));
-    dailyAvg = totalKwh / dayCount;
-    hourly = shape.map(v => (v / shapeSum) * dailyAvg);
+    // TTM window: when full history > 365 days, use only the most recent 12 months.
+    // Prevents diluting current-year usage with older data when consumption is trending up.
+    const fullDayCount = Math.max(1, Math.round((lastDate - firstDate) / 86400000) + Math.max(1, Math.round(medianDays)));
+    if (fullDayCount > 365) {
+      const cutoffMs = lastDate.getTime() - 365 * 86400000;
+      const ttmRecs = allRecords.filter(r => r.dt.getTime() >= cutoffMs);
+      if (ttmRecs.length >= 6) {
+        const ttmKwh = ttmRecs.reduce((s, r) => s + r.usage, 0);
+        const ttmFirst = ttmRecs[0].dt;
+        const ttmLast = ttmRecs[ttmRecs.length - 1].dt;
+        dayCount = Math.max(1, Math.round((ttmLast - ttmFirst) / 86400000) + Math.max(1, Math.round(medianDays)));
+        dailyAvg = ttmKwh / dayCount;
+        hourly = shape.map(v => (v / shapeSum) * dailyAvg);
+        // Override totalKwh so the annual calc downstream reflects TTM, not lifetime
+        totalKwh = ttmKwh;
+        firstDate = ttmFirst;
+        lastDate = ttmLast;
+        intervalLabel = `Billing cycle · TTM (~${Math.round(medianDays)}d rows)`;
+      } else {
+        dayCount = fullDayCount;
+        dailyAvg = totalKwh / dayCount;
+        hourly = shape.map(v => (v / shapeSum) * dailyAvg);
+      }
+    } else {
+      dayCount = fullDayCount;
+      dailyAvg = totalKwh / dayCount;
+      hourly = shape.map(v => (v / shapeSum) * dailyAvg);
+    }
   }
 
   const annual = totalKwh * (365 / dayCount);
@@ -2432,6 +2467,9 @@ function parseGreenButton(input) {
     implicitSolarAnnualKwh: implicitSolarKwh,
     grossLoadAnnualKwh: grossLoadKwh,
     perFile: perFileSummary,
+    ttmStart: firstDate.toISOString().slice(0, 10),
+    ttmEnd: lastDate.toISOString().slice(0, 10),
+    isTtm: intervalLabel.includes('TTM'),
   };
   return { hourly, meta };
 }

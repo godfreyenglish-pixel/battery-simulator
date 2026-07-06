@@ -4601,9 +4601,54 @@ setupEvents();
   // ── INIT ──
   buildCriticalList();
   console.log('[Backup Qty] Loaded. Heat pumps added, quantity controls active.');
+<script>
+// ENPHASE 10C BRAND — Battery Load Simulator (v2)
+(function() {
+  'use strict';
+  delete BRANDS.lg;
+  delete BRANDS.solis;
+  BRANDS.enphase10c = { name: 'Enphase 10C', kwh: 10, contKw: 3.84, dod: 1.0, maxQty: 4 };
+  delete BATT_PER_KWH.lg;
+  delete BATT_PER_KWH.solis;
+  BATT_PER_KWH.enphase10c = { 1: 1000, 2: 1000, 3: 1000, 4: 1000 };
+  delete BATT_BRAND_ADDER.lg;
+  delete BATT_BRAND_ADDER.solis;
+  BATT_BRAND_ADDER.enphase10c = 0;
+  var _origBattCost = window.batterySystemCost;
+  window.batterySystemCost = function(s) {
+    if (s.brand !== 'enphase10c') return _origBattCost(s);
+    if (!s.hasBatt) return { gross: 0, net: 0 };
+    var qty = s.qty || 1;
+    var totalKwh = BRANDS.enphase10c.kwh * qty;
+    var baseCost = totalKwh * 1000;
+    var commission = totalKwh * 75;
+    var clpCost = (s.clp !== false && typeof CLP_COST !== 'undefined') ? CLP_COST : 0;
+    var gross = baseCost + commission + clpCost;
+    var nyserda = totalKwh * 250;
+    return { gross: gross, net: gross - nyserda, commission: commission, nyserda: nyserda, clp: clpCost, baseCost: baseCost, totalKwh: totalKwh, perKwh: 1000 };
+  };
+  ['arbBak','solar'].forEach(function(ws){
+    ['setupA','setupB'].forEach(function(su){
+      var setup = STATE.workspaces[ws] && STATE.workspaces[ws][su];
+      if (setup && (setup.brand === 'lg' || setup.brand === 'solis')) setup.brand = 'eg4';
+    });
+  });
+  var brandSeg = document.getElementById('brandSeg');
+  if (brandSeg) {
+    brandSeg.querySelectorAll('.seg-btn').forEach(function(btn){
+      var b = btn.dataset.brand;
+      if (b === 'lg') { btn.dataset.brand = 'enphase10c'; btn.textContent = 'Enphase 10C'; }
+      else if (b === 'solis') { btn.remove(); }
+    });
+    brandSeg.querySelectorAll('.seg-btn').forEach(function(btn){
+      btn.parentNode.replaceChild(btn.cloneNode(true), btn);
+    });
+  }
+  setupEvents();
+  refreshControls();
+  render();
 })();
-    </script>
-  <script>
+</script>
   // ENPHASE 10C BRAND UPDATE — Battery Load Simulator
 // Removes LG/Solis, adds Enphase IQ Battery 10C
 (function() {

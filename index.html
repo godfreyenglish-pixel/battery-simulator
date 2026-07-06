@@ -4603,5 +4603,122 @@ setupEvents();
   console.log('[Backup Qty] Loaded. Heat pumps added, quantity controls active.');
 })();
     </script>
+  // ENPHASE 10C BRAND UPDATE — Battery Load Simulator
+// Removes LG/Solis, adds Enphase IQ Battery 10C
+(function() {
+  'use strict';
+
+  // ── REMOVE LG/SOLIS, ADD ENPHASE ──
+  delete BRANDS.lg;
+  delete BRANDS.solis;
+  BRANDS.enphase10c = { name: 'Enphase 10C', kwh: 10, contKw: 3.84, dod: 1.0, maxQty: 4 };
+
+  // ── UPDATE PRICING TABLES ──
+  delete BATT_PER_KWH.lg;
+  delete BATT_PER_KWH.solis;
+  BATT_PER_KWH.enphase10c = { 1: 1000, 2: 1000, 3: 1000, 4: 1000 };
+
+  delete BATT_BRAND_ADDER.lg;
+  delete BATT_BRAND_ADDER.solis;
+  BATT_BRAND_ADDER.enphase10c = 0;
+
+  // ── BRAND-SPECIFIC COMMISSION + NYSERDA ──
+  // EG4: flat $2,000 commission, flat NYSERDA ($4K/1 batt, $6,250/2+)
+  // Enphase: $75/kWh commission, $250/kWh NYSERDA
+  window.BRAND_COMMISSION = {
+    eg4: { type: 'flat', amount: 2000 },
+    enphase10c: { type: 'perKwh', amount: 75 }
+  };
+
+  window.BRAND_NYSERDA = {
+    eg4: { type: 'flat', table: { 1: 4000, 2: 6250 } },
+    enphase10c: { type: 'perKwh', amount: 250 }
+  };
+
+  // ── OVERRIDE batterySystemCost ──
+  window.batterySystemCost = function(s) {
+    if (!s.hasBatt) return { gross: 0, net: 0, commission: 0, nyserda: 0, clp: 0 };
+    var brand = BRANDS[s.brand];
+    if (!brand) return { gross: 0, net: 0, commission: 0, nyserda: 0, clp: 0 };
+
+    var qty = s.qty || 1;
+    var totalKwh = brand.kwh * qty;
+    var perKwh = BATT_PER_KWH[s.brand] ? (BATT_PER_KWH[s.brand][qty] || BATT_PER_KWH[s.brand][1]) : 1000;
+
+    // Base cost
+    var baseCost = totalKwh * perKwh;
+
+    // Brand adder
+    var adder = BATT_BRAND_ADDER[s.brand] || 0;
+
+    // Commission (brand-specific)
+    var commInfo = BRAND_COMMISSION[s.brand] || { type: 'flat', amount: 2000 };
+    var commission = commInfo.type === 'perKwh' ? totalKwh * commInfo.amount : commInfo.amount;
+
+    // CLP
+    var clpCost = (s.clp !== false && typeof CLP_COST !== 'undefined') ? CLP_COST : 0;
+
+    // Gross
+    var gross = baseCost + adder + commission + clpCost;
+
+    // NYSERDA (brand-specific)
+    var nysInfo = BRAND_NYSERDA[s.brand] || { type: 'flat', table: { 1: 4000, 2: 6250 } };
+    var nyserda;
+    if (nysInfo.type === 'perKwh') {
+      nyserda = totalKwh * nysInfo.amount;
+    } else {
+      nyserda = qty >= 2 ? (nysInfo.table[2] || 6250) : (nysInfo.table[1] || 4000);
+    }
+
+    var net = gross - nyserda;
+
+    return { gross: gross, net: net, commission: commission, nyserda: nyserda, clp: clpCost, baseCost: baseCost, adder: adder, totalKwh: totalKwh, perKwh: perKwh };
+  };
+
+  // ── UPDATE BRAND SELECTOR UI ──
+  var brandSeg = document.getElementById('brandSeg');
+  if (brandSeg) {
+    brandSeg.innerHTML = '';
+    var brandList = [
+      { id: 'eg4', label: 'EG4 16K' },
+      { id: 'enphase10c', label: 'Enphase 10C' }
+    ];
+    brandList.forEach(function(b) {
+      var btn = document.createElement('button');
+      btn.className = 'seg-btn' + (STATE.setupA.brand === b.id ? ' active' : '');
+      btn.dataset.brand = b.id;
+      btn.textContent = b.label;
+      btn.style.cssText = 'flex:1;padding:8px 12px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;' +
+        (STATE.setupA.brand === b.id ? 'background:var(--accent);color:var(--bg)' : 'background:var(--card);color:var(--text-muted)');
+      btn.addEventListener('click', function() {
+        STATE.setupA.brand = b.id;
+        // Reset qty if exceeds maxQty for new brand
+        var maxQ = BRANDS[b.id].maxQty;
+        if (STATE.setupA.qty > maxQ) STATE.setupA.qty = maxQ;
+        // Update UI
+        brandSeg.querySelectorAll('.seg-btn').forEach(function(bb) {
+          var isActive = bb.dataset.brand === b.id;
+          bb.classList.toggle('active', isActive);
+          bb.style.background = isActive ? 'var(--accent)' : 'var(--card)';
+          bb.style.color = isActive ? 'var(--bg)' : 'var(--text-muted)';
+        });
+        refreshControls();
+        render();
+      });
+      brandSeg.appendChild(btn);
+    });
+  }
+
+  // ── FIX: if current brand is lg or solis, switch to eg4 ──
+  if (STATE.setupA.brand === 'lg' || STATE.setupA.brand === 'solis') {
+    STATE.setupA.brand = 'eg4';
+  }
+
+  // ── INIT ──
+  refreshControls();
+  render();
+  console.log('[Enphase Brand] Loaded. EG4 + Enphase 10C active. LG/Solis removed.');
+})();
+  </script>
 </body>
 </html>

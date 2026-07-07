@@ -4606,7 +4606,7 @@ setupEvents();
 
   
 <script>
-// ENPHASE 10C BRAND — Battery Load Simulator (v2)
+// ENPHASE 10C BRAND — Battery Load Simulator (v3)
 (function() {
   'use strict';
   delete BRANDS.lg;
@@ -4626,10 +4626,9 @@ setupEvents();
     var totalKwh = BRANDS.enphase10c.kwh * qty;
     var baseCost = totalKwh * 1000;
     var commission = totalKwh * 75;
-    var clpCost = (s.clp !== false && typeof CLP_COST !== 'undefined') ? CLP_COST : 0;
-    var gross = baseCost + commission + clpCost;
+    var gross = baseCost + commission;
     var nyserda = totalKwh * 250;
-    return { gross: gross, net: gross - nyserda, commission: commission, nyserda: nyserda, clp: clpCost, baseCost: baseCost, totalKwh: totalKwh, perKwh: 1000 };
+    return { gross: gross, net: gross - nyserda, commission: commission, nyserda: nyserda, clp: 0, baseCost: baseCost, totalKwh: totalKwh, perKwh: 1000 };
   };
   ['arbBak','solar'].forEach(function(ws){
     ['setupA','setupB'].forEach(function(su){
@@ -4637,6 +4636,27 @@ setupEvents();
       if (setup && (setup.brand === 'lg' || setup.brand === 'solis')) setup.brand = 'eg4';
     });
   });
+  function updateClpToggle() {
+    var sw = document.getElementById('clpSwitch');
+    if (!sw) return;
+    var clpField = sw.closest('.field');
+    var isEnphase = activeSetup().brand === 'enphase10c';
+    if (clpField) {
+      clpField.style.opacity = isEnphase ? '0.4' : '1';
+      clpField.style.pointerEvents = isEnphase ? 'none' : 'auto';
+      var note = document.getElementById('clpEnphaseNote');
+      if (isEnphase && !note) {
+        note = document.createElement('div');
+        note.id = 'clpEnphaseNote';
+        note.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:4px;pointer-events:none';
+        note.textContent = 'Included with Enphase 10C';
+        clpField.appendChild(note);
+      } else if (!isEnphase && note) {
+        note.remove();
+      }
+    }
+  }
+  window.updateClpToggle = updateClpToggle;
   var brandSeg = document.getElementById('brandSeg');
   if (brandSeg) {
     brandSeg.querySelectorAll('.seg-btn').forEach(function(btn){
@@ -4649,8 +4669,12 @@ setupEvents();
     });
   }
   setupEvents();
+  document.querySelectorAll('#brandSeg .seg-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ setTimeout(updateClpToggle, 10); });
+  });
   refreshControls();
   render();
+  updateClpToggle();
 })();
 </script>
 </body>

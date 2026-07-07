@@ -4677,5 +4677,133 @@ setupEvents();
   updateClpToggle();
 })();
 </script>
+  <script>// AUDIT FIXES — Battery Load Simulator
+// 1) Battery-only attribution toggle (preset/CSV modes)
+// 2) O&R weekend blending (peak M-F only)
+// 3) Escalator 3.3% default (matches approved Con Ed filings)
+(function() {
+  'use strict';
+
+  // ── FIX 3: ESCALATOR 3.3% ──
+  var _origPayback = window.paybackYears;
+  var _origLifetime = window.lifetimeSavings;
+  window.paybackYears = function(netCost, annualSave, opts) {
+    opts = opts || {};
+    if (opts.escalator === undefined) opts.escalator = 0.033;
+    return _origPayback(netCost, annualSave, opts);
+  };
+  window.lifetimeSavings = function(annualSave, opts) {
+    opts = opts || {};
+    if (opts.escalator === undefined) opts.escalator = 0.033;
+    return _origLifetime(annualSave, opts);
+  };
+
+  // ── FIX 2: O&R WEEKEND BLENDING ──
+  // O&R peak applies Mon-Fri only. Weekends bill entirely off-peak; battery idles.
+  // Blend: weekday result x 5/7 + weekend (all off-peak) x 2/7.
+  var _simPreWeekend = window.simulateArbitrage;
+  window.simulateArbitrage = function(s, pk) {
+    var r = _simPreWeekend(s, pk);
+    if (STATE.utility !== 'oru') return r;
+    var totalLoad = 0;
+    for (var h = 0; h < 24; h++) totalLoad += r.load[h];
+    var weekendCost = totalLoad * STATE.offRate;
+    var W = 5/7, E = 2/7;
+    var blended = Object.assign({}, r);
+    blended.baseline = r.baseline * W + weekendCost * E;
+    blended.netCost = r.netCost * W + weekendCost * E;
+    blended.dailySave = blended.baseline - blended.netCost;
+    blended.kwhShifted = r.kwhShifted * W;
+    return blended;
+  };
+
+  // ── FIX 1: BATTERY-ONLY ATTRIBUTION TOGGLE ──
+  if (STATE.batteryOnlyView === undefined) STATE.batteryOnlyView = false;
+
+  function injectBatteryOnlyToggle() {
+    var peakEl = document.getElementById('peakRate');
+    if (!peakEl) return;
+    var rateCard = peakEl.closest('.card');
+    if (!rateCard || document.getElementById('batteryOnlyToggle')) return;
+    var div = document.createElement('div');
+    div.style.cssText = 'margin-top:14px;padding-top:12px;border-top:1px solid var(--border)';
+    div.innerHTML =
+      '<label style="font-size:12px;color:var(--text-muted);font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px">' +
+        '<input type="checkbox" id="batteryOnlyToggle" style="accent-color:var(--accent);width:16px;height:16px;cursor:pointer">' +
+        'Client already on TOU (show battery-only savings)' +
+      '</label>';
+    rateCard.appendChild(div);
+    document.getElementById('batteryOnlyToggle').addEventListener('change', function(e){
+      STATE.batteryOnlyView = e.target.checked;
+      try { localStorage.setItem('rivertown-battery-only', e.target.checked ? '1' : '0'); } catch(err) {}
+      render();
+    });
+  }
+
+  function patchEscalatorLabels() {
+    document.querySelectorAll('.roi-title, .result-sub').forEach(function(el){
+      if (el.textContent.indexOf('5% utility escalator') > -1) el.textContent = el.textContent.replace('5% utility escalator', '3.3% utility escalator');
+      if (el.textContent.indexOf('grows 5% / yr') > -1) el.textContent = el.textContent.replace('grows 5% / yr', 'grows 3.3% / yr');
+    });
+  }
+
+  var _raPreAttr = window.renderArbitrage;
+  window.renderArbitrage = function() {
+    _raPreAttr();
+    patchEscalatorLabels();
+    if (!STATE.batteryOnlyView) return;
+    var s = activeSetup();
+    if (s.src === 'tou-summary' || !s.hasBatt) return;
+
+    var origSeason = s.season;
+    s.hasBatt = false;
+    s.season = 'summer'; var sumNB = simulateArbitrage(s);
+    s.season = 'winter'; var winNB = simulateArbitrage(s);
+    s.hasBatt = true;
+    s.season = 'summer'; var sumB = simulateArbitrage(s);
+    s.season = 'winter'; var winB = simulateArbitrage(s);
+    s.season = origSeason;
+
+    var noBattAnnual = (sumNB.netCost * 122) + (winNB.netCost * 243);
+    var battAnnual = (sumB.netCost * 122) + (winB.netCost * 243);
+    var battOnly = Math.max(0, noBattAnnual - battAnnual);
+
+    var ds = document.getElementById('rDailySave');
+    var as2 = document.getElementById('rAnnualSave');
+    if (ds) ds.textContent = '$' + (battOnly/365).toFixed(2);
+    if (as2) as2.textContent = '$' + Math.round(battOnly).toLocaleString();
+    var asLbl = as2 ? as2.parentElement.querySelector('.result-label') : null;
+    if (asLbl) asLbl.textContent = 'BATTERY-ONLY SAVINGS';
+    var asSub = as2 ? as2.parentElement.querySelector('.result-sub') : null;
+    if (asSub) asSub.textContent = 'TOU without battery vs TOU with battery';
+
+    var sysCostEl = document.getElementById('roiArbNet');
+    var sysCost = sysCostEl ? parseInt(sysCostEl.textContent.replace(/[^0-9]/g,'')) : 17000;
+    var rv = document.getElementById('roiArbYearVal'); if (rv) rv.textContent = '$' + Math.round(battOnly).toLocaleString();
+    var rp = document.getElementById('roiArbPayback');
+    var pb = battOnly > 0 ? paybackYears(sysCost, battOnly) : 999;
+    if (rp) rp.textContent = pb > 50 ? '50+ yrs' : pb.toFixed(1) + ' yrs';
+    var rl = document.getElementById('roiArbLifetime'); if (rl) rl.textContent = '$' + Math.round(lifetimeSavings(battOnly)).toLocaleString();
+  };
+
+  // ── RESTORE PERSISTED TOGGLE ──
+  setTimeout(function() {
+    try {
+      if (localStorage.getItem('rivertown-battery-only') === '1') {
+        STATE.batteryOnlyView = true;
+        var t = document.getElementById('batteryOnlyToggle');
+        if (t) t.checked = true;
+        render();
+      }
+    } catch(e) {}
+  }, 800);
+
+  // ── INIT ──
+  injectBatteryOnlyToggle();
+  patchEscalatorLabels();
+  render();
+  console.log('[Audit Fixes] Battery-only toggle, O&R weekends, 3.3% escalator live.');
+})();
+    </script>
 </body>
 </html>

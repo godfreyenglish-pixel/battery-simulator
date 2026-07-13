@@ -4805,67 +4805,129 @@ setupEvents();
   console.log('[Audit Fixes] Battery-only toggle, O&R weekends, 3.3% escalator live.');
 })();
     </script>
-  <script> // GREEN BUTTON XML SUPPORT — Battery Load Simulator
-// Adds ESPI XML parsing alongside existing CSV/PDF. Same {hourly, meta} contract.
+ <script>// GREEN BUTTON XML SUPPORT v2 — Battery Load Simulator
+// FIXES vs v1:
+//  - v1 summed ALL IntervalBlocks (energy + demand + unknown channels) -> 5x inflated usage
+//  - v1 applied the first powerOfTenMultiplier globally instead of per-channel
+//  Now: selects ONLY the uom=72 (Wh) energy channel, splits import vs solar export,
+//  and sanity-checks the scale multiplier against a plausible daily band.
 (function() {
   'use strict';
+
+  var UOM_ENERGY = '72';        // Wh
+  var FLOW_DELIVERED = '1';     // consumption from grid
+  var FLOW_RECEIVED = '19';     // export to grid (solar)
+
+  function txt(node, tag) {
+    if (!node) return null;
+    var el = node.getElementsByTagNameNS('*', tag)[0] || node.getElementsByTagName(tag)[0];
+    return el ? el.textContent.trim() : null;
+  }
 
   window.parseGreenButtonXml = function(xmlText) {
     var doc = new DOMParser().parseFromString(xmlText, 'application/xml');
     if (doc.querySelector('parsererror')) throw new Error('Invalid XML');
 
-    var readings = doc.getElementsByTagNameNS('*', 'IntervalReading');
-    if (!readings.length) readings = doc.getElementsByTagName('IntervalReading');
-    if (!readings.length) throw new Error('No IntervalReading nodes found');
+    var entries = doc.getElementsByTagNameNS('*', 'entry');
+    if (!entries.length) entries = doc.getElementsByTagName('entry');
+    if (!entries.length) throw new Error('No ESPI entries found');
 
-    var potNode = doc.getElementsByTagNameNS('*', 'powerOfTenMultiplier')[0] || doc.getElementsByTagName('powerOfTenMultiplier')[0];
-    var pot = potNode ? parseInt(potNode.textContent, 10) : 0;
+    // ESPI batch feeds order each channel as: ReadingType, then its IntervalBlock.
+    // Walk entries in document order, carrying the most recent ReadingType forward.
+    var curUom = null, curPot = 0, curFlow = null;
+    var imported = [];   // {epoch, raw}
+    var exported = [];
 
-    var records = [];
-    for (var i = 0; i < readings.length; i++) {
-      var r = readings[i];
-      var tp = r.getElementsByTagNameNS('*','timePeriod')[0] || r.getElementsByTagName('timePeriod')[0];
-      var startNode = tp ? (tp.getElementsByTagNameNS('*','start')[0] || tp.getElementsByTagName('start')[0]) : null;
-      var durNode = tp ? (tp.getElementsByTagNameNS('*','duration')[0] || tp.getElementsByTagName('duration')[0]) : null;
-      var valNode = r.getElementsByTagNameNS('*','value')[0] || r.getElementsByTagName('value')[0];
-      if (!startNode || !valNode) continue;
+    for (var i = 0; i < entries.length; i++) {
+      var en = entries[i];
 
-      var epoch = parseInt(startNode.textContent, 10);
-      var raw = parseFloat(valNode.textContent);
-      var dur = durNode ? parseInt(durNode.textContent, 10) : 3600;
-      var kwh = raw * Math.pow(10, pot) / 1000;  // ESPI Wh -> kWh
-      records.push({ date: new Date(epoch * 1000), kwh: kwh, dur: dur });
+      var rt = en.getElementsByTagNameNS('*', 'ReadingType')[0] || en.getElementsByTagName('ReadingType')[0];
+      if (rt) {
+        curUom = txt(rt, 'uom');
+        var p = txt(rt, 'powerOfTenMultiplier');
+        curPot = p === null ? 0 : parseInt(p, 10);
+        curFlow = txt(rt, 'flowDirection');
+        continue;
+      }
+
+      var ib = en.getElementsByTagNameNS('*', 'IntervalBlock')[0] || en.getElementsByTagName('IntervalBlock')[0];
+      if (!ib) continue;
+
+      // Only the energy channel. Skip demand (uom 38 = W) and unknown (uom 0).
+      if (curUom !== UOM_ENERGY) continue;
+
+      var target = (curFlow === FLOW_RECEIVED) ? exported : imported;
+      var reads = ib.getElementsByTagNameNS('*', 'IntervalReading');
+      if (!reads.length) reads = ib.getElementsByTagName('IntervalReading');
+
+      for (var j = 0; j < reads.length; j++) {
+        var r = reads[j];
+        var tp = r.getElementsByTagNameNS('*','timePeriod')[0] || r.getElementsByTagName('timePeriod')[0];
+        var startNode = tp ? (tp.getElementsByTagNameNS('*','start')[0] || tp.getElementsByTagName('start')[0]) : null;
+        var valNode = r.getElementsByTagNameNS('*','value')[0] || r.getElementsByTagName('value')[0];
+        var durNode = tp ? (tp.getElementsByTagNameNS('*','duration')[0] || tp.getElementsByTagName('duration')[0]) : null;
+        if (!startNode || !valNode) continue;
+        target.push({
+          epoch: parseInt(startNode.textContent, 10),
+          raw: parseFloat(valNode.textContent),
+          dur: durNode ? parseInt(durNode.textContent, 10) : 3600,
+          pot: curPot
+        });
+      }
     }
-    if (!records.length) throw new Error('No usable interval readings');
-    records.sort(function(a,b){ return a.date - b.date; });
 
-    var hourSum = new Array(24).fill(0);
-    var totalKwh = 0;
+    if (!imported.length) throw new Error('No energy channel (uom 72) found in this file');
+    imported.sort(function(a,b){ return a.epoch - b.epoch; });
+
+    // Distinct local days (used for scale check + averaging)
     var dayKeys = {};
-    records.forEach(function(rec){
-      hourSum[rec.date.getHours()] += rec.kwh;   // local time (ET) bucketing
-      totalKwh += rec.kwh;
-      dayKeys[rec.date.toISOString().slice(0,10)] = 1;
+    imported.forEach(function(r){
+      dayKeys[new Date(r.epoch*1000).toDateString()] = 1;
     });
     var dayCount = Object.keys(dayKeys).length || 1;
-    var hourly = hourSum.map(function(sum){ return sum / dayCount; });
 
-    var firstDate = records[0].date, lastDate = records[records.length-1].date;
+    // Scale selection: ESPI says kWh = raw * 10^pot / 1000, but some feeds (Opower)
+    // publish plain Wh while still declaring pot=3. Pick whichever lands in a
+    // plausible band (0.5 - 500 kWh/day); prefer the spec-compliant one.
+    var rawSum = imported.reduce(function(a,r){ return a + r.raw; }, 0);
+    var pot = imported[0].pot || 0;
+    var withPot  = rawSum * Math.pow(10, pot) / 1000 / dayCount;
+    var withoutPot = rawSum / 1000 / dayCount;
+    var sane = function(v){ return v >= 0.5 && v <= 500; };
+    var scale;
+    if (sane(withPot))         scale = Math.pow(10, pot) / 1000;
+    else if (sane(withoutPot)) scale = 1 / 1000;
+    else                       scale = Math.pow(10, pot) / 1000;
+
+    // Build 24h average profile in LOCAL time
+    var hourSum = new Array(24).fill(0);
+    var totalKwh = 0;
+    imported.forEach(function(r){
+      var kwh = r.raw * scale;
+      hourSum[new Date(r.epoch*1000).getHours()] += kwh;
+      totalKwh += kwh;
+    });
+    var hourly = hourSum.map(function(s){ return s / dayCount; });
+
+    var exportKwh = exported.reduce(function(a,r){ return a + r.raw * scale; }, 0);
+
+    var firstDate = new Date(imported[0].epoch * 1000);
+    var lastDate  = new Date(imported[imported.length-1].epoch * 1000);
     var dailyAvg = totalKwh / dayCount;
 
     var meta = {
       range: firstDate.toISOString().slice(0,10) + ' \u2192 ' + lastDate.toISOString().slice(0,10),
-      intervals: Math.round((records[0].dur || 3600) / 60) + '-min (XML)',
+      intervals: Math.round((imported[0].dur || 3600) / 60) + '-min (XML)',
       total: totalKwh,
       dailyAvg: dailyAvg,
       annual: dailyAvg * 365,
       days: dayCount,
-      rowCount: records.length,
+      rowCount: imported.length,
       label: 'Green Button XML',
       partialYear: dayCount < 330,
       filesCount: 1,
-      exportKwh: 0,
-      hasExport: false
+      exportKwh: exportKwh,
+      hasExport: exportKwh > 0
     };
     return { hourly: hourly, meta: meta };
   };
@@ -4893,12 +4955,11 @@ setupEvents();
     reader.readAsText(file);
   };
 
-  // Accept .xml on the file input
   var fi = document.querySelector('input[type="file"]');
   if (fi) fi.accept = '.csv,.pdf,.xml';
 
-  console.log('[XML Parser] Green Button ESPI XML supported.');
+  console.log('[XML Parser v2] Energy-channel only, import/export split, scale guard.');
 })();
-    </script>
+        </script>
 </body>
 </html>

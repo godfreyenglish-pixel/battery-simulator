@@ -4805,5 +4805,100 @@ setupEvents();
   console.log('[Audit Fixes] Battery-only toggle, O&R weekends, 3.3% escalator live.');
 })();
     </script>
+  <script> // GREEN BUTTON XML SUPPORT — Battery Load Simulator
+// Adds ESPI XML parsing alongside existing CSV/PDF. Same {hourly, meta} contract.
+(function() {
+  'use strict';
+
+  window.parseGreenButtonXml = function(xmlText) {
+    var doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (doc.querySelector('parsererror')) throw new Error('Invalid XML');
+
+    var readings = doc.getElementsByTagNameNS('*', 'IntervalReading');
+    if (!readings.length) readings = doc.getElementsByTagName('IntervalReading');
+    if (!readings.length) throw new Error('No IntervalReading nodes found');
+
+    var potNode = doc.getElementsByTagNameNS('*', 'powerOfTenMultiplier')[0] || doc.getElementsByTagName('powerOfTenMultiplier')[0];
+    var pot = potNode ? parseInt(potNode.textContent, 10) : 0;
+
+    var records = [];
+    for (var i = 0; i < readings.length; i++) {
+      var r = readings[i];
+      var tp = r.getElementsByTagNameNS('*','timePeriod')[0] || r.getElementsByTagName('timePeriod')[0];
+      var startNode = tp ? (tp.getElementsByTagNameNS('*','start')[0] || tp.getElementsByTagName('start')[0]) : null;
+      var durNode = tp ? (tp.getElementsByTagNameNS('*','duration')[0] || tp.getElementsByTagName('duration')[0]) : null;
+      var valNode = r.getElementsByTagNameNS('*','value')[0] || r.getElementsByTagName('value')[0];
+      if (!startNode || !valNode) continue;
+
+      var epoch = parseInt(startNode.textContent, 10);
+      var raw = parseFloat(valNode.textContent);
+      var dur = durNode ? parseInt(durNode.textContent, 10) : 3600;
+      var kwh = raw * Math.pow(10, pot) / 1000;  // ESPI Wh -> kWh
+      records.push({ date: new Date(epoch * 1000), kwh: kwh, dur: dur });
+    }
+    if (!records.length) throw new Error('No usable interval readings');
+    records.sort(function(a,b){ return a.date - b.date; });
+
+    var hourSum = new Array(24).fill(0);
+    var totalKwh = 0;
+    var dayKeys = {};
+    records.forEach(function(rec){
+      hourSum[rec.date.getHours()] += rec.kwh;   // local time (ET) bucketing
+      totalKwh += rec.kwh;
+      dayKeys[rec.date.toISOString().slice(0,10)] = 1;
+    });
+    var dayCount = Object.keys(dayKeys).length || 1;
+    var hourly = hourSum.map(function(sum){ return sum / dayCount; });
+
+    var firstDate = records[0].date, lastDate = records[records.length-1].date;
+    var dailyAvg = totalKwh / dayCount;
+
+    var meta = {
+      range: firstDate.toISOString().slice(0,10) + ' \u2192 ' + lastDate.toISOString().slice(0,10),
+      intervals: Math.round((records[0].dur || 3600) / 60) + '-min (XML)',
+      total: totalKwh,
+      dailyAvg: dailyAvg,
+      annual: dailyAvg * 365,
+      days: dayCount,
+      rowCount: records.length,
+      label: 'Green Button XML',
+      partialYear: dayCount < 330,
+      filesCount: 1,
+      exportKwh: 0,
+      hasExport: false
+    };
+    return { hourly: hourly, meta: meta };
+  };
+
+  // Route .xml through the existing handleCsv entry point
+  var _origHandleCsv = window.handleCsv;
+  window.handleCsv = function(file) {
+    var name = (file.name || '').toLowerCase();
+    if (!name.endsWith('.xml')) return _origHandleCsv(file);
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var profile = parseGreenButtonXml(e.target.result);
+        var s = activeSetup();
+        s.csvProfile = profile.hourly;
+        s.csvMeta = profile.meta;
+        s.daily = profile.meta.dailyAvg;
+        s.src = 'csv';
+        refreshControls();
+        render();
+      } catch(err) {
+        alert('Could not parse XML: ' + err.message + '\n\nExpected Green Button (ESPI) XML with IntervalReading nodes.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Accept .xml on the file input
+  var fi = document.querySelector('input[type="file"]');
+  if (fi) fi.accept = '.csv,.pdf,.xml';
+
+  console.log('[XML Parser] Green Button ESPI XML supported.');
+})();
+    </script>
 </body>
 </html>

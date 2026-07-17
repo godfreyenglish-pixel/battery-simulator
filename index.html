@@ -4961,5 +4961,112 @@ setupEvents();
   console.log('[XML Parser v2] Energy-channel only, import/export split, scale guard.');
 })();
         </script>
+<script>// GREEN BUTTON XLSX SUPPORT v1 — Battery Load Simulator
+// Reads .xlsx / .xls / .xlsm workbooks, picks the interval sheet, converts it to CSV,
+// then routes through the existing parseGreenButton() engine (header auto-detect,
+// delimiter + date-format detection, import/export split, TTM windowing all reused).
+// SheetJS is lazy-loaded on first Excel upload so CSV/XML/PDF users pay no load cost.
+(function() {
+'use strict';
+
+var XLSX_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+var xlsxLoading = null;
+
+function ensureXlsx() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (xlsxLoading) return xlsxLoading;
+  xlsxLoading = new Promise(function(resolve, reject) {
+    var el = document.createElement('script');
+    el.src = XLSX_CDN;
+    el.onload = function() { window.XLSX ? resolve(window.XLSX) : reject(new Error('Excel library loaded but XLSX global missing')); };
+    el.onerror = function() { reject(new Error('Could not load the Excel library (network blocked?)')); };
+    document.head.appendChild(el);
+  });
+  return xlsxLoading;
+}
+
+function isXlsx(f) {
+  var n = ((f && f.name) || '').toLowerCase();
+  return n.endsWith('.xlsx') || n.endsWith('.xls') || n.endsWith('.xlsm');
+}
+
+// Pick the sheet that actually holds interval/usage data, return it as CSV text.
+function sheetToBestCsv(wb) {
+  var best = '', bestScore = -1;
+  for (var i = 0; i < wb.SheetNames.length; i++) {
+    var ws = wb.Sheets[wb.SheetNames[i]];
+    if (!ws) continue;
+    var csv = window.XLSX.utils.sheet_to_csv(ws, { dateNF: 'yyyy-mm-dd hh:mm', blankrows: false });
+    var lines = csv.split(/\r?\n/).filter(function(l){ return l.trim().length; });
+    if (!lines.length) continue;
+    var head = lines.slice(0, 30).join('\n').toLowerCase();
+    var score = lines.length;
+    if (/usage|kwh|consumption|import/.test(head)) score += 100000;
+    if (/date|time|start/.test(head)) score += 100000;
+    if (score > bestScore) { bestScore = score; best = csv; }
+  }
+  return best;
+}
+
+function readXlsxToCsv(file) {
+  return ensureXlsx().then(function() {
+    return file.arrayBuffer();
+  }).then(function(buf) {
+    var wb = window.XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true });
+    var csv = sheetToBestCsv(wb);
+    if (!csv) throw new Error('No readable sheet found in the workbook');
+    return csv;
+  });
+}
+
+function applyProfile(profile) {
+  var s = activeSetup();
+  s.csvProfile = profile.hourly;
+  s.csvMeta = profile.meta;
+  s.daily = profile.meta.dailyAvg;
+  s.src = 'csv';
+  refreshControls();
+  render();
+}
+
+// Intercept the multi-file dispatcher: .xlsx/.xls/.xlsm route to the Excel reader,
+// everything else (csv/pdf/xml) falls through to the original untouched.
+var _origHandleCsvFiles = window.handleCsvFiles;
+window.handleCsvFiles = function(files) {
+  var xls = files.filter(isXlsx);
+  if (!xls.length) return _origHandleCsvFiles(files);
+  var others = files.filter(function(f){ return !isXlsx(f); });
+  if (others.length) alert('Mixed upload detected. Only the Excel file(s) were processed. Upload CSV, XML, or PDF on their own.');
+  Promise.all(xls.map(readXlsxToCsv)).then(function(csvTexts) {
+    applyProfile(parseGreenButton(csvTexts)); // array in = multi-file merge, same as CSV path
+  }).catch(function(err) {
+    alert('Could not read Excel file: ' + err.message + '\n\nExpected an interval or usage sheet with date and kWh columns (Green Button export or bill-history sheet).');
+  });
+};
+
+// Defensive: also catch the single-file entry in case anything calls it directly.
+var _origHandleCsv = window.handleCsv;
+window.handleCsv = function(file) {
+  if (!isXlsx(file)) return _origHandleCsv(file);
+  readXlsxToCsv(file).then(function(csv) {
+    applyProfile(parseGreenButton(csv));
+  }).catch(function(err) {
+    alert('Could not read Excel file: ' + err.message);
+  });
+};
+
+var fi = document.querySelector('input[type="file"]');
+if (fi) fi.accept = '.csv,.pdf,.xml,.xlsx,.xls,.xlsm';
+
+try {
+  var hint = document.getElementById('csvZoneText');
+  if (hint && !/excel|xlsx/i.test(hint.innerHTML)) {
+    hint.innerHTML = hint.innerHTML.replace(/CSV\b/i, 'CSV / Excel');
+  }
+} catch (e) {}
+
+console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy SheetJS).');
+})();
+</script>
 </body>
 </html>

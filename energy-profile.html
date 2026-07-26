@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>Home Energy Report · Rivertown Solar</title>
+<meta name="description" content="Your personalized home energy profile from Rivertown Solar." />
+<meta property="og:title" content="Your Home Energy Report · Rivertown Solar" />
+<meta property="og:description" content="A clear look at how your home uses power and what it costs." />
+<style>
+  :root{
+    --bg:#030712; --card:#111827; --card2:#0B1220; --border:#1F2937;
+    --text:#F9FAFB; --muted:#9CA3AF; --dim:#6B7280;
+    --gold:#FBBF24; --gold-dim:#B8860B; --green:#10B981; --blue:#3B82F6;
+    --teal:#14B8A6; --red:#EF4444; --orange:#F97316;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased;padding:0 0 60px}
+  .mono{font-family:'Geist Mono','SF Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+  .wrap{max-width:760px;margin:0 auto;padding:0 18px}
+  header{border-bottom:1px solid var(--border);padding:22px 0 18px;margin-bottom:22px}
+  .brand{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .brand .name{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold);font-weight:600}
+  h1{font-size:26px;font-weight:700;margin:14px 0 6px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:14px}
+  .prov{display:flex;align-items:center;gap:10px;margin:16px 0 0;padding:11px 14px;background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:10px;font-size:13px;color:#a7f3d0}
+  .prov.low{background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.3);color:#fde68a}
+  .badge{display:inline-block;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;padding:3px 8px;border-radius:5px;vertical-align:middle}
+  .badge.metered{background:rgba(16,185,129,.16);color:#6ee7b7;border:1px solid rgba(16,185,129,.3)}
+  .badge.modeled{background:rgba(59,130,246,.16);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+  section{margin:26px 0}
+  .label{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .hero{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .stat .v{font-size:26px;font-weight:700}
+  .stat .u{color:var(--muted);font-size:12px;margin-top:3px}
+  .stat .k{color:var(--gold);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;font-weight:600}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}
+  .money{display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+  .bars{flex:1;min-width:220px}
+  .barrow{display:flex;align-items:center;gap:10px;margin:9px 0}
+  .barrow .n{width:120px;font-size:13px;color:var(--muted)}
+  .track{flex:1;height:16px;background:var(--card2);border-radius:8px;overflow:hidden}
+  .fill{height:100%;border-radius:8px}
+  .barrow .amt{width:58px;text-align:right;font-size:13px}
+  .rate-box p{color:var(--muted);font-size:14px;margin-top:8px}
+  .rate-box strong{color:var(--text)}
+  .annual{display:flex;align-items:flex-end;gap:5px;height:150px;margin-top:6px;padding-top:10px}
+  .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+  .col .bar{width:100%;border-radius:4px 4px 0 0;min-height:3px}
+  .col .m{font-size:10px;color:var(--dim)}
+  .col.verified .bar{background:var(--green)}
+  .col.modeled .bar{background:var(--blue);opacity:.55}
+  .legend{display:flex;gap:16px;margin-top:14px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block}
+  .note{font-size:12px;color:var(--dim);margin-top:12px;font-style:italic}
+  .cta{margin-top:30px;background:linear-gradient(135deg,rgba(251,191,36,.1),rgba(251,191,36,.03));border:1px solid rgba(251,191,36,.3);border-radius:14px;padding:22px}
+  .cta h3{font-size:16px;color:var(--gold);margin-bottom:6px}
+  .cta p{color:var(--muted);font-size:14px}
+  footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--border);text-align:center;color:var(--dim);font-size:12px}
+  @media(max-width:560px){.hero{grid-template-columns:1fr}.stat .v{font-size:24px}h1{font-size:22px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="name">Rivertown Solar</div>
+      <div class="sub mono" id="reportDate"></div>
+    </div>
+    <h1>Home Energy Report</h1>
+    <div class="sub" id="preparedFor">A clear look at how your home uses power and what it costs.</div>
+    <div class="prov" id="provenance"></div>
+  </header>
+
+  <section>
+    <div class="label">Your usage, verified <span class="badge metered">Metered</span></div>
+    <div class="hero" id="heroStats"></div>
+  </section>
+
+  <section id="moneySection">
+    <div class="label">Where your money goes <span class="badge metered">Metered</span></div>
+    <div class="card money">
+      <div class="bars" id="moneyBars"></div>
+    </div>
+  </section>
+
+  <section id="peakSection" style="display:none">
+    <div class="label">Peak vs off-peak <span class="badge metered">Metered</span></div>
+    <div class="card">
+      <div class="bars" id="peakBars"></div>
+      <div class="note" id="peakNote"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="label">Your rate, decoded</div>
+    <div class="card rate-box" id="rateBox"></div>
+  </section>
+
+  <section>
+    <div class="label">Your year, projected <span class="badge modeled">Modeled</span></div>
+    <div class="card">
+      <div class="annual" id="annualChart"></div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--green)"></span> Verified month</span>
+        <span><span class="dot" style="background:var(--blue);opacity:.55"></span> Modeled from your verified usage</span>
+      </div>
+      <div class="note" id="annualNote"></div>
+    </div>
+  </section>
+
+  <div class="cta">
+    <h3>Want this hour by hour?</h3>
+    <p>This report is built from your bill. If you send your <strong>Green Button</strong> file (your utility's downloadable usage data), we can show your exact hourly pattern, your real peak percentage, and whether a time-of-use rate would save you money. Just reply to our last email with the file.</p>
+  </div>
+
+  <footer>
+    Rivertown Solar &nbsp;·&nbsp; Prepared as a free resource. Figures marked <span style="color:#6ee7b7">Metered</span> come straight from your bill. Figures marked <span style="color:#93c5fd">Modeled</span> are estimates scaled from your verified usage.
+  </footer>
+</div>
+
+<script>
+(function(){
+  // ---- demo fallback so the page always renders ----
+  var DEMO = {
+    clientName:"", billingMonth:"2026-07", daysInPeriod:30, totalKwh:868, totalDue:301.4,
+    allInRate:0.347, supplyCharges:132, deliveryCharges:152, basicServiceCharge:17,
+    rateClass:"SC1 Rate I", peakKwh:null, offpeakKwh:null, peakPct:null,
+    source:"pdf", confidence:"high"
+  };
+
+  function decode(){
+    try{
+      var h = location.hash || "";
+      var m = h.match(/d=([^&]+)/);
+      if(!m) return DEMO;
+      var b64 = decodeURIComponent(m[1]).replace(/-/g,'+').replace(/_/g,'/');
+      var json = decodeURIComponent(escape(atob(b64)));
+      var obj = JSON.parse(json);
+      return Object.assign({}, DEMO, obj);
+    }catch(e){ return DEMO; }
+  }
+
+  var d = decode();
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  // Westchester residential seasonal shape (relative), AC-heavy summer
+  var SHAPE = [1.05,0.96,0.85,0.76,0.82,1.06,1.34,1.33,1.08,0.80,0.86,1.02];
+
+  function num(n,dec){ if(n==null||n==="")return "—"; var x=Number(n); return isNaN(x)?"—":x.toLocaleString(undefined,{maximumFractionDigits:dec||0,minimumFractionDigits:dec||0}); }
+  function money(n){ return n==null||n===""?"—":"$"+Number(n).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}); }
+
+  // header
+  document.getElementById('reportDate').textContent = new Date().toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+  if(d.clientName){ document.getElementById('preparedFor').textContent = "Prepared for "+d.clientName+". A clear look at how your home uses power and what it costs."; }
+
+  // provenance
+  var billMoIdx = 0, moName="your recent bill";
+  if(d.billingMonth && /^\d{4}-\d{2}$/.test(d.billingMonth)){ billMoIdx = parseInt(d.billingMonth.split('-')[1],10)-1; moName = MONTHS[billMoIdx]; }
+  var prov = document.getElementById('provenance');
+  var srcTxt = d.source==='greenbutton' ? "Built from your Green Button interval data" : (d.source==='photo' ? "Built from a photo of your "+moName+" bill" : "Built from your "+moName+" electric bill");
+  prov.innerHTML = srcTxt + (String(d.confidence).toLowerCase()==='low' ? " &nbsp;·&nbsp; some figures were hard to read, so treat the estimates loosely" : "");
+  if(String(d.confidence).toLowerCase()==='low') prov.className='prov low';
+
+  // hero
+  var dailyAvg = (d.totalKwh && d.daysInPeriod) ? d.totalKwh/d.daysInPeriod : null;
+  var hero = [
+    {k:"Billing period", v:num(d.totalKwh), u:"kWh used"+(d.daysInPeriod?" over "+d.daysInPeriod+" days":"")},
+    {k:"All-in cost", v:d.allInRate?("$"+Number(d.allInRate).toFixed(3)):"—", u:"per kWh, everything in"},
+    {k:"Daily average", v:dailyAvg?num(dailyAvg,1):"—", u:"kWh per day"}
+  ];
+  document.getElementById('heroStats').innerHTML = hero.map(function(s){
+    return '<div class="stat"><div class="k">'+s.k+'</div><div class="v mono">'+s.v+'</div><div class="u">'+s.u+'</div></div>';
+  }).join('');
+
+  // money breakdown
+  var parts = [
+    {n:"Supply (the power)", a:d.supplyCharges, c:"var(--gold)"},
+    {n:"Delivery (the wires)", a:d.deliveryCharges, c:"var(--teal)"},
+    {n:"Basic service fee", a:d.basicServiceCharge, c:"var(--dim)"}
+  ].filter(function(p){ return p.a!=null && p.a!==""; });
+  var maxA = Math.max.apply(null, parts.map(function(p){return Number(p.a);}).concat([1]));
+  if(parts.length){
+    document.getElementById('moneyBars').innerHTML = parts.map(function(p){
+      var w = Math.max(4, Number(p.a)/maxA*100);
+      return '<div class="barrow"><div class="n">'+p.n+'</div><div class="track"><div class="fill" style="width:'+w+'%;background:'+p.c+'"></div></div><div class="amt mono">'+money(p.a)+'</div></div>';
+    }).join('');
+  } else { document.getElementById('moneySection').style.display='none'; }
+
+  // peak vs off-peak (if present)
+  if(d.peakKwh!=null && d.offpeakKwh!=null && (Number(d.peakKwh)+Number(d.offpeakKwh))>0){
+    document.getElementById('peakSection').style.display='';
+    var pk=Number(d.peakKwh), ofp=Number(d.offpeakKwh), tot=pk+ofp;
+    var pct = d.peakPct!=null?d.peakPct:Math.round(pk/tot*100);
+    document.getElementById('peakBars').innerHTML =
+      '<div class="barrow"><div class="n">Peak hours</div><div class="track"><div class="fill" style="width:'+(pk/tot*100)+'%;background:var(--orange)"></div></div><div class="amt mono">'+num(pk)+'</div></div>'+
+      '<div class="barrow"><div class="n">Off-peak</div><div class="track"><div class="fill" style="width:'+(ofp/tot*100)+'%;background:var(--blue)"></div></div><div class="amt mono">'+num(ofp)+'</div></div>';
+    document.getElementById('peakNote').textContent = pct+"% of your usage lands in peak hours. "+(pct>=45?"That is high enough that a battery plus a time-of-use rate is worth a serious look.":"That is on the lower side, so battery savings would lean more on backup value than rate arbitrage.");
+  }
+
+  // rate decoded
+  var rc = String(d.rateClass||"").toLowerCase();
+  var rateHtml;
+  if(rc.indexOf("iii")!==-1 || rc.indexOf("tou")!==-1 || rc.indexOf("time")!==-1){
+    rateHtml = "<strong>You are on a time-of-use rate.</strong><p>Your price per kWh changes by time of day. Power is expensive in peak hours and cheaper off-peak. That is exactly the setup where a battery earns its keep, by storing cheap power and using it when the rate spikes.</p>";
+  } else if(d.rateClass){
+    rateHtml = "<strong>You are on a flat rate ("+d.rateClass+").</strong><p>You pay the same price per kWh no matter the time of day. The main win for you is backup and resilience. If you later move to a time-of-use rate, a battery can also start capturing the price swings, and we can model that for you.</p>";
+  } else {
+    rateHtml = "<strong>Rate plan.</strong><p>We could not read your exact rate class from this bill. On our call we will confirm it and explain what it means for battery savings.</p>";
+  }
+  document.getElementById('rateBox').innerHTML = rateHtml;
+
+  // annual projection (modeled, anchored to verified month)
+  var anchor = SHAPE[billMoIdx] || 1;
+  var scale = (d.totalKwh && anchor) ? d.totalKwh/anchor : null;
+  var chart = document.getElementById('annualChart');
+  if(scale){
+    var monthsKwh = SHAPE.map(function(w){ return Math.round(scale*w); });
+    var maxK = Math.max.apply(null, monthsKwh);
+    var annual = monthsKwh.reduce(function(a,b){return a+b;},0);
+    chart.innerHTML = monthsKwh.map(function(k,i){
+      var h = Math.max(3, k/maxK*120);
+      var cls = i===billMoIdx ? "col verified" : "col modeled";
+      return '<div class="'+cls+'" title="'+MONTHS[i]+': ~'+k+' kWh"><div class="bar" style="height:'+h+'px"></div><div class="m">'+MONTHS[i][0]+'</div></div>';
+    }).join('');
+    var lo = Math.round(annual*0.9/100)*100, hi = Math.round(annual*1.1/100)*100;
+    document.getElementById('annualNote').textContent = "Projected annual use is roughly "+lo.toLocaleString()+" to "+hi.toLocaleString()+" kWh, scaled from your verified "+moName+" usage on a typical Westchester seasonal curve. Your "+moName+" bar is real, the rest are modeled. Send a Green Button file and we replace this whole curve with your actual 12 months.";
+  } else {
+    document.getElementById('annualNote').textContent = "We need at least one full billing period to project your year.";
+    chart.style.display='none';
+  }
+})();
+</script>
+</body>
+</html>

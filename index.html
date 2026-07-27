@@ -5361,13 +5361,21 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   window.buildProposalUrl = buildProposalUrl;
 
   function injectButton(){
-    if(document.getElementById('genProposalBtn')) return;
+    if(document.getElementById('genProposalWrap')) return;
     var modeToggle=document.querySelector('.mode-toggle'); if(!modeToggle) return;
+    var visible=true; try{ visible=(localStorage.getItem('rt-proposal-visible')!=='0'); }catch(_){}
+    var wrap=document.createElement('div'); wrap.id='genProposalWrap';
+    wrap.style.cssText='margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap';
+    var tog=document.createElement('label');
+    tog.style.cssText='display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#9CA3AF;cursor:pointer;user-select:none';
+    tog.innerHTML='<input type="checkbox" id="genProposalToggle" '+(visible?'checked':'')+' style="accent-color:#FBBF24;width:13px;height:13px;cursor:pointer">Proposal button';
     var b=document.createElement('button');
     b.id='genProposalBtn'; b.textContent='Generate Proposal \u2192';
-    b.style.cssText='margin-top:12px;display:inline-block;background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:10px;padding:11px 20px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 2px 10px rgba(251,191,36,.25)';
+    b.style.cssText='display:'+(visible?'inline-block':'none')+';background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:10px;padding:11px 20px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 2px 10px rgba(251,191,36,.25)';
     b.onclick=function(){ try{ var url=buildProposalUrl(); window.open(url,'_blank'); }catch(e){ console.error('[Proposal]',e); alert('Could not build the proposal from the current model.'); } };
-    modeToggle.insertAdjacentElement('afterend', b);
+    tog.querySelector('input').addEventListener('change', function(e){ var on=e.target.checked; try{ localStorage.setItem('rt-proposal-visible', on?'1':'0'); }catch(_){} b.style.display=on?'inline-block':'none'; });
+    wrap.appendChild(tog); wrap.appendChild(b);
+    modeToggle.insertAdjacentElement('afterend', wrap);
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(injectButton,700); });
   else setTimeout(injectButton,700);

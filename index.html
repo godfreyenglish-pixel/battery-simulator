@@ -5068,5 +5068,83 @@ try {
 console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy SheetJS).');
 })();
 </script>
+<script>// CLIENT BILL PREFILL v1
+// CLIENT BILL PREFILL v1 — opens the simulator on a client's parsed bill
+(function(){
+  function b64urlDecode(s){
+    s = s.replace(/-/g,'+').replace(/_/g,'/');
+    while (s.length % 4) s += '=';
+    try { return decodeURIComponent(escape(atob(s))); } catch(e){ return atob(s); }
+  }
+  function num(v){ v = parseFloat(v); return isFinite(v) ? v : 0; }
+  function getBillPayload(){
+    try {
+      var p = new URLSearchParams(window.location.search);
+      var raw = p.get('bill');
+      if (!raw) return null;
+      return JSON.parse(b64urlDecode(raw));
+    } catch(e){ return null; }
+  }
+  function annualFrom(b){
+    var mh = Array.isArray(b.monthlyHistory) ? b.monthlyHistory : [];
+    if (mh.length >= 6){
+      var sum = mh.reduce(function(a,m){ return a + num(m && m.kwh); }, 0);
+      if (sum > 0) return sum * (12 / mh.length);
+    }
+    var days = num(b.daysInPeriod) || 30;
+    var kwh = num(b.totalKwh);
+    if (kwh > 0) return kwh / days * 365;
+    return 0;
+  }
+  function isFlat(rc){
+    rc = String(rc || '').toLowerCase();
+    if (rc.indexOf('tou') !== -1 || rc.indexOf('time') !== -1) return false;
+    return true;
+  }
+  function esc(t){ return String(t==null?'':t).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];}); }
+  function showBanner(b, annual, rate){
+    if (document.getElementById('billPrefillBanner')) return;
+    var name = esc((String(b.clientName||'').split(' ')[0]) || 'This client');
+    var bits = [];
+    if (rate>0) bits.push('$'+rate.toFixed(2)+'/kWh all-in');
+    if (annual>0) bits.push('~'+annual.toLocaleString()+' kWh/yr');
+    var div = document.createElement('div');
+    div.id = 'billPrefillBanner';
+    div.style.cssText = 'position:sticky;top:0;z-index:9999;background:#1B365D;color:#fff;padding:9px 14px;font:600 13px -apple-system,Helvetica,Arial,sans-serif;text-align:center;border-bottom:2px solid #FBBF24';
+    div.innerHTML = 'Prefilled from ' + name + '\u2019s bill' + (bits.length? ' \u00B7 ' + bits.join(' \u00B7 ') : '') + '<span style="font-weight:400;opacity:.8"> \u00B7 import Green Button for exact usage</span>';
+    document.body.insertBefore(div, document.body.firstChild);
+  }
+  function applyPrefill(){
+    var b = getBillPayload();
+    if (!b) return;
+    var annual = Math.round(annualFrom(b));
+    var daily = annual > 0 ? Math.round(annual / 365) : 0;
+    var rate = num(b.allInRate);
+    var basic = num(b.basicServiceCharge);
+    try {
+      if (typeof STATE !== 'undefined' && STATE.workspaces){
+        Object.keys(STATE.workspaces).forEach(function(wk){
+          ['setupA','setupB'].forEach(function(sk){
+            var s = STATE.workspaces[wk][sk];
+            if (s && daily > 0){ s.daily = daily; if (s.src === 'preset' || !s.src) s.src = 'preset'; }
+          });
+        });
+      }
+      if (rate > 0){ STATE.el1Rate = rate; var er = document.getElementById('el1Rate'); if (er) er.value = rate; }
+      if (basic > 0){ STATE.basicCharge = basic; var bc = document.getElementById('basicCharge'); if (bc) bc.value = basic; }
+      if (typeof STATE !== 'undefined' && typeof STATE.touAlreadyOnTou !== 'undefined'){
+        STATE.touAlreadyOnTou = !isFlat(b.rateClass);
+        var tt = document.getElementById('touAlreadyToggle'); if (tt) tt.checked = STATE.touAlreadyOnTou;
+      }
+      var ds = document.getElementById('dailySlider'); if (ds && daily>0) ds.value = daily;
+      if (typeof render === 'function') render();
+      showBanner(b, annual, rate);
+    } catch(e){ console.warn('[Bill Prefill] ', e); }
+  }
+  function run(){ if (new URLSearchParams(window.location.search).get('bill')) setTimeout(applyPrefill, 850); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else run();
+})();
+</script>
 </body>
 </html>

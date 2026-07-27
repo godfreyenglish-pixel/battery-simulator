@@ -2729,7 +2729,9 @@ function renderSpecs() {
     const sSum = SOLAR_CURVES.summer.reduce((a,b)=>a+b, 0) * s.solarKw;
     const sWin = SOLAR_CURVES.winter.reduce((a,b)=>a+b, 0) * s.solarKw;
     const sSho = SOLAR_CURVES.shoulder.reduce((a,b)=>a+b, 0) * s.solarKw;
-    const annual = Math.round((sSum*0.42 + sWin*0.20 + sSho*0.38) * 365);
+    const shadeFactor = 1 - (s.solarShade || 0) / 100;
+    const adjustFactor = 1 + (s.solarAdjust || 0) / 100;
+    const annual = Math.round((sSum*0.42 + sWin*0.20 + sSho*0.38) * 365 * shadeFactor * adjustFactor);
     document.getElementById('solAnnual').innerHTML = `${annual.toLocaleString()} <span class="spec-unit">kWh</span>`;
     document.getElementById('solDaily').innerHTML  = `${solarDaily.toFixed(1)} <span class="spec-unit">kWh</span>`;
   }

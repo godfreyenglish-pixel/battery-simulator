@@ -5148,8 +5148,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   else run();
 })();
 </script>
-<script>// LOAD MANAGEMENT ENGINE v2
-// LOAD MANAGEMENT ENGINE v2 — reads rate from bill payload; builds on first tab open
+<script>// LOAD MANAGEMENT ENGINE v3
+// LOAD MANAGEMENT ENGINE v3 — modeled + Measured mode (projected vs actual)
 (function(){
   var C = { card:'#0B1220', card2:'#111827', border:'#1F2937', text:'#F9FAFB', muted:'#9CA3AF', green:'#10B981', gold:'#FBBF24', teal:'#14B8A6' };
   var LM = {
@@ -5161,62 +5161,66 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       { id:'dryer', name:'Electric Dryer',        kwh:900,  on:false, shiftable:true },
       { id:'dehum', name:'Dehumidifier',          kwh:700,  on:false, shiftable:false }
     ],
-    pct:{}, flatTrim:12, touShift:70
+    pct:{}, actual:{}, measured:false, flatTrim:12, touShift:70
   };
-  var BILL = null;
-  function getBill(){
-    if(BILL) return BILL;
-    try{ var raw=new URLSearchParams(location.search).get('bill'); if(!raw) return null;
-      var s=raw.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4) s+='=';
-      var j; try{ j=decodeURIComponent(escape(atob(s))); }catch(e){ j=atob(s); }
-      BILL=JSON.parse(j); return BILL;
-    }catch(e){ return null; }
-  }
-  function isTou(){
-    var b=getBill();
-    if(b && b.rateClass){ var rc=String(b.rateClass).toLowerCase(); return rc.indexOf('tou')!==-1||rc.indexOf('time')!==-1; }
-    return (typeof STATE!=='undefined') && STATE.touAlreadyOnTou===true;
-  }
+  var BILL=null;
+  function getBill(){ if(BILL) return BILL; try{ var raw=new URLSearchParams(location.search).get('bill'); if(!raw) return null; var s=raw.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; var j; try{ j=decodeURIComponent(escape(atob(s))); }catch(e){ j=atob(s); } BILL=JSON.parse(j); return BILL; }catch(e){ return null; } }
+  function isTou(){ var b=getBill(); if(b&&b.rateClass){ var rc=String(b.rateClass).toLowerCase(); return rc.indexOf('tou')!==-1||rc.indexOf('time')!==-1; } return (typeof STATE!=='undefined')&&STATE.touAlreadyOnTou===true; }
   function flatRate(){ var b=getBill(); if(b&&b.allInRate) return b.allInRate; return (typeof STATE!=='undefined'&&STATE.el1Rate)?STATE.el1Rate:0.30; }
   function spread(){ var p=(typeof STATE!=='undefined'&&STATE.peakRate)||0.38, o=(typeof STATE!=='undefined'&&STATE.offRate)||0.05; return Math.max(0,p-o); }
   function money(n){ return '$'+Math.round(n).toLocaleString(); }
-  function circuitSave(c){
-    if(!c.on) return 0;
-    var pct=LM.pct[c.id]||0;
-    if(isTou()) return c.shiftable ? (c.kwh*pct/100)*spread() : 0;
-    return (c.kwh*pct/100)*flatRate();
-  }
-  function touUpside(){ var t=0; LM.circuits.forEach(function(c){ if(c.on&&c.shiftable) t+=(c.kwh*(LM.touShift/100))*spread(); }); return t; }
+  function effKwh(c){ return (LM.measured && LM.actual[c.id]!=null) ? LM.actual[c.id] : c.kwh; }
+  function circuitSave(c){ if(!c.on) return 0; var pct=LM.pct[c.id]||0, k=effKwh(c); if(isTou()) return c.shiftable ? (k*pct/100)*spread() : 0; return (k*pct/100)*flatRate(); }
+  function touUpside(){ var t=0; LM.circuits.forEach(function(c){ if(c.on&&c.shiftable) t+=(effKwh(c)*(LM.touShift/100))*spread(); }); return t; }
 
   function rowHtml(c){
-    var tou=isTou(), max=tou?100:20, pct=LM.pct[c.id]||0, dim=(tou&&!c.shiftable);
-    return '<div class="lm-row" data-id="'+c.id+'" style="display:grid;grid-template-columns:150px 78px 1fr 74px;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid '+C.border+';opacity:'+(dim?0.45:1)+'">'
-      + '<label style="color:'+C.text+';font-size:13px;display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" data-k="on" '+(c.on?'checked':'')+' style="accent-color:'+C.teal+';width:15px;height:15px">'+c.name+'</label>'
-      + '<input type="number" data-k="kwh" value="'+c.kwh+'" min="0" step="50" style="width:74px;background:'+C.card+';border:1px solid '+C.border+';color:'+C.text+';border-radius:6px;padding:5px 6px;font-size:12px;font-family:monospace">'
-      + '<div style="display:flex;align-items:center;gap:8px"><input type="range" data-k="pct" min="0" max="'+max+'" step="1" value="'+pct+'" '+(dim?'disabled':'')+' style="flex:1;accent-color:'+C.teal+'"><span data-out="pct" style="color:'+C.muted+';font-size:11px;font-family:monospace;width:34px;text-align:right">'+pct+'%</span></div>'
-      + '<span data-out="save" style="color:'+C.green+';font-weight:700;font-size:13px;text-align:right;font-family:monospace">$0</span>'
-      + '</div>';
+    var tou=isTou(), max=tou?100:20, pct=LM.pct[c.id]||0, dim=(tou&&!c.shiftable), meas=LM.measured;
+    var cols = meas ? '138px 60px 78px 1fr 66px' : '150px 78px 1fr 74px';
+    var actual = LM.actual[c.id]!=null ? LM.actual[c.id] : c.kwh;
+    var label = '<label style="color:'+C.text+';font-size:13px;display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" data-k="on" '+(c.on?'checked':'')+' style="accent-color:'+C.teal+';width:15px;height:15px">'+c.name+'</label>';
+    var estStyle = 'background:'+C.card+';border:1px solid '+C.border+';border-radius:6px;padding:5px 5px;font-size:'+(meas?'11px':'12px')+';font-family:monospace;color:'+(meas?C.muted:C.text)+';width:'+(meas?'56px':'74px')+'';
+    var est = '<input type="number" data-k="kwh" value="'+c.kwh+'" min="0" step="50" style="'+estStyle+'" title="Projected">';
+    var actualCell='';
+    if(meas){
+      var d = c.kwh>0 ? Math.round((actual-c.kwh)/c.kwh*100) : 0;
+      var dc = d>10?C.gold:(d<-10?C.green:C.muted);
+      actualCell = '<div style="display:flex;flex-direction:column;gap:2px"><input type="number" data-k="actual" value="'+actual+'" min="0" step="50" style="width:72px;background:'+C.card+';border:1px solid '+C.teal+';border-radius:6px;padding:5px 5px;font-size:11px;font-family:monospace;color:'+C.text+'" title="Actual (Emporia)"><span data-out="delta" style="color:'+dc+';font-size:9.5px;font-family:monospace">'+(d>=0?'+':'')+d+'% vs est</span></div>';
+    }
+    var slider = '<div style="display:flex;align-items:center;gap:8px"><input type="range" data-k="pct" min="0" max="'+max+'" step="1" value="'+pct+'" '+(dim?'disabled':'')+' style="flex:1;accent-color:'+C.teal+'"><span data-out="pct" style="color:'+C.muted+';font-size:11px;font-family:monospace;width:34px;text-align:right">'+pct+'%</span></div>';
+    var save = '<span data-out="save" style="color:'+C.green+';font-weight:700;font-size:13px;text-align:right;font-family:monospace">$0</span>';
+    return '<div class="lm-row" data-id="'+c.id+'" style="display:grid;grid-template-columns:'+cols+';gap:9px;align-items:center;padding:9px 0;border-bottom:1px solid '+C.border+';opacity:'+(dim?0.45:1)+'">'+label+est+(meas?actualCell:'')+slider+save+'</div>';
   }
+
   function panelHtml(){
-    var tou=isTou();
+    var tou=isTou(), meas=LM.measured;
     var rows=LM.circuits.map(rowHtml).join('');
-    var badge=tou
+    var badge=(tou
       ? '<span style="background:'+C.teal+';color:#04211c;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">TOU rate</span>'
-      : '<span style="background:'+C.gold+';color:#3a2c00;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">Flat rate</span>';
-    var hdr=tou?'% shifted off-peak':'% trimmed';
-    var basis=tou
-      ? 'Savings from shifting schedulable loads off-peak (spread $'+spread().toFixed(2)+'/kWh).'
-      : 'Savings from trimming runtime & idle draw at $'+flatRate().toFixed(2)+'/kWh.';
+      : '<span style="background:'+C.gold+';color:#3a2c00;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">Flat rate</span>')
+      + (meas ? ' <span style="background:'+C.green+';color:#04211c;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">Measured</span>' : '');
+    var hdrCols = meas ? '138px 60px 78px 1fr 66px' : '150px 78px 1fr 74px';
+    var pctHdr = tou?'% shifted off-peak':'% trimmed';
+    var hdr = meas
+      ? '<span>Circuit</span><span>Est</span><span>Actual</span><span>'+pctHdr+'</span><span style="text-align:right">Saves</span>'
+      : '<span>Circuit</span><span>kWh/yr</span><span>'+pctHdr+'</span><span style="text-align:right">Saves</span>';
+    var basis = meas
+      ? 'Real per-circuit usage from the Emporia monitor. Savings use measured loads; the % is still an estimate.'
+      : (tou ? 'Savings from shifting schedulable loads off-peak (spread $'+spread().toFixed(2)+'/kWh).' : 'Savings from trimming runtime & idle draw at $'+flatRate().toFixed(2)+'/kWh.');
+    var footer = meas
+      ? 'Measured from the client\u2019s Emporia monitor. Numbers reflect real per-circuit usage, not typical estimates. Savings shown are estimated on those real loads, not a realized-savings guarantee.'
+      : 'Modeled from typical loads. After install, flip on Measured to enter the client\u2019s real Emporia per-circuit data \u2014 projected vs. actual.';
     return '<div style="background:'+C.card2+';border:1px solid '+C.border+';border-radius:14px;padding:20px">'
       + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><div style="color:'+C.text+';font-size:16px;font-weight:700">Load Management</div>'+badge+'</div>'
-      + '<div style="color:'+C.muted+';font-size:12px;margin-bottom:14px">Free Emporia monitoring + smart switches on the heaviest circuits. '+basis+'</div>'
-      + '<div style="display:grid;grid-template-columns:150px 78px 1fr 74px;gap:10px;color:'+C.muted+';font-size:10px;letter-spacing:.5px;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid '+C.border+'"><span>Circuit</span><span>kWh/yr</span><span>'+hdr+'</span><span style="text-align:right">Saves</span></div>'
+      + '<div style="color:'+C.muted+';font-size:12px;margin-bottom:10px">Free Emporia monitoring + smart switches on the heaviest circuits. '+basis+'</div>'
+      + '<label style="display:inline-flex;align-items:center;gap:7px;color:'+(meas?C.green:C.muted)+';font-size:12px;cursor:pointer;margin-bottom:14px;font-weight:'+(meas?'600':'400')+'"><input type="checkbox" id="lmMeasured" '+(meas?'checked':'')+' style="accent-color:'+C.green+';width:15px;height:15px">Measured mode (enter real Emporia kWh)</label>'
+      + '<div style="display:grid;grid-template-columns:'+hdrCols+';gap:9px;color:'+C.muted+';font-size:10px;letter-spacing:.5px;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid '+C.border+'">'+hdr+'</div>'
       + '<div id="lmRows">'+rows+'</div>'
-      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;padding-top:14px;border-top:2px solid '+C.border+'"><span style="color:'+C.text+';font-size:14px;font-weight:600">Your free system saves</span><span id="lmTotal" style="color:'+C.green+';font-size:26px;font-weight:800;font-family:monospace">$0<span style="font-size:14px;color:'+C.muted+'">/yr</span></span></div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;padding-top:14px;border-top:2px solid '+C.border+'"><span style="color:'+C.text+';font-size:14px;font-weight:600">'+(meas?'Estimated on real loads':'Your free system saves')+'</span><span id="lmTotal" style="color:'+C.green+';font-size:26px;font-weight:800;font-family:monospace">$0<span style="font-size:14px;color:'+C.muted+'">/yr</span></span></div>'
       + '<div id="lmUpside" style="color:'+C.gold+';font-size:12px;margin-top:8px;'+(tou?'display:none':'')+'"></div>'
-      + '<div style="color:'+C.muted+';font-size:11px;margin-top:14px;border-top:1px solid '+C.border+';padding-top:10px;font-style:italic">Modeled from typical loads. After install, Emporia replaces these with your home\u2019s real circuit data \u2014 projected vs. actual.</div>'
+      + '<div style="color:'+C.muted+';font-size:11px;margin-top:14px;border-top:1px solid '+C.border+';padding-top:10px;font-style:italic">'+footer+'</div>'
       + '</div>';
   }
+
   function renderLoadMgmt(){
     var panel=document.getElementById('lmPanel'); if(!panel) return;
     var total=0;
@@ -5225,11 +5229,15 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       var row=panel.querySelector('.lm-row[data-id="'+c.id+'"]'); if(!row) return;
       var so=row.querySelector('[data-out="save"]'); if(so) so.textContent = c.on ? money(s) : '\u2014';
       var po=row.querySelector('[data-out="pct"]'); if(po) po.textContent=(LM.pct[c.id]||0)+'%';
+      if(LM.measured){ var de=row.querySelector('[data-out="delta"]'); if(de){ var a=LM.actual[c.id]!=null?LM.actual[c.id]:c.kwh; var d=c.kwh>0?Math.round((a-c.kwh)/c.kwh*100):0; de.textContent=(d>=0?'+':'')+d+'% vs est'; de.style.color=d>10?C.gold:(d<-10?C.green:C.muted); } }
       row.style.opacity=(isTou()&&!c.shiftable)?0.45:(c.on?1:0.6);
     });
     var tEl=document.getElementById('lmTotal'); if(tEl) tEl.innerHTML=money(total)+'<span style="font-size:14px;color:'+C.muted+'">/yr</span>';
     var up=document.getElementById('lmUpside'); if(up&&!isTou()) up.textContent='TOU upside: about '+money(touUpside())+'/yr more if they switch to a time-of-use rate and you shift these loads off-peak.';
   }
+
+  function renderPanel(){ var w=document.getElementById('lmPanel'); if(w){ w.innerHTML=panelHtml(); renderLoadMgmt(); } }
+
   function injectPanel(){
     if(document.getElementById('lmPanel')) return;
     LM.circuits.forEach(function(c){ LM.pct[c.id]=isTou()?(c.shiftable?LM.touShift:0):LM.flatTrim; });
@@ -5237,21 +5245,18 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var wrap=document.createElement('div'); wrap.id='lmPanel'; wrap.className='hidden'; wrap.innerHTML=panelHtml();
     anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
     wrap.addEventListener('input', function(e){
+      if(e.target.id==='lmMeasured'){ LM.measured=e.target.checked; renderPanel(); return; }
       var row=e.target.closest('.lm-row'); if(!row) return;
       var id=row.getAttribute('data-id'), k=e.target.getAttribute('data-k');
       var c=LM.circuits.find(function(x){return x.id===id;}); if(!c) return;
       if(k==='on') c.on=e.target.checked;
       else if(k==='kwh') c.kwh=Math.max(0,parseInt(e.target.value)||0);
+      else if(k==='actual') LM.actual[id]=Math.max(0,parseInt(e.target.value)||0);
       else if(k==='pct') LM.pct[id]=parseInt(e.target.value)||0;
       renderLoadMgmt();
     });
   }
-  function injectButton(){
-    if(document.getElementById('modeLM')) return;
-    var sol=document.getElementById('modeSol'); if(!sol) return;
-    var b=document.createElement('button'); b.className='mode-btn'; b.id='modeLM'; b.textContent='Load Mgmt'; b.setAttribute('onclick',"setMode('loadmgmt')");
-    sol.insertAdjacentElement('afterend', b);
-  }
+  function injectButton(){ if(document.getElementById('modeLM')) return; var sol=document.getElementById('modeSol'); if(!sol) return; var b=document.createElement('button'); b.className='mode-btn'; b.id='modeLM'; b.textContent='Load Mgmt'; b.setAttribute('onclick',"setMode('loadmgmt')"); sol.insertAdjacentElement('afterend', b); }
   function wrapSetMode(){
     if(typeof window.setMode!=='function') return false;
     if(window.__lmWrapped) return true;

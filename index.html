@@ -5271,9 +5271,106 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     };
     window.__lmWrapped=true; return true;
   }
+  window.getLmProposal = function(){
+    LM.circuits.forEach(function(c){ if(LM.pct[c.id]==null) LM.pct[c.id]=isTou()?(c.shiftable?LM.touShift:0):LM.flatTrim; });
+    var total=0; LM.circuits.forEach(function(c){ total+=circuitSave(c); });
+    return { total: total, rate: isTou()?"tou":"flat", touUpside: isTou()?0:touUpside() };
+  };
   function boot(){ injectButton(); wrapSetMode(); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot,500); });
   else setTimeout(boot,500);
+})();
+</script>
+<script>// PROPOSAL GENERATOR v1
+// PROPOSAL GENERATOR v1 — snapshots the model, computes all 3 configs, opens the client proposal
+(function(){
+  var PROPOSAL_URL = 'https://rivertownproposals.com/proposal.html';
+  function getBill(){ try{ var raw=new URLSearchParams(location.search).get('bill'); if(!raw) return null; var s=raw.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; var j; try{ j=decodeURIComponent(escape(atob(s))); }catch(e){ j=atob(s); } return JSON.parse(j); }catch(e){ return null; } }
+  function b64url(str){ return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+  function n(v){ v=+v; return isFinite(v)?v:0; }
+  function r1(v){ return Math.round(v*10)/10; }
+
+  function annualSaveArb(setup){
+    var orig=setup.season;
+    setup.season='summer'; var summer=simulateArbitrage(setup, STATE.peakRate);
+    var sK=summer.load.reduce(function(a,b){return a+b;},0);
+    setup.season='winter'; var winter=simulateArbitrage(setup, STATE.winterPeakRate);
+    var wK=winter.load.reduce(function(a,b){return a+b;},0);
+    setup.season=orig;
+    var annualKwh = (setup.src==='csv' && setup.csvMeta && setup.csvMeta.annual) ? setup.csvMeta.annual : (sK*SUMMER_DAYS + wK*WINTER_DAYS);
+    var el9 = summer.netCost*SUMMER_DAYS + winter.netCost*WINTER_DAYS + STATE.basicCharge*12;
+    var el1 = annualKwh*STATE.el1Rate + STATE.basicCharge*12;
+    return el1 - el9;
+  }
+  function backupHrs(setup){ try{ var b=simulateBackup(setup); return Math.round(b.critKw>0?b.critRuntime:b.wholeRuntime); }catch(e){ return 0; } }
+
+  function baseSetup(){
+    var so = STATE.workspaces.solar.setupB;
+    var ab = STATE.workspaces.arbBak.setupB;
+    return Object.assign({}, so, { brand: ab.brand, qty: ab.qty, hasClp: ab.hasClp });
+  }
+  function cfg(base, hasSolar, hasBatt){ return Object.assign({}, base, { hasSolar:hasSolar, hasBatt:hasBatt, csvProfile: base.csvProfile||null, csvMeta: base.csvMeta||null }); }
+
+  function computeOptions(){
+    var base = baseSetup();
+    var PD = (typeof PANEL_DEGRADATION!=='undefined')?PANEL_DEGRADATION:0.005;
+
+    var soS = cfg(base,true,false);
+    var soR = simulateSolar(soS);
+    var soC = solarSystemCost(soS);
+    var soY1 = Math.max(0, soR.annualSave);
+    var solar = { kw:r1(soS.solarKw), batt:0, gross:Math.round(soC.gross), net:Math.round(soC.net), year1:Math.round(soY1), payback:r1(paybackYears(soC.net,soY1,{degradation:PD})), offset:Math.round(soR.annualOffset), life25:Math.round(lifetimeSavings(soY1,{degradation:PD})), backup:0 };
+
+    var sbS = cfg(base,true,true);
+    var sbY1 = Math.max(0, annualSaveArb(sbS));
+    var sbBatt = batterySystemCost(sbS); var sbSol = solarSystemCost(sbS);
+    var sbNet = sbBatt.net + sbSol.net; var sbGross = sbBatt.gross + sbSol.gross;
+    var sbOff = simulateSolar(sbS).annualOffset;
+    var solbat = { kw:r1(sbS.solarKw), batt:r1(batterySpecs(sbS).total), gross:Math.round(sbGross), net:Math.round(sbNet), year1:Math.round(sbY1), payback:r1(paybackYears(sbNet,sbY1,{degradation:PD})), offset:Math.round(sbOff), life25:Math.round(lifetimeSavings(sbY1,{degradation:PD})), backup:backupHrs(sbS) };
+
+    var boS = cfg(base,false,true);
+    var boY1 = Math.max(0, annualSaveArb(boS));
+    var boC = batterySystemCost(boS);
+    var battery = { kw:0, batt:r1(batterySpecs(boS).total), gross:Math.round(boC.gross), net:Math.round(boC.net), year1:Math.round(boY1), payback:r1(paybackYears(boC.net,boY1,{degradation:0})), offset:0, life25:Math.round(lifetimeSavings(boY1,{degradation:0})), backup:backupHrs(boS) };
+
+    return { solar:solar, solbat:solbat, battery:battery };
+  }
+
+  function billBlock(bill){
+    if(!bill) return { annualKwh:0, rate:0, monthly:0, supply:0, delivery:0, basic:0 };
+    var days = n(bill.daysInPeriod)||30;
+    var mh = Array.isArray(bill.monthlyHistory)?bill.monthlyHistory:[];
+    var annualKwh;
+    if(mh.length>=6){ var sum=mh.reduce(function(a,m){return a+n(m&&m.kwh);},0); annualKwh=sum*(12/mh.length); }
+    else annualKwh = n(bill.totalKwh)/days*365;
+    var rate=n(bill.allInRate), basic=n(bill.basicServiceCharge);
+    return { annualKwh:Math.round(annualKwh), rate:rate, monthly:Math.round(annualKwh*rate/12+basic), supply:Math.round(n(bill.supplyCharges)), delivery:Math.round(n(bill.deliveryCharges)), basic:Math.round(basic) };
+  }
+
+  function buildProposalUrl(){
+    var bill=getBill();
+    var opts=computeOptions();
+    var rec='solbat', best=-Infinity;
+    ['solar','solbat','battery'].forEach(function(k){ if(opts[k].life25>best){best=opts[k].life25; rec=k;} });
+    var gift=(typeof window.getLmProposal==='function')?window.getLmProposal():{total:0,rate:'flat',touUpside:0};
+    var first=bill&&bill.clientName?String(bill.clientName).split(' ')[0]:'';
+    var today=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+    var payload={ client:first, date:today, bill:billBlock(bill), gift:{ total:Math.round(gift.total||0), rate:gift.rate||'flat', touUpside:Math.round(gift.touUpside||0) }, options:opts, recommended:rec, replyTo:'godfrey@rivertownsolar.com' };
+    return PROPOSAL_URL + '?p=' + b64url(JSON.stringify(payload));
+  }
+  window.buildProposalUrl = buildProposalUrl;
+
+  function injectButton(){
+    if(document.getElementById('genProposalBtn')) return;
+    var modeToggle=document.querySelector('.mode-toggle'); if(!modeToggle) return;
+    var b=document.createElement('button');
+    b.id='genProposalBtn'; b.textContent='Generate Proposal \u2192';
+    b.style.cssText='margin-top:12px;display:inline-block;background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:10px;padding:11px 20px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 2px 10px rgba(251,191,36,.25)';
+    b.onclick=function(){ try{ var url=buildProposalUrl(); window.open(url,'_blank'); }catch(e){ console.error('[Proposal]',e); alert('Could not build the proposal from the current model.'); } };
+    modeToggle.insertAdjacentElement('afterend', b);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(injectButton,700); });
+  else setTimeout(injectButton,700);
 })();
 </script>
 </body>

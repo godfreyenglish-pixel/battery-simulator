@@ -5148,5 +5148,137 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   else run();
 })();
 </script>
+<script>// LOAD MANAGEMENT ENGINE v1
+// LOAD MANAGEMENT ENGINE v1 — Emporia monitoring + smart switches savings
+(function(){
+  var C = { card:'#0B1220', card2:'#111827', border:'#1F2937', text:'#F9FAFB', muted:'#9CA3AF', green:'#10B981', gold:'#FBBF24', teal:'#14B8A6' };
+  var LM = {
+    circuits: [
+      { id:'ac',    name:'Central AC',            kwh:3000, on:true,  shiftable:false },
+      { id:'pool',  name:'Pool Pump',             kwh:3000, on:true,  shiftable:true },
+      { id:'ev',    name:'EV Charger',            kwh:2800, on:true,  shiftable:true },
+      { id:'wh',    name:'Electric Water Heater', kwh:3500, on:false, shiftable:true },
+      { id:'dryer', name:'Electric Dryer',        kwh:900,  on:false, shiftable:true },
+      { id:'dehum', name:'Dehumidifier',          kwh:700,  on:false, shiftable:false }
+    ],
+    pct:{}, flatTrim:8, touShift:70
+  };
+  function isTou(){ return (typeof STATE!=='undefined') && STATE.touAlreadyOnTou === true; }
+  function flatRate(){ return (typeof STATE!=='undefined' && STATE.el1Rate) ? STATE.el1Rate : 0.30; }
+  function spread(){ var p=(typeof STATE!=='undefined'&&STATE.peakRate)||0.38, o=(typeof STATE!=='undefined'&&STATE.offRate)||0.05; return Math.max(0,p-o); }
+  LM.circuits.forEach(function(c){ LM.pct[c.id] = isTou() ? (c.shiftable?LM.touShift:0) : LM.flatTrim; });
+  function money(n){ return '$' + Math.round(n).toLocaleString(); }
+
+  function circuitSave(c){
+    if(!c.on) return 0;
+    var pct = LM.pct[c.id]||0;
+    if(isTou()) return c.shiftable ? (c.kwh*pct/100)*spread() : 0;
+    return (c.kwh*pct/100)*flatRate();
+  }
+  function touUpside(){ var t=0; LM.circuits.forEach(function(c){ if(c.on&&c.shiftable) t += (c.kwh*(LM.touShift/100))*spread(); }); return t; }
+
+  function rowHtml(c){
+    var tou = isTou();
+    var max = tou?100:20;
+    var pct = LM.pct[c.id]||0;
+    var dim = (tou && !c.shiftable);
+    return '<div class="lm-row" data-id="'+c.id+'" style="display:grid;grid-template-columns:150px 78px 1fr 74px;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid '+C.border+';opacity:'+(dim?0.45:1)+'">'
+      + '<label style="color:'+C.text+';font-size:13px;display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" data-k="on" '+(c.on?'checked':'')+' style="accent-color:'+C.teal+';width:15px;height:15px">'+c.name+'</label>'
+      + '<input type="number" data-k="kwh" value="'+c.kwh+'" min="0" step="50" style="width:74px;background:'+C.card+';border:1px solid '+C.border+';color:'+C.text+';border-radius:6px;padding:5px 6px;font-size:12px;font-family:monospace">'
+      + '<div style="display:flex;align-items:center;gap:8px"><input type="range" data-k="pct" min="0" max="'+max+'" step="1" value="'+pct+'" '+(dim?'disabled':'')+' style="flex:1;accent-color:'+C.teal+'"><span data-out="pct" style="color:'+C.muted+';font-size:11px;font-family:monospace;width:34px;text-align:right">'+pct+'%</span></div>'
+      + '<span data-out="save" style="color:'+C.green+';font-weight:700;font-size:13px;text-align:right;font-family:monospace">$0</span>'
+      + '</div>';
+  }
+
+  function panelHtml(){
+    var tou = isTou();
+    var rows = LM.circuits.map(rowHtml).join('');
+    var modelBadge = tou
+      ? '<span style="background:'+C.teal+';color:#04211c;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">TOU rate</span>'
+      : '<span style="background:'+C.gold+';color:#3a2c00;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">Flat rate</span>';
+    var sliderHdr = tou ? '% shifted off-peak' : '% trimmed';
+    var basis = tou
+      ? 'Savings from shifting schedulable loads off-peak (spread '+ '$'+spread().toFixed(2) +'/kWh).'
+      : 'Savings from trimming runtime & idle draw at $'+flatRate().toFixed(2)+'/kWh.';
+    return '<div style="background:'+C.card2+';border:1px solid '+C.border+';border-radius:14px;padding:20px">'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px"><div style="color:'+C.text+';font-size:16px;font-weight:700">Load Management</div>'+modelBadge+'</div>'
+      + '<div style="color:'+C.muted+';font-size:12px;margin-bottom:14px">Free Emporia monitoring + smart switches on the heaviest circuits. '+basis+'</div>'
+      + '<div style="display:grid;grid-template-columns:150px 78px 1fr 74px;gap:10px;color:'+C.muted+';font-size:10px;letter-spacing:.5px;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid '+C.border+'"><span>Circuit</span><span>kWh/yr</span><span>'+sliderHdr+'</span><span style="text-align:right">Saves</span></div>'
+      + '<div id="lmRows">'+rows+'</div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;padding-top:14px;border-top:2px solid '+C.border+'"><span style="color:'+C.text+';font-size:14px;font-weight:600">Your free system saves</span><span id="lmTotal" style="color:'+C.green+';font-size:26px;font-weight:800;font-family:monospace">$0<span style="font-size:14px;color:'+C.muted+'">/yr</span></span></div>'
+      + '<div id="lmUpside" style="color:'+C.gold+';font-size:12px;margin-top:8px;'+(tou?'display:none':'')+'"></div>'
+      + '<div style="color:'+C.muted+';font-size:11px;margin-top:14px;border-top:1px solid '+C.border+';padding-top:10px;font-style:italic">Modeled from typical loads. After install, Emporia replaces these with your home\u2019s real circuit data \u2014 projected vs. actual.</div>'
+      + '</div>';
+  }
+
+  function renderLoadMgmt(){
+    var panel = document.getElementById('lmPanel'); if(!panel) return;
+    var total = 0;
+    LM.circuits.forEach(function(c){
+      var s = circuitSave(c);
+      total += s;
+      var row = panel.querySelector('.lm-row[data-id="'+c.id+'"]');
+      if(row){
+        var so = row.querySelector('[data-out="save"]'); if(so) so.textContent = c.on ? money(s) : '\u2014';
+        var po = row.querySelector('[data-out="pct"]'); if(po) po.textContent = (LM.pct[c.id]||0)+'%';
+        row.style.opacity = (isTou() && !c.shiftable) ? 0.45 : (c.on?1:0.6);
+      }
+    });
+    var tEl = document.getElementById('lmTotal');
+    if(tEl) tEl.innerHTML = money(total)+'<span style="font-size:14px;color:'+C.muted+'">/yr</span>';
+    var up = document.getElementById('lmUpside');
+    if(up && !isTou()){ up.textContent = 'TOU upside: about '+money(touUpside())+'/yr more if they switch to a time-of-use rate and you shift these loads off-peak.'; }
+  }
+
+  function injectPanel(){
+    if(document.getElementById('lmPanel')) return;
+    var anchor = document.getElementById('solResults') || document.getElementById('arbResults');
+    if(!anchor) return;
+    var wrap = document.createElement('div');
+    wrap.id = 'lmPanel'; wrap.className = 'hidden'; wrap.style.marginTop = '0';
+    wrap.innerHTML = panelHtml();
+    anchor.parentNode.insertBefore(wrap, anchor.nextSibling);
+    wrap.addEventListener('input', function(e){
+      var row = e.target.closest('.lm-row'); if(!row) return;
+      var id = row.getAttribute('data-id'); var k = e.target.getAttribute('data-k');
+      var c = LM.circuits.find(function(x){return x.id===id;}); if(!c) return;
+      if(k==='on') c.on = e.target.checked;
+      else if(k==='kwh') c.kwh = Math.max(0, parseInt(e.target.value)||0);
+      else if(k==='pct') LM.pct[id] = parseInt(e.target.value)||0;
+      renderLoadMgmt();
+    });
+  }
+
+  function injectButton(){
+    if(document.getElementById('modeLM')) return;
+    var sol = document.getElementById('modeSol'); if(!sol) return;
+    var b = document.createElement('button');
+    b.className = 'mode-btn'; b.id = 'modeLM'; b.textContent = 'Load Mgmt';
+    b.setAttribute('onclick', "setMode('loadmgmt')");
+    sol.insertAdjacentElement('afterend', b);
+  }
+
+  function wrapSetMode(){
+    if(typeof window.setMode !== 'function') return false;
+    if(window.__lmWrapped) return true;
+    var orig = window.setMode;
+    window.setMode = function(m){
+      try { orig(m); } catch(e){}
+      var onLM = (m === 'loadmgmt');
+      var panel = document.getElementById('lmPanel'); if(panel) panel.classList.toggle('hidden', !onLM);
+      var b = document.getElementById('modeLM'); if(b) b.classList.toggle('active', onLM);
+      if(onLM){ ['modeArb','modeBak','modeSol'].forEach(function(id){ var x=document.getElementById(id); if(x) x.classList.remove('active'); }); renderLoadMgmt(); }
+    };
+    window.__lmWrapped = true;
+    return true;
+  }
+
+  function boot(){
+    injectButton(); injectPanel(); wrapSetMode(); renderLoadMgmt();
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot, 500); });
+  else setTimeout(boot, 500);
+})();
+</script>
 </body>
 </html>

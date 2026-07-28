@@ -5415,5 +5415,60 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   else setTimeout(inject, 950);
 })();
 </script>
+<script>// PPW PRICING GEAR v1
+// PPW PRICING GEAR v1 — adjust solar $/W across the board (tool + proposals)
+(function(){
+  var DEFAULT_PPW=3.75;
+  function ppw(){ return (window.__ppw!=null)?window.__ppw:DEFAULT_PPW; }
+  function wrapCost(){
+    if(window.__ppwWrapped) return true;
+    if(typeof window.solarSystemCost!=='function') return false;
+    var orig=window.solarSystemCost;
+    window.solarSystemCost=function(s){
+      if(window.__ppw==null) return orig(s);
+      var gross=s.solarKw*1000*window.__ppw;
+      var cap=(typeof NY_SOLAR_CREDIT_CAP!=='undefined')?NY_SOLAR_CREDIT_CAP:5000;
+      var pct=(typeof NY_SOLAR_CREDIT_PCT!=='undefined')?NY_SOLAR_CREDIT_PCT:0.25;
+      var stateCredit=Math.min(cap, gross*pct);
+      return { gross:gross, stateCredit:stateCredit, net:gross-stateCredit };
+    };
+    window.__ppwWrapped=true; return true;
+  }
+  function injectGear(){
+    if(document.getElementById('ppwGear')) return;
+    var title=Array.prototype.slice.call(document.querySelectorAll('.card-title')).filter(function(t){ return /home load profile/i.test(t.textContent||''); })[0];
+    if(!title) return;
+    title.style.display='flex'; title.style.alignItems='center';
+    var gear=document.createElement('button');
+    gear.id='ppwGear'; gear.type='button'; gear.title='Pricing settings'; gear.innerHTML='\u2699';
+    gear.style.cssText='margin-left:auto;background:transparent;border:1px solid #1F2937;color:#9CA3AF;border-radius:7px;width:26px;height:26px;font-size:14px;cursor:pointer;line-height:1;padding:0;flex:none';
+    title.appendChild(gear);
+    var pop=document.createElement('div');
+    pop.id='ppwPop';
+    pop.style.cssText='display:none;position:fixed;z-index:99999;background:#111827;border:1px solid #1F2937;border-radius:10px;padding:14px;box-shadow:0 10px 30px rgba(0,0,0,.5);width:236px;font-family:-apple-system,Helvetica,Arial,sans-serif';
+    pop.innerHTML='<div style="font-size:12px;font-weight:700;color:#F9FAFB;margin-bottom:8px">Pricing settings</div>'
+      +'<label style="font-size:11px;color:#9CA3AF;display:block;margin-bottom:4px">Solar price per watt ($/W)</label>'
+      +'<input type="number" id="ppwInput" value="'+ppw()+'" min="0" step="0.05" style="width:100%;background:#0B1220;border:1px solid #1F2937;color:#F9FAFB;border-radius:6px;padding:7px 8px;font-size:13px;font-family:monospace">'
+      +'<div style="font-size:10px;color:#6B7280;margin-top:6px;line-height:1.4">Applies to every solar cost calculation and generated proposal.</div>'
+      +'<button id="ppwReset" type="button" style="margin-top:10px;background:transparent;border:1px solid #1F2937;color:#9CA3AF;border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer">Reset to $'+DEFAULT_PPW.toFixed(2)+'</button>';
+    document.body.appendChild(pop);
+    gear.addEventListener('click', function(e){
+      e.stopPropagation();
+      if(pop.style.display==='block'){ pop.style.display='none'; return; }
+      var r=gear.getBoundingClientRect();
+      pop.style.top=(r.bottom+6)+'px';
+      pop.style.left=Math.max(8, Math.min(r.right-236, window.innerWidth-244))+'px';
+      pop.querySelector('#ppwInput').value=ppw();
+      pop.style.display='block';
+    });
+    document.addEventListener('click', function(e){ if(pop.style.display==='block' && !pop.contains(e.target) && e.target!==gear){ pop.style.display='none'; } });
+    pop.querySelector('#ppwInput').addEventListener('change', function(e){ var v=parseFloat(e.target.value); if(isFinite(v)&&v>0){ window.__ppw=v; if(typeof render==='function') render(); } });
+    pop.querySelector('#ppwReset').addEventListener('click', function(){ window.__ppw=null; pop.querySelector('#ppwInput').value=DEFAULT_PPW; if(typeof render==='function') render(); });
+  }
+  function boot(){ wrapCost(); injectGear(); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot,800); });
+  else setTimeout(boot,800);
+})();
+</script>
 </body>
 </html>

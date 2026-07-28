@@ -5407,6 +5407,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     wrap.style.cssText='margin-top:10px;display:flex;align-items:center;gap:8px;font-size:12px;color:#9CA3AF;flex-wrap:wrap';
     wrap.innerHTML='<span style="font-weight:600;color:#F9FAFB">Annual usage</span><input type="number" id="annualOverride" value="'+cur+'" min="0" step="100" style="width:104px;background:#0B1220;border:1px solid #1F2937;color:#F9FAFB;border-radius:6px;padding:6px 8px;font-size:12px;font-family:monospace"><span>kWh/yr</span><span style="opacity:.7">— type to override the bill estimate</span>';
     mt.insertAdjacentElement('afterend', wrap);
+    var ds=document.getElementById('dailySlider');
+    if(ds && !ds.__annualSync){ ds.__annualSync=true; ds.addEventListener('input', function(e){ var d=parseFloat(e.target.value)||0; if(!d) return; var a=Math.round(d*365); window.__annualUsage=a; if(typeof STATE!=='undefined' && STATE.workspaces){ Object.keys(STATE.workspaces).forEach(function(wk){ ['setupA','setupB'].forEach(function(sk){ var s=STATE.workspaces[wk][sk]; if(s) s.daily=d; }); }); } var fld=document.getElementById('annualOverride'); if(fld && document.activeElement!==fld) fld.value=a; }); }
     wrap.querySelector('#annualOverride').addEventListener('change', function(e){ apply(parseFloat(e.target.value)||0); });
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(inject, 950); });

@@ -5341,7 +5341,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var days = n(bill.daysInPeriod)||30;
     var mh = Array.isArray(bill.monthlyHistory)?bill.monthlyHistory:[];
     var annualKwh;
-    if(mh.length>=6){ var sum=mh.reduce(function(a,m){return a+n(m&&m.kwh);},0); annualKwh=sum*(12/mh.length); }
+    if(typeof window!=='undefined' && window.__annualUsage){ annualKwh = window.__annualUsage; }
+    else if(mh.length>=6){ var sum=mh.reduce(function(a,m){return a+n(m&&m.kwh);},0); annualKwh=sum*(12/mh.length); }
     else annualKwh = n(bill.totalKwh)/days*365;
     var rate=n(bill.allInRate), basic=n(bill.basicServiceCharge);
     return { annualKwh:Math.round(annualKwh), rate:rate, monthly:Math.round(annualKwh*rate/12+basic), supply:Math.round(n(bill.supplyCharges)), delivery:Math.round(n(bill.deliveryCharges)), basic:Math.round(basic) };
@@ -5379,6 +5380,37 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(injectButton,700); });
   else setTimeout(injectButton,700);
+})();
+</script>
+<script>// ANNUAL USAGE OVERRIDE v1
+// ANNUAL USAGE OVERRIDE v1 — type the annual kWh; drives the tool + proposal
+(function(){
+  function apply(annual){
+    annual=Math.max(0,Math.round(annual)); if(!annual) return;
+    window.__annualUsage=annual;
+    var daily=annual/365;
+    if(typeof STATE!=='undefined' && STATE.workspaces){
+      Object.keys(STATE.workspaces).forEach(function(wk){ ['setupA','setupB'].forEach(function(sk){ var s=STATE.workspaces[wk][sk]; if(s){ s.daily=daily; if(s.src==='csv') s.src='preset'; } }); });
+    }
+    var ds=document.getElementById('dailySlider'); if(ds) ds.value=Math.round(daily);
+    if(typeof render==='function') render();
+    var bn=document.getElementById('billPrefillBanner'); // keep banner honest
+    var inp=document.getElementById('annualOverride'); if(inp && document.activeElement!==inp) inp.value=annual;
+  }
+  window.setAnnualUsage=apply;
+  function currentAnnual(){ try{ return Math.round((STATE.setupB.daily||0)*365); }catch(e){ return window.__annualUsage||''; } }
+  function inject(){
+    if(document.getElementById('annualOverrideWrap')) return;
+    var mt=document.querySelector('.mode-toggle'); if(!mt) return;
+    var cur=currentAnnual(); if(cur) window.__annualUsage=cur;
+    var wrap=document.createElement('div'); wrap.id='annualOverrideWrap';
+    wrap.style.cssText='margin-top:10px;display:flex;align-items:center;gap:8px;font-size:12px;color:#9CA3AF;flex-wrap:wrap';
+    wrap.innerHTML='<span style="font-weight:600;color:#F9FAFB">Annual usage</span><input type="number" id="annualOverride" value="'+cur+'" min="0" step="100" style="width:104px;background:#0B1220;border:1px solid #1F2937;color:#F9FAFB;border-radius:6px;padding:6px 8px;font-size:12px;font-family:monospace"><span>kWh/yr</span><span style="opacity:.7">— type to override the bill estimate</span>';
+    mt.insertAdjacentElement('afterend', wrap);
+    wrap.querySelector('#annualOverride').addEventListener('change', function(e){ apply(parseFloat(e.target.value)||0); });
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(inject, 950); });
+  else setTimeout(inject, 950);
 })();
 </script>
 </body>

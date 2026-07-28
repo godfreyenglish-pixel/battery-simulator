@@ -5348,6 +5348,12 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     return { annualKwh:Math.round(annualKwh), rate:rate, monthly:Math.round(annualKwh*rate/12+basic), supply:Math.round(n(bill.supplyCharges)), delivery:Math.round(n(bill.deliveryCharges)), basic:Math.round(basic) };
   }
 
+  function warrantyBlock(){
+    var brand='eg4'; try{ brand=(STATE.workspaces.arbBak.setupB.brand||'eg4'); }catch(e){}
+    var map={ eg4:{name:'Battery', mfr:'EG4', term:'10 yr / 10,000 cycles'}, enphase:{name:'Battery', mfr:'Enphase IQ', term:'15 yr'}, lg:{name:'Battery', mfr:'LG RESU', term:'10 yr'} };
+    var batt=map[brand]||{name:'Battery', mfr:String(brand||'').toUpperCase(), term:'10 yr'};
+    return { rivertown:{ performance:'Lifetime', workmanship:'Lifetime', labor:'Lifetime' }, components:[ {name:'Solar Panels', mfr:'Talesun', term:'25 yr output'}, {name:'Microinverters', mfr:'Enphase IQ', term:'25 yr'}, {name:'Racking', mfr:'IronRidge', term:'25 yr'}, {name:'Monitoring', mfr:'Enphase', term:'Included'}, batt ] };
+  }
   function buildProposalUrl(){
     var bill=getBill();
     var opts=computeOptions();
@@ -5356,7 +5362,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var gift=(typeof window.getLmProposal==='function')?window.getLmProposal():{total:0,rate:'flat',touUpside:0};
     var first=bill&&bill.clientName?String(bill.clientName).split(' ')[0]:'';
     var today=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-    var payload={ client:first, date:today, bill:billBlock(bill), gift:{ total:Math.round(gift.total||0), rate:gift.rate||'flat', touUpside:Math.round(gift.touUpside||0) }, options:opts, recommended:rec, replyTo:'godfrey@rivertownsolar.com' };
+    var payload={ client:first, date:today, bill:billBlock(bill), gift:{ total:Math.round(gift.total||0), rate:gift.rate||'flat', touUpside:Math.round(gift.touUpside||0) }, options:opts, recommended:rec, replyTo:'godfrey@rivertownsolar.com', warranties:warrantyBlock() };
     return PROPOSAL_URL + '?p=' + b64url(JSON.stringify(payload));
   }
   window.buildProposalUrl = buildProposalUrl;

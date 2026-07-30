@@ -5476,5 +5476,97 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   else setTimeout(boot,800);
 })();
 </script>
+  <script>
+// ENPHASE 10C PRICING + NYSERDA CAP + CON ED WEEKEND — v4
+// Supersedes the v3 Enphase block. Load AFTER v3 and AFTER AUDIT FIXES.
+// 1) contKw 3.84 -> 7.08 (3.84 is the older IQ Battery 10; the 10C is 7.08 kW)
+// 2) Commission -> stacked per-battery tiers (was a flat $75/kWh)
+// 3) NYSERDA -> capped at 25 kWh (was uncapped, overpaid at 3+ units)
+// 4) Weekend blending extended to Con Ed (was O&R only)
+(function () {
+  'use strict';
+
+  // ── FIX 1: CORRECT 10C CONTINUOUS OUTPUT ──
+  if (BRANDS.enphase10c) {
+    BRANDS.enphase10c.contKw = 7.08;
+  }
+
+  // ── FIX 2 + 3: STACKED COMMISSION, CAPPED NYSERDA ──
+  // Commission stacks per battery: #1 +$750, #2 +$1,250, #3 +$750, #4+ +$500 each.
+  // INTERNAL ONLY. Baked into gross, never surfaced as a line item.
+  var ENPHASE_COMMISSION_STEPS = [750, 1250, 750];
+  var ENPHASE_COMMISSION_BEYOND = 500;
+
+  function enphaseCommission(qty) {
+    var total = 0;
+    for (var i = 0; i < qty; i++) {
+      total += (i < ENPHASE_COMMISSION_STEPS.length)
+        ? ENPHASE_COMMISSION_STEPS[i]
+        : ENPHASE_COMMISSION_BEYOND;
+    }
+    return total;
+  }
+
+  var NYSERDA_PER_KWH = 250;
+  var NYSERDA_CAP_KWH = 25;
+
+  function nyserdaFor(totalKwh) {
+    return Math.min(totalKwh, NYSERDA_CAP_KWH) * NYSERDA_PER_KWH;
+  }
+
+  var _v3BattCost = window.batterySystemCost;
+  window.batterySystemCost = function (s) {
+    if (s.brand !== 'enphase10c') return _v3BattCost(s);
+    if (!s.hasBatt) return { gross: 0, incentive: 0, net: 0 };
+
+    var qty = s.qty || 1;
+    var totalKwh = BRANDS.enphase10c.kwh * qty;
+    var perKwh = 1000;
+    var baseCost = totalKwh * perKwh;
+    var commission = enphaseCommission(qty);
+    var gross = baseCost + commission;
+    var incentive = nyserdaFor(totalKwh);
+
+    return {
+      gross: gross,
+      incentive: incentive,
+      nyserda: incentive,
+      net: Math.max(0, gross - incentive),
+      commission: commission,
+      baseCost: baseCost,
+      totalKwh: totalKwh,
+      perKwh: perKwh,
+      clp: 0,
+      clpCost: 0
+    };
+  };
+
+  // ── FIX 4: CON ED WEEKEND BLENDING ──
+  // Rate III bills weekends entirely off-peak, same as O&R. The v3 audit block
+  // blended only when utility === 'oru' and returned early otherwise, so Con Ed
+  // was priced as though all 365 days hit peak. Blend both.
+  var _v3Sim = window.simulateArbitrage;
+  window.simulateArbitrage = function (s, pk) {
+    var r = _v3Sim(s, pk);
+    if (STATE.utility === 'oru') return r; // already blended upstream
+
+    var totalLoad = 0;
+    for (var h = 0; h < 24; h++) totalLoad += r.load[h];
+    var weekendCost = totalLoad * STATE.offRate;
+
+    var W = 5 / 7, E = 2 / 7;
+    var blended = Object.assign({}, r);
+    blended.baseline = r.baseline * W + weekendCost * E;
+    blended.netCost = r.netCost * W + weekendCost * E;
+    blended.dailySave = blended.baseline - blended.netCost;
+    blended.kwhShifted = r.kwhShifted * W;
+    return blended;
+  };
+
+  if (typeof refreshControls === 'function') refreshControls();
+  if (typeof render === 'function') render();
+  console.log('[v4] 10C 7.08kW · stacked commission · NYSERDA capped · Con Ed weekend blend');
+})();
+</script>
 </body>
 </html>

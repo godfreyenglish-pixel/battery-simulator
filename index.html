@@ -6907,7 +6907,14 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   function applyExtras() {
     if (applied) return true;
     var x = extrasFromHash();
-    if (!x) { applied = true; return true; }
+    // No hash yet does NOT mean there is nothing to apply. Short links (?s=)
+    // load with an empty hash and resolveShortLink writes it a second or two
+    // later. Only stop looking when there is genuinely no short link pending.
+    if (!x) {
+      var pendingShortLink = !!new URLSearchParams(location.search).get('s');
+      if (!pendingShortLink) applied = true;
+      return !pendingShortLink;
+    }
 
     // State first. Rates were already restored by the base loader, and we must
     // not re-run switchUtility here or its presets would overwrite the shared
@@ -6967,6 +6974,13 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
   // The pricing wrapper and every injected control boot on timers up to ~900ms,
   // and short links (?s=) resolve asynchronously and set the hash later still.
+  // The hash can arrive long after load on a short link, so watch for it too.
+  window.addEventListener('hashchange', function () {
+    applied = false;
+    try { applyExtras(); } catch (e) {}
+    if (typeof render === 'function') { try { render(); } catch (e) {} }
+  });
+
   var tries = 0;
   (function sweep() {
     tries++;
@@ -6976,7 +6990,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       if (typeof render === 'function') { try { render(); } catch (e) {} }
       return;
     }
-    if (tries > 40) return;
+    if (tries > 120) return;                 // ~30s, covers an Apps Script cold start
     if (tries % 5 === 0 && typeof render === 'function') { try { render(); } catch (e) {} }
     setTimeout(sweep, 250);
   })();

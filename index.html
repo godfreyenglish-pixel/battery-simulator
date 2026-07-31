@@ -6073,5 +6073,707 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   })();
 })();
 </script>
+<script>// COMPETITOR QUOTE COMPARISON — v8
+// The client uploads a competing installer's PDF, sees both side by side on
+// ONE set of assumptions, and gets a graded verdict that is allowed to lose.
+//
+// Design rules, do not relax:
+//  - $/W is computed but NEVER rendered client-side. It goes to the installer
+//    email only. Same for the structural flags.
+//  - The competitor's hardware, price and production are used exactly as
+//    quoted. Only the ASSUMPTIONS are normalised, and every normalised
+//    assumption is printed above the table.
+//  - Nothing is compared until the client confirms the parsed fields.
+//  - The grade can genuinely go the other way. If it does, the client is
+//    pointed at Godfrey for a quote review.
+//
+// Load LAST, after v6.1 (compare tab) and the proposal generator.
+(function () {
+  'use strict';
+
+
+  // Vendor decks letterspace their headings ("O P T I O N  A"). Rebuild those
+  // runs token-wise. Regex approaches eat the first char of the next word.
+  function normalizeText(raw) {
+    var t = String(raw || '').replace(/–|—/g, '-').replace(/[   ]/g, ' ');
+    var lines = t.split(/\n/);
+    for (var L = 0; L < lines.length; L++) {
+      var toks = lines[L].split(/\s+/), out = [], run = [];
+      var flush = function () {
+        if (run.length >= 4) out.push(run.join(''));
+        else if (run.length) out.push.apply(out, run);
+        run = [];
+      };
+      for (var i = 0; i < toks.length; i++) {
+        if (/^[A-Za-z0-9]$/.test(toks[i])) run.push(toks[i]);
+        else { flush(); out.push(toks[i]); }
+      }
+      flush();
+      lines[L] = out.join(' ').replace(/[ \t]+/g, ' ').trim();
+    }
+    return lines.join('\n');
+  }
+
+  function num(s) {
+    if (s == null) return null;
+    var n = parseFloat(String(s).replace(/,/g, '').replace(/[^0-9.\-]/g, ''));
+    return isFinite(n) ? n : null;
+  }
+  function first(text, re, idx) { var m = re.exec(text); return m ? m[idx == null ? 1 : idx] : null; }
+
+  // Labels that end a table row. Used to stop value capture from bleeding into
+  // the next row of a flattened multi-column table.
+  var STOP = /(System Size|Annual System Production|Annual Production|Annual Consumption|Usage Offset|Cash Price|Total Price|Gross Price|Total Investment|State Incentive|Federal Incentive|Tax Credit|Incentive|Net Investment|Net Price|Net Cost|Down Payment|Due At|Payback|Panel Model|Battery Backup|Usable Energy|Continuous Power|Integrated Solar|Operating Range|Manufacturer Warranty|\d\d-Year Total|Projected)/i;
+
+  // A label can appear several times: once per option in a summary block, and
+  // again as a row in the real multi-column table. Take whichever occurrence
+  // yields the most values, which is always the true table row.
+  function rowValues(text, labelRe, valueRe, max) {
+    var lre = new RegExp(labelRe.source, labelRe.flags.indexOf('g') > -1 ? labelRe.flags : labelRe.flags + 'g');
+    var best = [], m;
+    while ((m = lre.exec(text))) {
+      var after = text.slice(m.index + m[0].length);
+      var stop = STOP.exec(after);
+      var tail = stop ? after.slice(0, stop.index) : after.slice(0, 200);
+      var out = [], g = new RegExp(valueRe.source, 'g'), r;
+      while ((r = g.exec(tail)) && out.length < (max || 6)) out.push(r[1]);
+      if (out.length > best.length) best = out;
+      if (m.index === lre.lastIndex) lre.lastIndex++;
+    }
+    return best;
+  }
+
+  function parseCompetitorProposal(raw) {
+    var t = normalizeText(raw);
+    var P = { raw: null };
+
+    // ---------- who ----------
+    P.repEmail = first(t, /([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/);
+    P.repPhone = first(t, /Tel\.?\s*([+\d][\d\-.() ]{7,}\d)/i);
+    P.rep = first(t, /\n?\s*([A-Z][a-z]+(?:\s[A-Z][a-z'-]+){1,2})\s+(?:VP|VICE PRESIDENT|PRESIDENT|CEO|OWNER|DIRECTOR|SALES)\b/)
+         || first(t, /PREPARED\s?BY\s+([A-Z][a-z]+(?:\s[A-Z][a-z'-]+){1,2})/i);
+
+    P.installer = first(t, /([A-Z][A-Za-z0-9&.'\- ]{2,40}?)\s*·\s*Custom Proposal for/)
+               || first(t, /([A-Z][A-Za-z0-9&.'\- ]{2,40}?)\s+(?:CUSTOM ENERGY PROPOSAL|CUSTOM PROPOSAL|ENERGY PROPOSAL|SOLAR PROPOSAL)/i)
+               || (P.repEmail ? P.repEmail.split('@')[1].split('.')[0] : null);
+    if (P.installer) P.installer = P.installer.replace(/\s+/g, ' ').trim();
+
+    P.address = first(t, /PROPERTY\s?ADDRESS\s+(.+?)\s*(?:PREPARED\s?BY|VALID\s?THROUGH|$)/i);
+    if (P.address) P.address = P.address.replace(/\s+/g, ' ').trim();
+    P.validThrough = first(t, /VALID\s?THROUGH\s+([A-Z][a-z]+\s+\d{1,2},?\s*\d{4})/i);
+
+    // ---------- assumptions the competitor used ----------
+    P.assumedRate = num(first(t, /\$\s*([\d.]+)\s*(?:\/\s*kWh|[A-Z ]{0,20}RATE\s*\/?\s*KWH)/i));
+    P.assumedEscalator = num(first(t, /escalat\w*\s*\+?\s*([\d.]+)\s*%/i));
+    P.assumedUsageKwh = num(first(t, /Annual Consumption\s+([\d,]+)\s*kWh/i))
+                     || num(first(t, /([\d,]+)\s*ANNUAL KWH USAGE/i))
+                     || num(first(t, /([\d,]+)\s*kWh\/yr\s*[x×*]/i));
+    P.claimTermYears = num(first(t, /(\d{2})-Year Total Cost/i)) || num(first(t, /Projected\s+(\d{2})-year savings/i)) || 20;
+
+    // ---------- option columns ----------
+    var sizes   = rowValues(t, /\bSystem Size\b/i,                       /([\d.]+)\s*kW\b/).map(num);
+    var prod    = rowValues(t, /\bAnnual (?:System )?Production\b/i,     /([\d,]+)\s*kWh/).map(num);
+    var offs    = rowValues(t, /\bUsage Offset\b/i,                      /([\d.]+)\s*%/).map(num);
+    var gross   = rowValues(t, /\b(?:Cash|Gross|Total) Price\b/i,        /\$\s*([\d,]+(?:\.\d{1,2})?)/).map(num);
+    var inc     = rowValues(t, /\b(?:State|Federal)?\s*(?:Incentive|Tax Credit)\b/i, /\$\s*([\d,]+(?:\.\d{1,2})?)/).map(num);
+    var net     = rowValues(t, /\bNet (?:Investment|Price|Cost)\b/i,     /\$\s*([\d,]+(?:\.\d{1,2})?)/).map(num);
+    var payback = rowValues(t, /\bPayback\s*(?:period)?\b/i,             /Year\s*(\d+)/).map(num);
+
+    var n = Math.min(6, Math.max(sizes.length, net.length, gross.length, prod.length));
+
+    // Some decks put each option in its own block, so a label yields one value
+    // per occurrence rather than N values at one occurrence. Fall back to that
+    // reading only when the occurrence count matches the option count exactly,
+    // which keeps repeated summary tables from inflating the list.
+    function spread(labelRe, valueRe) {
+      var lre = new RegExp(labelRe.source, labelRe.flags.indexOf('g') > -1 ? labelRe.flags : labelRe.flags + 'g');
+      var out = [], m;
+      while ((m = lre.exec(t))) {
+        var after = t.slice(m.index + m[0].length);
+        var stop = STOP.exec(after);
+        var r = new RegExp(valueRe.source).exec(stop ? after.slice(0, stop.index) : after.slice(0, 200));
+        if (r) out.push(num(r[1]));
+        if (m.index === lre.lastIndex) lre.lastIndex++;
+      }
+      return out;
+    }
+    if (payback.length < n) { var ps = spread(/\bPayback\s*(?:period)?\b/i, /Year\s*(\d+)/); if (ps.length === n) payback = ps; }
+    if (sizes.length < n)   { var ss = spread(/\bSystem Size\b/i, /([\d.]+)\s*kW\b/);        if (ss.length === n) sizes = ss; }
+    if (offs.length < n)    { var os = spread(/\bUsage Offset\b/i, /([\d.]+)\s*%/);           if (os.length === n) offs = os; }
+    P.options = [];
+    for (var i = 0; i < n; i++) {
+      var kw = sizes[i] != null ? sizes[i] : null;
+      var g = gross[i] != null ? gross[i] : null;
+      var nt = net[i] != null ? net[i] : null;
+      if (kw == null && nt == null && g == null) continue;
+      P.options.push({
+        label: 'Option ' + String.fromCharCode(65 + P.options.length),
+        kw: kw,
+        productionKwh: prod[i] != null ? prod[i] : null,
+        offsetPct: offs[i] != null ? offs[i] : null,
+        gross: g,
+        incentive: inc[i] != null ? inc[i] : null,
+        net: nt != null ? nt : (g != null && inc[i] != null ? +(g - inc[i]).toFixed(2) : null),
+        claimedPaybackYr: payback[i] != null ? payback[i] : null,
+        // ---- INSTALLER ONLY. Stripped before anything renders client-side. ----
+        grossPpw: (g != null && kw) ? +(g / (kw * 1000)).toFixed(3) : null,
+        netPpw: (nt != null && kw) ? +(nt / (kw * 1000)).toFixed(3) : null
+      });
+    }
+
+    // ---------- equipment ----------
+    P.panel = {
+      watts: num(first(t, /Panel Model:?\s*(\d+)\s*W/i)),
+      make: (first(t, /Panel Model:?\s*\d+\s*W\s+([A-Za-z0-9\-. ]+?)\s*Panel/i) || '').trim() || null
+    };
+    var bm = first(t, /Battery(?:\s*Backup)?\s*:\s*([A-Za-z0-9\-.+ ]+?)\s*(?:[-–]\s*[\d.]+\s*kW|\(|·|$)/i)
+          || first(t, /\b(Tesla Powerwall\s*\d?|Enphase IQ Battery[\w ]*|Enphase IQ\s*\d+\w*|EG4\s*[\w-]*|LG (?:RESU|Chem)[\w ]*|FranklinWH[\w ]*|SolarEdge[\w ]*|Sonnen[\w ]*)/i);
+    P.battery = {
+      make: bm ? bm.trim() : null,
+      usableKwh: num(first(t, /(?:Usable Energy Capacity|Usable Capacity|Usable Energy)\s+([\d.]+)\s*kWh/i)),
+      contKw: num(first(t, /(?:Continuous Power|Continuous Output)\s+([\d.]+)\s*kW/i)),
+      warrantyYrs: num(first(t, /Manufacturer Warranty\s+(\d+)\s*Year/i))
+    };
+
+    // ---------- warranty table ----------
+    P.warranties = [];
+    var wre = /(\d{1,2})\s*YRS?\b\s+([A-Z][A-Za-z ]{2,30}?(?:Warranty|Guarantee|Monitoring|Coverage|Protection))/gi, wm;
+    while ((wm = wre.exec(t))) P.warranties.push({ years: num(wm[1]), name: wm[2].replace(/\s+/g, ' ').trim() });
+
+    // ---------- what they claim ----------
+    var totals = [], tre = /\d{2}-Year Total Cost\s*\$\s*([\d,]+)/gi, tm;
+    while ((tm = tre.exec(t))) totals.push(num(tm[1]));
+    P.claimedGridCost = totals.length ? Math.max.apply(null, totals) : null;
+    P.claimedSavings = [];
+    var sv = /((?:\$[\d,]+\s*·\s*)+\$[\d,]+)\s*Projected/i.exec(t);
+    if (sv) P.claimedSavings = sv[1].split('·').map(num);
+    else { var s1 = /Projected \d+-year savings[^$]{0,60}\$([\d,]+)/i.exec(t); if (s1) P.claimedSavings = [num(s1[1])]; }
+
+    // ---------- INSTALLER-ONLY structural flags ----------
+    P.flags = [];
+    var add = function (k, note) { P.flags.push({ k: k, note: note }); };
+    if (/retains ownership|ownership of the system|owns the system|third[- ]party ownership|\bPPA\b|\bTPO\b|\bPPL\b/i.test(t))
+      add('third_party_ownership', 'Installer retains ownership of the system for a period before transferring it. Affects who holds the tax benefit, and can put a filing on the property during a sale or refinance.');
+    if (/30\s*%\s*(?:discount|credit)|federal (?:tax )?credit|\bITC\b/i.test(t))
+      add('federal_credit_claimed', 'References a 30% federal credit. The residential ITC expired 12/31/2025, so this implies a business-owned structure rather than a credit the homeowner receives.');
+    var o0 = P.options[0];
+    if (o0 && o0.gross && o0.incentive) {
+      var r = o0.incentive / o0.gross;
+      if (r > 0.235 && r < 0.265)
+        add('tax_credit_as_discount', 'Incentive line is ' + Math.round(r * 100) + '% of gross, matching the NY State residential credit (25%, capped $5,000). That arrives at filing and requires tax liability plus ownership. It is shown here as money off at signing.');
+    }
+    if (P.assumedEscalator != null && P.assumedEscalator > 4)
+      add('high_escalator', 'Savings projected at ' + P.assumedEscalator + '%/yr utility escalation.');
+    if (!/arbitrage|off[- ]peak|time[- ]of[- ]use|\bTOU\b/i.test(t))
+      add('no_tou', 'No time-of-use or arbitrage modelling anywhere. Battery is quoted as backup only and earns nothing per year in their own numbers.');
+    else if (!/arbitrage|off[- ]peak/i.test(t))
+      add('no_arbitrage', 'Mentions peak rates but attaches no annual dollar value to the battery.');
+    if (P.options.some(function (o) { return o.offsetPct != null && o.offsetPct > 120; }))
+      add('oversized', 'An option is sized well above historical usage, which can affect net-metering eligibility.');
+    if (P.options.length > 1 && P.claimedSavings.length === P.options.length) {
+      for (var j = 1; j < P.options.length; j++) {
+        if (P.options[j].net > P.options[0].net && P.claimedSavings[j] < P.claimedSavings[0]) {
+          add('dominated_option', P.options[j].label + ' costs more than ' + P.options[0].label + ' and saves less by their own figures.');
+          break;
+        }
+      }
+    }
+
+    // ---------- confidence ----------
+    var want = ['installer', 'assumedRate', 'assumedEscalator', 'assumedUsageKwh'];
+    var got = want.filter(function (k) { return P[k] != null; }).length;
+    var optOk = P.options.filter(function (o) { return o.kw && o.net; }).length;
+    P.confidence = Math.round(100 * ((got / want.length) * 0.35 + (optOk ? 0.45 : 0) + (P.battery.usableKwh ? 0.2 : 0)));
+    return P;
+  }
+
+  // Strip everything the client must never see.
+  function clientSafe(P) {
+    var C = JSON.parse(JSON.stringify(P));
+    delete C.flags;
+    delete C.raw;
+    (C.options || []).forEach(function (o) { delete o.grossPpw; delete o.netPpw; });
+    return C;
+  }
+
+  // ---------------------------------------------------------------- config --
+  var COMMON_TERM = 25;
+  var WEIGHTS = [
+    { k: 'cost',     label: 'Net cost after incentives',      w: 25, lower: true },
+    { k: 'savings',  label: 'Savings over ' + COMMON_TERM + ' years', w: 25 },
+    { k: 'battery',  label: 'What the battery earns per year', w: 20 },
+    { k: 'warranty', label: 'Warranty coverage',              w: 15 },
+    { k: 'backup',   label: 'Backup capability',              w: 15 }
+  ];
+
+  function money(n) { return '$' + Math.round(n || 0).toLocaleString(); }
+  function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function b64urlDecode(raw) {
+    var s = String(raw).replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    try { return decodeURIComponent(escape(atob(s))); } catch (e) { return atob(s); }
+  }
+
+  // ------------------------------------------------------------ our numbers --
+  // Reuse the proposal generator's own output so the head-to-head can never
+  // drift from what the client is quoted. Never recompute it here.
+  function ourNumbers() {
+    if (typeof window.buildProposalUrl !== 'function') return null;
+    var url, p;
+    try {
+      url = window.buildProposalUrl();
+      p = JSON.parse(b64urlDecode(url.split('?p=')[1]));
+    } catch (e) { return null; }
+    var o = (p.options && (p.options.solbat || p.options.battery)) || null;
+    if (!o) return null;
+
+    // battery-only annual earnings, same method the ROI panel uses
+    var batteryAnnual = 0;
+    try {
+      var s = JSON.parse(JSON.stringify(activeSetup()));
+      var seasons = [['summer', SUMMER_DAYS], ['winter', WINTER_DAYS]];
+      var withB = 0, without = 0;
+      seasons.forEach(function (sea) {
+        s.season = sea[0];
+        s.hasBatt = false; without += simulateArbitrage(s).netCost * sea[1];
+        s.hasBatt = true;  withB += simulateArbitrage(s).netCost * sea[1];
+      });
+      batteryAnnual = Math.max(0, without - withB);
+    } catch (e) { batteryAnnual = 0; }
+
+    var ab = STATE.workspaces ? STATE.workspaces.arbBak.setupB : STATE.setupB;
+    var spec = batterySpecs(ab);
+    var battWarrYrs = (ab.brand === 'enphase10c') ? 15 : 10;
+
+    return {
+      name: 'Rivertown Solar',
+      kw: o.kw || 0,
+      batteryKwh: o.batt || (spec ? spec.total : 0),
+      net: o.net || 0,
+      life25: o.life25 || 0,
+      year1: o.year1 || 0,
+      batteryAnnual: batteryAnnual,
+      usableKwh: spec ? spec.usable : 0,
+      contKw: spec ? spec.cont : 0,
+      installerWarrantyYrs: 30,          // Lifetime, scored at the 30yr ceiling
+      batteryWarrantyYrs: battWarrYrs,
+      backupHrs: o.backup || 0
+    };
+  }
+
+  // -------------------------------------------------------- normalise them --
+  // Their hardware, their price, their production. Only the ASSUMPTIONS change,
+  // and every changed assumption is printed next to the result.
+  function normalizeCompetitor(opt, A) {
+    var U = A.usageKwh, r = A.rate, B = A.basicCharge, x = A.exportRate;
+    var e = A.escalator, d = A.degradation;
+    var P = opt.productionKwh || 0;
+    var offset = Math.min(P, U), exp = Math.max(0, P - U);
+    var baseline = U * r + B * 12;
+    var after = (U - offset) * r + B * 12 - exp * x;
+    var year1 = baseline - after;
+    function life(T) { var s = 0, g = (1 + e) * (1 - d); for (var y = 0; y < T; y++) s += year1 * Math.pow(g, y); return s; }
+    return {
+      year1: year1,
+      lifeTheirTerm: life(A.theirTerm), netTheirTerm: life(A.theirTerm) - (opt.net || 0),
+      lifeCommon: life(A.commonTerm), netCommon: life(A.commonTerm) - (opt.net || 0),
+      batteryAnnual: 0
+    };
+  }
+
+  // UTILITY_ESCALATOR still holds the base 5%. AUDIT FIXES pins the real rate
+  // at 3.3% by wrapping lifetimeSavings instead of touching the constant, so
+  // reading the constant gives the wrong answer. Solve for the rate the tool
+  // actually applies: lifetimeSavings(1,{degradation:0}) = sum (1+e)^y, y<25.
+  var _escCache = null;
+  function liveEscalator() {
+    if (_escCache != null) return _escCache;
+    var target;
+    try { target = lifetimeSavings(1, { degradation: 0 }); } catch (e) { return (_escCache = 0.033); }
+    if (!isFinite(target) || target <= 0) return (_escCache = 0.033);
+    var lo = 0, hi = 0.25;
+    for (var i = 0; i < 60; i++) {
+      var mid = (lo + hi) / 2, sum = 0;
+      for (var y = 0; y < 25; y++) sum += Math.pow(1 + mid, y);
+      if (sum < target) lo = mid; else hi = mid;
+    }
+    return (_escCache = Math.round(((lo + hi) / 2) * 10000) / 10000);
+  }
+
+  function assumptions(P) {
+    var ab = STATE.workspaces ? STATE.workspaces.arbBak.setupB : STATE.setupB;
+    var usage = 0;
+    try { usage = Math.round((ab.daily || 0) * 365); } catch (e) {}
+    if (!usage) usage = P.assumedUsageKwh || 0;
+    return {
+      usageKwh: usage,
+      rate: (typeof STATE.el1Rate === 'number' && STATE.el1Rate) || P.assumedRate || 0.38,
+      basicCharge: (typeof STATE.basicCharge === 'number') ? STATE.basicCharge : 22,
+      exportRate: (typeof STATE.exportRate === 'number') ? STATE.exportRate : 0.16,
+      escalator: liveEscalator(),
+      degradation: (typeof PANEL_DEGRADATION === 'number') ? PANEL_DEGRADATION : 0.005,
+      theirTerm: P.claimTermYears || 20,
+      commonTerm: COMMON_TERM
+    };
+  }
+
+  // --------------------------------------------------------------- grading --
+  function scoreOf(us, them) {
+    function hi(a, b) { var m = Math.max(a, b); return [m > 0 ? a / m : 0, m > 0 ? b / m : 0]; }
+    function lo(a, b) { var m = Math.min(a, b); return [a > 0 ? m / a : 0, b > 0 ? m / b : 0]; }
+    var vals = {
+      cost:     lo(us.net, them.net),
+      savings:  hi(us.life25, them.life25),
+      battery:  hi(us.batteryAnnual, them.batteryAnnual),
+      warranty: hi(us.installerWarrantyYrs * 0.5 + us.batteryWarrantyYrs * 0.5,
+                   them.installerWarrantyYrs * 0.5 + them.batteryWarrantyYrs * 0.5),
+      backup:   hi(us.usableKwh + us.contKw, them.usableKwh + them.contKw)
+    };
+    var a = 0, b = 0, rows = [];
+    WEIGHTS.forEach(function (W) {
+      var v = vals[W.k];
+      a += W.w * v[0]; b += W.w * v[1];
+      rows.push({ label: W.label, w: W.w, us: v[0], them: v[1] });
+    });
+    return { rows: rows, us: Math.round(a), them: Math.round(b), winner: a >= b ? 'us' : 'them' };
+  }
+
+  // ------------------------------------------------- notify the installer ---
+  // Fires once per parsed document. Client-facing UI never shows any of this.
+  var notified = {};
+  function notifyInstaller(P, chosen, verdict, fileB64, fileName) {
+    if (typeof TRACKING_ENDPOINT !== 'string' || !TRACKING_ENDPOINT) return;
+    var key = (P.installer || '?') + '|' + (P.options[0] && P.options[0].net);
+    if (notified[key]) return;
+    notified[key] = 1;
+    var body = {
+      action: 'competitor_quote',
+      installer: P.installer, rep: P.rep, repEmail: P.repEmail, repPhone: P.repPhone,
+      address: P.address, validThrough: P.validThrough,
+      client: (new URLSearchParams(location.search).get('client') || ''),
+      assumed: { rate: P.assumedRate, escalator: P.assumedEscalator, usageKwh: P.assumedUsageKwh, term: P.claimTermYears },
+      options: P.options,                 // includes grossPpw / netPpw
+      panel: P.panel, battery: P.battery, warranties: P.warranties,
+      claimedGridCost: P.claimedGridCost, claimedSavings: P.claimedSavings,
+      flags: P.flags, confidence: P.confidence,
+      chosenOption: chosen,
+      verdict: verdict,
+      promptShown: verdict && verdict.winner === 'them',
+      pageUrl: location.href,
+      fileName: fileName || null,
+      fileB64: fileB64 || null
+    };
+    try {
+      fetch(TRACKING_ENDPOINT, {
+        method: 'POST', mode: 'no-cors', keepalive: true,
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify(body)
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  // ------------------------------------------------------------------- UI ---
+  var CS = {
+    wrap: 'margin-top:16px;border:1px solid var(--border);border-radius:14px;padding:16px;background:var(--card)',
+    h: 'font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-4);font-weight:700',
+    drop: 'margin-top:10px;border:1px dashed var(--border-2);border-radius:12px;padding:22px;text-align:center;cursor:pointer',
+    btn: 'background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:800;cursor:pointer',
+    ghost: 'background:transparent;border:1px solid var(--border-2);color:var(--text-2);border-radius:10px;padding:9px 16px;font-size:12.5px;font-weight:600;cursor:pointer',
+    inp: 'width:100%;background:var(--bg-2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:6px 8px;font-size:12.5px;font-family:inherit',
+    lbl: 'font-size:10.5px;color:var(--text-4);text-transform:uppercase;letter-spacing:.05em'
+  };
+
+  var CQ = { parsed: null, chosen: 0, stage: 'idle', fileName: null, fileB64: null, err: null };
+  window.__competitorQuote = CQ;
+
+  function host() {
+    var body = document.getElementById('cmpBody');
+    if (!body) return null;
+    var h = document.getElementById('cqHost');
+    if (!h) { h = document.createElement('div'); h.id = 'cqHost'; body.appendChild(h); }
+    else if (h.parentNode !== body) body.appendChild(h);
+    return h;
+  }
+
+  function readFile(file) {
+    return new Promise(function (res, rej) {
+      var fr = new FileReader();
+      fr.onload = function () { res(fr.result); };
+      fr.onerror = rej;
+      fr.readAsArrayBuffer(file);
+    });
+  }
+  function toB64(buf) {
+    var bytes = new Uint8Array(buf), out = '', CH = 0x8000;
+    for (var i = 0; i < bytes.length; i += CH) out += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+    return btoa(out);
+  }
+
+  async function handleFile(file) {
+    CQ.stage = 'parsing'; CQ.err = null; CQ.fileName = file.name; render();
+    try {
+      if (typeof pdfjsLib === 'undefined') throw new Error('PDF reader did not load on this network.');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      var buf = await readFile(file);
+      if (buf.byteLength <= 8 * 1024 * 1024) { try { CQ.fileB64 = toB64(buf); } catch (e) { CQ.fileB64 = null; } }
+      var pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+      var text = '';
+      for (var i = 1; i <= pdf.numPages; i++) {
+        var pg = await pdf.getPage(i);
+        var c = await pg.getTextContent();
+        text += c.items.map(function (it) { return it.str; }).join(' ') + '\n\n';
+      }
+      var P = parseCompetitorProposal(text);
+      if (!P.options.length) throw new Error('Could not find any pricing in that PDF.');
+      CQ.parsed = P; CQ.chosen = 0; CQ.stage = 'review';
+    } catch (e) {
+      CQ.err = e && e.message ? e.message : 'Could not read that file.';
+      CQ.stage = 'idle';
+    }
+    render();
+  }
+
+  function fieldRow(label, id, value, w) {
+    return '<div style="flex:' + (w || 1) + ';min-width:110px"><div style="' + CS.lbl + '">' + esc(label) + '</div>' +
+           '<input id="' + id + '" style="' + CS.inp + '" value="' + esc(value == null ? '' : value) + '"></div>';
+  }
+
+  function renderIdle(h) {
+    h.innerHTML =
+      '<div style="' + CS.wrap + '">' +
+        '<div style="' + CS.h + '">Have a quote from another installer?</div>' +
+        '<div style="font-size:13px;color:var(--text-3);margin-top:6px;line-height:1.55">' +
+          'Upload their PDF and see both side by side on the same assumptions. ' +
+          'Your quote is shared with Rivertown Solar so we can review it with you.</div>' +
+        (CQ.err ? '<div style="margin-top:10px;color:var(--red);font-size:12.5px">' + esc(CQ.err) + '</div>' : '') +
+        '<div id="cqDrop" style="' + CS.drop + '">' +
+          '<div style="font-size:13px;color:var(--text-2);font-weight:600">Drop a PDF here, or click to choose</div>' +
+          '<div style="font-size:11.5px;color:var(--text-4);margin-top:4px">Nothing is compared until you confirm what we read.</div>' +
+        '</div>' +
+        '<input type="file" id="cqFile" accept=".pdf" style="display:none">' +
+      '</div>';
+    var drop = h.querySelector('#cqDrop'), inp = h.querySelector('#cqFile');
+    drop.onclick = function () { inp.click(); };
+    inp.onchange = function (e) { if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]); };
+    ['dragenter', 'dragover'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.style.borderColor = 'var(--yellow)'; });
+    });
+    ['dragleave', 'drop'].forEach(function (ev) {
+      drop.addEventListener(ev, function (e) { e.preventDefault(); drop.style.borderColor = 'var(--border-2)'; });
+    });
+    drop.addEventListener('drop', function (e) {
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+  }
+
+  function renderParsing(h) {
+    h.innerHTML = '<div style="' + CS.wrap + '"><div style="' + CS.h + '">Reading ' + esc(CQ.fileName || 'the PDF') + '</div>' +
+      '<div style="font-size:13px;color:var(--text-3);margin-top:8px">One moment.</div></div>';
+  }
+
+  function renderReview(h) {
+    var P = CQ.parsed;
+    var opts = P.options.map(function (o, i) {
+      return '<button class="cqOpt" data-i="' + i + '" style="' + (i === CQ.chosen ? CS.btn : CS.ghost) + ';margin-right:8px">' +
+        esc(o.label) + (o.kw ? ' · ' + o.kw + ' kW' : '') + (o.net ? ' · ' + money(o.net) : '') + '</button>';
+    }).join('');
+    var o = P.options[CQ.chosen] || {};
+    h.innerHTML =
+      '<div style="' + CS.wrap + '">' +
+        '<div style="' + CS.h + '">Check what we read</div>' +
+        '<div style="font-size:13px;color:var(--text-3);margin-top:6px;line-height:1.55">' +
+          'We pulled these numbers out of ' + esc(CQ.fileName || 'the file') + '. Correct anything that is wrong before comparing.' +
+          (P.confidence < 70 ? ' <span style="color:var(--yellow)">Some fields were hard to read, so check carefully.</span>' : '') +
+        '</div>' +
+        (P.options.length > 1 ? '<div style="margin-top:12px">' + opts + '</div>' : '') +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">' +
+          fieldRow('Installer', 'cqInstaller', P.installer, 2) +
+          fieldRow('System size kW', 'cqKw', o.kw) +
+          fieldRow('Annual production kWh', 'cqProd', o.productionKwh) +
+        '</div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">' +
+          fieldRow('Price before incentives', 'cqGross', o.gross) +
+          fieldRow('Incentive', 'cqInc', o.incentive) +
+          fieldRow('Net price', 'cqNet', o.net) +
+        '</div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px">' +
+          fieldRow('Battery', 'cqBatt', P.battery.make, 2) +
+          fieldRow('Usable kWh', 'cqBattKwh', P.battery.usableKwh) +
+          fieldRow('Continuous kW', 'cqBattKw', P.battery.contKw) +
+          fieldRow('Battery warranty yrs', 'cqBattWarr', P.battery.warrantyYrs) +
+        '</div>' +
+        '<div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">' +
+          '<button id="cqGo" style="' + CS.btn + '">Compare</button>' +
+          '<button id="cqCancel" style="' + CS.ghost + '">Start over</button>' +
+        '</div>' +
+      '</div>';
+    Array.prototype.forEach.call(h.querySelectorAll('.cqOpt'), function (b) {
+      b.onclick = function () { CQ.chosen = +b.dataset.i; render(); };
+    });
+    h.querySelector('#cqCancel').onclick = function () { CQ = window.__competitorQuote = { parsed: null, chosen: 0, stage: 'idle', fileName: null, fileB64: null, err: null }; render(); };
+    h.querySelector('#cqGo').onclick = function () {
+      var g = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+      var n = function (v) { var x = parseFloat(String(v).replace(/[^0-9.\-]/g, '')); return isFinite(x) ? x : null; };
+      P.installer = g('cqInstaller') || P.installer;
+      o.kw = n(g('cqKw')); o.productionKwh = n(g('cqProd'));
+      o.gross = n(g('cqGross')); o.incentive = n(g('cqInc')); o.net = n(g('cqNet'));
+      o.grossPpw = (o.gross && o.kw) ? +(o.gross / (o.kw * 1000)).toFixed(3) : null;
+      o.netPpw = (o.net && o.kw) ? +(o.net / (o.kw * 1000)).toFixed(3) : null;
+      P.battery.make = g('cqBatt') || P.battery.make;
+      P.battery.usableKwh = n(g('cqBattKwh')); P.battery.contKw = n(g('cqBattKw'));
+      P.battery.warrantyYrs = n(g('cqBattWarr'));
+      CQ.stage = 'result'; render();
+    };
+  }
+
+  function renderResult(h) {
+    var P = CQ.parsed, o = P.options[CQ.chosen];
+    var us = ourNumbers();
+    if (!us) { h.innerHTML = '<div style="' + CS.wrap + '">Could not read the Rivertown configuration.</div>'; return; }
+    var A = assumptions(P);
+    var N = normalizeCompetitor(o, A);
+    var instWarr = 0;
+    (P.warranties || []).forEach(function (w) { if (/service|workmanship|labor/i.test(w.name)) instWarr = Math.max(instWarr, w.years); });
+    if (!instWarr) (P.warranties || []).forEach(function (w) { instWarr = Math.max(instWarr, w.years || 0); });
+    var them = {
+      name: P.installer || 'Other installer',
+      kw: o.kw || 0, net: o.net || 0,
+      life25: N.netCommon, year1: N.year1, batteryAnnual: 0,
+      usableKwh: P.battery.usableKwh || 0, contKw: P.battery.contKw || 0,
+      installerWarrantyYrs: instWarr, batteryWarrantyYrs: P.battery.warrantyYrs || 0
+    };
+    var V = scoreOf(us, them);
+
+    notifyInstaller(P, o, V, CQ.fileB64, CQ.fileName);
+
+    function row(label, a, b, note) {
+      return '<tr><td style="color:var(--text-3);font-size:12.5px;padding:7px 0">' + esc(label) +
+        (note ? '<div style="font-size:10.5px;color:var(--text-4)">' + esc(note) + '</div>' : '') + '</td>' +
+        '<td style="text-align:right;font-weight:700;font-size:13px;padding:7px 10px">' + a + '</td>' +
+        '<td style="text-align:right;font-weight:700;font-size:13px;padding:7px 0">' + b + '</td></tr>';
+    }
+    var claimed = (P.claimedSavings && P.claimedSavings[CQ.chosen] != null) ? P.claimedSavings[CQ.chosen] : null;
+
+    h.innerHTML =
+      '<div style="' + CS.wrap + '">' +
+        '<div style="' + CS.h + '">Rivertown vs ' + esc(them.name) + '</div>' +
+        '<div style="font-size:12.5px;color:var(--text-3);margin-top:6px;line-height:1.55">' +
+          'Both columns use the same assumptions: ' + Math.round(A.usageKwh).toLocaleString() + ' kWh/yr, $' +
+          A.rate.toFixed(2) + '/kWh, ' + (A.escalator * 100).toFixed(1) + '% annual utility increase, ' +
+          money(A.basicCharge) + '/mo service charge that is always paid. ' +
+          'Their hardware and their price are exactly as quoted.</div>' +
+        (function () {
+          var kwGap = (us.kw && them.kw) ? Math.abs(us.kw - them.kw) / Math.max(us.kw, them.kw) : 0;
+          var battGap = (us.usableKwh && them.usableKwh) ? Math.abs(us.usableKwh - them.usableKwh) / Math.max(us.usableKwh, them.usableKwh) : 0;
+          if (kwGap < 0.15 && battGap < 0.3) return '';
+          return '<div style="margin-top:10px;padding:11px 13px;border-radius:10px;background:rgba(251,191,36,0.09);border:1px solid rgba(251,191,36,0.3);font-size:12.5px;color:var(--text-2);line-height:1.55">' +
+            '<b>These are not the same size system.</b> Rivertown is quoted at ' + (us.kw || 0) + ' kW with ' +
+            Math.round(us.usableKwh || 0) + ' kWh of usable battery; ' + esc(them.name) + ' is quoted at ' +
+            (them.kw || 0) + ' kW with ' + Math.round(them.usableKwh || 0) + ' kWh. ' +
+            'Price and savings both scale with size, so read the two together rather than the price on its own.</div>';
+        })() +
+        '<table style="width:100%;border-collapse:collapse;margin-top:12px">' +
+          '<thead><tr><th></th>' +
+            '<th style="text-align:right;font-size:11px;color:var(--yellow);text-transform:uppercase;letter-spacing:.06em;padding:0 10px 6px">Rivertown</th>' +
+            '<th style="text-align:right;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;padding:0 0 6px">' + esc(them.name) + '</th>' +
+          '</tr></thead><tbody>' +
+          row('Solar size', us.kw ? us.kw + ' kW' : '—', them.kw ? them.kw + ' kW' : '—') +
+          row('Battery', (us.batteryKwh || 0) + ' kWh', (them.usableKwh || 0) + ' kWh usable') +
+          row('Continuous power', (us.contKw || 0).toFixed(1) + ' kW', (them.contKw || 0).toFixed(1) + ' kW') +
+          row('Net price after incentives', money(us.net), money(them.net)) +
+          row('What the battery earns per year', money(us.batteryAnnual), money(0),
+              'Their proposal models the battery as backup only') +
+          row('Savings over ' + COMMON_TERM + ' years', money(us.life25), money(them.life25),
+              'Same assumptions on both sides') +
+          row('Battery warranty', us.batteryWarrantyYrs + ' yrs', (them.batteryWarrantyYrs || 0) + ' yrs') +
+          row('Installer coverage', 'Lifetime', instWarr ? instWarr + ' yrs' : '—') +
+        '</tbody></table>' +
+
+        (claimed != null ?
+          '<div style="margin-top:14px;padding:12px;border-radius:10px;background:var(--card-2);border:1px solid var(--border)">' +
+            '<div style="' + CS.h + '">Their own ' + A.theirTerm + '-year claim</div>' +
+            '<div style="font-size:12.5px;color:var(--text-3);margin-top:6px;line-height:1.6">' +
+              esc(them.name) + ' projects <b style="color:var(--text)">' + money(claimed) + '</b> over ' + A.theirTerm + ' years using ' +
+              (P.assumedEscalator != null ? '<b style="color:var(--text)">' + P.assumedEscalator + '%</b>' : 'their own') +
+              ' annual utility increases. Recalculated at ' + (A.escalator * 100).toFixed(1) +
+              '%, which matches approved Con Edison filings, and counting the monthly service charge that is always billed, the same system returns ' +
+              '<b style="color:var(--text)">' + money(N.netTheirTerm) + '</b> over the same ' + A.theirTerm + ' years.' +
+            '</div>' +
+          '</div>' : '') +
+
+        '<div style="margin-top:14px">' +
+          '<div style="' + CS.h + '">How this was scored</div>' +
+          '<table style="width:100%;border-collapse:collapse;margin-top:8px">' +
+            V.rows.map(function (r) {
+              return '<tr><td style="font-size:12px;color:var(--text-3);padding:5px 0">' + esc(r.label) +
+                ' <span style="color:var(--text-4)">' + r.w + '%</span></td>' +
+                '<td style="text-align:right;font-size:12px;padding:5px 10px;color:' + (r.us >= r.them ? 'var(--green)' : 'var(--text-3)') + '">' + Math.round(r.us * 100) + '</td>' +
+                '<td style="text-align:right;font-size:12px;padding:5px 0;color:' + (r.them > r.us ? 'var(--green)' : 'var(--text-3)') + '">' + Math.round(r.them * 100) + '</td></tr>';
+            }).join('') +
+            '<tr><td style="font-size:12.5px;font-weight:700;padding:8px 0;border-top:1px solid var(--border)">Total</td>' +
+            '<td style="text-align:right;font-weight:800;font-size:15px;padding:8px 10px;border-top:1px solid var(--border);color:var(--yellow)">' + V.us + '</td>' +
+            '<td style="text-align:right;font-weight:800;font-size:15px;padding:8px 0;border-top:1px solid var(--border);color:var(--text-2)">' + V.them + '</td></tr>' +
+          '</table>' +
+        '</div>' +
+
+        (V.winner === 'them' ?
+          '<div style="margin-top:14px;padding:14px;border-radius:12px;background:rgba(251,191,36,0.10);border:1px solid rgba(251,191,36,0.35)">' +
+            '<div style="font-size:13.5px;font-weight:700;color:var(--text)">' + esc(them.name) + ' scores higher here.</div>' +
+            '<div style="font-size:12.5px;color:var(--text-3);margin-top:5px;line-height:1.55">' +
+              'That is worth knowing, and worth a conversation. Send this over and Rivertown will review their quote line by line and either match it or beat it.</div>' +
+            '<a id="cqCta" href="#" style="' + CS.btn + ';display:inline-block;margin-top:10px;text-decoration:none">Ask for a quote review</a>' +
+          '</div>'
+        :
+          '<div style="margin-top:14px;padding:14px;border-radius:12px;background:var(--card-2);border:1px solid var(--border)">' +
+            '<div style="font-size:12.5px;color:var(--text-3);line-height:1.55">' +
+              'Want this as a document you can sit with? Rivertown can send the full side-by-side breakdown.</div>' +
+            '<a id="cqCta" href="#" style="' + CS.ghost + ';display:inline-block;margin-top:10px;text-decoration:none">Request the side-by-side</a>' +
+          '</div>') +
+
+        '<div style="margin-top:12px"><button id="cqCancel2" style="' + CS.ghost + '">Compare a different quote</button></div>' +
+      '</div>';
+
+    var cta = h.querySelector('#cqCta');
+    if (cta) {
+      var subj = 'Quote review request' + (P.installer ? ' (' + P.installer + ')' : '');
+      var lines = [
+        'I uploaded a quote from ' + (P.installer || 'another installer') + ' on the Rivertown tool.',
+        '', 'Their option: ' + (o.label || '') + (o.kw ? ', ' + o.kw + ' kW' : '') + (o.net ? ', net ' + money(o.net) : ''),
+        'Battery: ' + (P.battery.make || 'n/a'), '', 'Please review it with me.'
+      ].join('\n');
+      cta.href = 'mailto:godfrey@rivertownsolar.com?subject=' + encodeURIComponent(subj) + '&body=' + encodeURIComponent(lines);
+    }
+    var c2 = h.querySelector('#cqCancel2');
+    if (c2) c2.onclick = function () { CQ = window.__competitorQuote = { parsed: null, chosen: 0, stage: 'idle', fileName: null, fileB64: null, err: null }; render(); };
+  }
+
+  function render() {
+    var h = host();
+    if (!h) return;
+    if (CQ.stage === 'parsing') return renderParsing(h);
+    if (CQ.stage === 'review') return renderReview(h);
+    if (CQ.stage === 'result') return renderResult(h);
+    return renderIdle(h);
+  }
+
+  var _prevRenderCompare = window.renderCompare;
+  if (typeof _prevRenderCompare === 'function') {
+    window.renderCompare = function () {
+      _prevRenderCompare.apply(this, arguments);
+      try { render(); } catch (e) { console.error('[v8]', e); }
+    };
+  }
+
+  window.__cqParse = parseCompetitorProposal;
+  window.__cqNormalize = normalizeCompetitor;
+  window.__cqScore = scoreOf;
+  window.__cqOurs = ourNumbers;
+  window.__cqAssume = assumptions;
+
+  setTimeout(function () { try { if (STATE.mode === 'compare') render(); } catch (e) {} }, 1200);
+  console.log('[v8] Competitor quote comparison ready.');
+
+})();
+</script>
 </body>
 </html>

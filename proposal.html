@@ -194,7 +194,13 @@
 </div>
 
 <script>
-  var STEPS = ["Where You Are","Your Free Gift","Your Options","Get Started"];
+  var STEP_DEFS = [
+    { p:0, t:"Where You Are" },
+    { p:1, t:"Your Free Gift", gift:true },
+    { p:2, t:"Your Options" },
+    { p:3, t:"Get Started" }
+  ];
+  var STEPS = STEP_DEFS;
   var SAMPLE = {
     client:"Alex", date:"July 27, 2026",
     bill:{ annualKwh:19478, rate:0.43, monthly:692, supply:156, delivery:290, basic:16 },
@@ -218,6 +224,17 @@
     }catch(e){ return SAMPLE; }
   }
   var D = decode();
+
+  // ── BATTERY-ONLY MODE ──
+  // Set by the simulator's "Battery only" toggle. Drops the free-gift step and
+  // limits the options panel to the battery config.
+  var BATTERY_ONLY = !!D.batteryOnly;
+  if (BATTERY_ONLY) {
+    STEPS = STEP_DEFS.filter(function(s){ return !s.gift; });
+    var giftPanel = document.querySelector('.panel[data-p="1"]');
+    if (giftPanel) giftPanel.remove();
+  }
+
   var money = function(n){ return '$'+Math.round(n).toLocaleString(); };
   var moneyK = function(n){ return '$'+Math.round(n/1000)+'k'; };
 
@@ -232,8 +249,10 @@
   setBar('b_sup','a_sup',D.bill.supply); setBar('b_del','a_del',D.bill.delivery); setBar('b_bas','a_bas',D.bill.basic);
 
   // gift
-  document.getElementById('g_total').textContent = money(D.gift.total);
-  if(D.gift.rate==='flat' && D.gift.touUpside){ document.getElementById('g_upside').textContent = 'And about '+money(D.gift.touUpside)+'/yr more once we move you to a time-of-use rate and shift your heavy loads to off-peak.'; }
+  if(!BATTERY_ONLY && D.gift){
+    document.getElementById('g_total').textContent = money(D.gift.total);
+    if(D.gift.rate==='flat' && D.gift.touUpside){ document.getElementById('g_upside').textContent = 'And about '+money(D.gift.touUpside)+'/yr more once we move you to a time-of-use rate and shift your heavy loads to off-peak.'; }
+  }
 
   // options
   var META = {
@@ -241,7 +260,14 @@
     solbat: {name:'Solar + Battery',sizer:function(o){return o.kw+' kW solar + '+o.batt+' kWh battery';}},
     battery:{name:'Battery Only',   sizer:function(o){return o.batt+' kWh battery';}}
   };
-  var order = ['solar','solbat','battery'];
+  var order = BATTERY_ONLY ? ['battery'] : ['solar','solbat','battery'];
+  if(BATTERY_ONLY){
+    var optPanel = document.querySelector('.panel[data-p="2"]');
+    if(optPanel){
+      optPanel.querySelector('.lead').innerHTML = 'Your <span class="accent">battery</span> system';
+      optPanel.querySelector('.sub2').textContent = 'Built on your real numbers. Every figure is net after NYSERDA.';
+    }
+  }
   var html = '';
   order.forEach(function(key){
     var o = D.options[key]; if(!o) return;
@@ -278,15 +304,16 @@
   // stepper + nav
   var idx = 0, panels = document.querySelectorAll('.panel');
   var stepper = document.getElementById('stepper');
-  STEPS.forEach(function(t,i){
+  STEPS.forEach(function(s,i){
     var d = document.createElement('div'); d.className='step'; d.dataset.i=i;
-    d.innerHTML = '<div class="n">Step '+(i+1)+'</div><div class="t">'+t+'</div>';
+    d.innerHTML = '<div class="n">Step '+(i+1)+'</div><div class="t">'+s.t+'</div>';
     d.onclick = function(){ show(i); };
     stepper.appendChild(d);
   });
   function show(i){
     idx = Math.max(0, Math.min(STEPS.length-1, i));
-    panels.forEach(function(p){ p.classList.toggle('show', +p.dataset.p===idx); });
+    var targetP = STEPS[idx].p;
+    panels.forEach(function(p){ p.classList.toggle('show', +p.dataset.p===targetP); });
     Array.prototype.forEach.call(stepper.children, function(s,si){ s.classList.toggle('active', si===idx); s.classList.toggle('done', si<idx); });
     document.getElementById('back').disabled = (idx===0);
     document.getElementById('next').textContent = (idx===STEPS.length-1) ? 'Done' : 'Next \u2192';

@@ -6847,5 +6847,142 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
 })();
 </script>
+<script>// SHARE LINK STATE COMPLETION — v9
+// serializeState() predates every patch that added its own settings, so a
+// shared link carried only the base state. Everything the later patches own
+// silently reverted to defaults on the client's screen:
+//
+//   window.__ppw          solar $/W          -> fell back to 3.75
+//   STATE.utility         Con Ed vs O&R      -> fell back to conEd
+//   STATE.shoulderRate    O&R shoulder rate  -> fell back to 0
+//   STATE.batteryOnlyView savings attribution
+//   STATE.cmpQty          compare quantity
+//   window.__annualUsage  annual kWh override
+//
+// Measured before this patch: an 11.5 kW system priced at $2.90/W was shown
+// to the client at $3.75/W. $33,350 became $43,125.
+//
+// Wraps serializeState/restoreState rather than editing them, and stores the
+// extras under `x` so older links (no `x`) still load fine and links made
+// here still open in an older build.
+//
+// Load LAST.
+(function () {
+  'use strict';
+
+  function enc(o) { return btoa(unescape(encodeURIComponent(JSON.stringify(o)))); }
+  function dec(s) {
+    try { return JSON.parse(decodeURIComponent(escape(atob(s)))); }
+    catch (e) { try { return JSON.parse(atob(s)); } catch (e2) { return null; } }
+  }
+
+  // ---------------------------------------------------------------- write --
+  var _serialize = window.serializeState;
+  if (typeof _serialize === 'function') {
+    window.serializeState = function () {
+      var b64 = _serialize.apply(this, arguments);
+      var pack = dec(b64);
+      if (!pack) return b64;
+      pack.x = {
+        ppw: (window.__ppw != null) ? window.__ppw : null,
+        util: STATE.utility || null,
+        sh: (typeof STATE.shoulderRate === 'number') ? STATE.shoulderRate : null,
+        bov: STATE.batteryOnlyView ? 1 : 0,
+        cq: (typeof STATE.cmpQty === 'number') ? STATE.cmpQty : null,
+        au: (typeof window.__annualUsage === 'number') ? window.__annualUsage : null
+      };
+      return enc(pack);
+    };
+  }
+
+  // ----------------------------------------------------------------- read --
+  function extrasFromHash() {
+    var m = String(window.location.hash || '').match(/^#c=(.+)$/);
+    if (!m) return null;
+    var pack = dec(m[1]);
+    return (pack && pack.x) ? pack.x : null;
+  }
+
+  var applied = false;
+  function applyExtras() {
+    if (applied) return true;
+    var x = extrasFromHash();
+    if (!x) { applied = true; return true; }
+
+    // State first. Rates were already restored by the base loader, and we must
+    // not re-run switchUtility here or its presets would overwrite the shared
+    // rates with defaults.
+    if (x.ppw != null) window.__ppw = x.ppw;
+    if (x.util) STATE.utility = x.util;
+    if (x.sh != null) STATE.shoulderRate = x.sh;
+    if (x.bov) STATE.batteryOnlyView = true;
+    if (x.cq != null) STATE.cmpQty = x.cq;
+    if (x.au != null) window.__annualUsage = x.au;
+
+    // DOM catch-up. These controls are injected by later patches on timers,
+    // so this runs on a retry until they exist.
+    var ready = true;
+
+    var seg = document.querySelectorAll('#utilitySeg .seg-btn');
+    if (x.util && seg.length) {
+      Array.prototype.forEach.call(seg, function (b) {
+        var on = b.dataset.utility === x.util;
+        b.classList.toggle('active', on);
+        b.style.background = on ? 'var(--accent)' : 'var(--card)';
+        b.style.color = on ? 'var(--bg)' : 'var(--text-muted)';
+      });
+      var shRow = document.getElementById('shoulderRateRow');
+      if (shRow) shRow.style.display = (x.util === 'oru') ? '' : 'none';
+    } else if (x.util) { ready = false; }
+
+    if (x.sh != null) {
+      var si = document.getElementById('shoulderRate');
+      if (si) si.value = x.sh; else ready = false;
+    }
+    if (x.bov) {
+      var bt = document.getElementById('batteryOnlyToggle');
+      if (bt) bt.checked = true; else ready = false;
+    }
+    if (x.au != null) {
+      var ai = document.getElementById('annualOverride');
+      if (ai) ai.value = x.au; else ready = false;
+    }
+    if (x.ppw != null) {
+      var pi = document.getElementById('ppwInput');
+      if (pi) pi.value = x.ppw;   // cosmetic only; pricing reads window.__ppw
+    }
+
+    if (ready) applied = true;
+    return ready;
+  }
+
+  var _restore = window.restoreState;
+  if (typeof _restore === 'function') {
+    window.restoreState = function () {
+      var r = _restore.apply(this, arguments);
+      try { applyExtras(); } catch (e) { console.error('[v9]', e); }
+      return r;
+    };
+  }
+
+  // The pricing wrapper and every injected control boot on timers up to ~900ms,
+  // and short links (?s=) resolve asynchronously and set the hash later still.
+  var tries = 0;
+  (function sweep() {
+    tries++;
+    var done = false;
+    try { done = applyExtras(); } catch (e) {}
+    if (done && tries > 6) {
+      if (typeof render === 'function') { try { render(); } catch (e) {} }
+      return;
+    }
+    if (tries > 40) return;
+    if (tries % 5 === 0 && typeof render === 'function') { try { render(); } catch (e) {} }
+    setTimeout(sweep, 250);
+  })();
+
+  console.log('[v9] Share links now carry $/W, utility, shoulder rate, attribution toggle, compare qty and usage override.');
+})();
+</script>
 </body>
 </html>

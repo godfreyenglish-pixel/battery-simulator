@@ -5721,27 +5721,31 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
   // rows: [label, leftText, rightText, winner]  winner: 'l' | 'r' | null
   function buildRows(L, R) {
-    function cmp(a, b, higherWins) {
+    // dp = decimal places the row actually DISPLAYS. If both sides render the
+    // same string, no winner is drawn — otherwise the table shows two identical
+    // numbers with one flagged better, which reads as a bug to the client.
+    function cmp(a, b, higherWins, dp) {
       if (!isFinite(a) || !isFinite(b) || a === b) return null;
+      if (dp !== undefined && a.toFixed(dp) === b.toFixed(dp)) return null;
       return (higherWins ? a > b : a < b) ? 'l' : 'r';
     }
     return [
       ['Quantity', L.qty + ' unit' + (L.qty > 1 ? 's' : ''), R.qty + ' unit' + (R.qty > 1 ? 's' : ''), null],
-      ['Nameplate', L.nameplate.toFixed(1) + ' kWh', R.nameplate.toFixed(1) + ' kWh', cmp(L.nameplate, R.nameplate, true)],
-      ['Usable', L.usable.toFixed(1) + ' kWh', R.usable.toFixed(1) + ' kWh', cmp(L.usable, R.usable, true)],
-      ['Continuous', L.cont.toFixed(2) + ' kW', R.cont.toFixed(2) + ' kW', cmp(L.cont, R.cont, true)],
+      ['Nameplate', L.nameplate.toFixed(1) + ' kWh', R.nameplate.toFixed(1) + ' kWh', cmp(L.nameplate, R.nameplate, true, 1)],
+      ['Usable', L.usable.toFixed(1) + ' kWh', R.usable.toFixed(1) + ' kWh', cmp(L.usable, R.usable, true, 1)],
+      ['Continuous', L.cont.toFixed(2) + ' kW', R.cont.toFixed(2) + ' kW', cmp(L.cont, R.cont, true, 2)],
       ['Coupling', L.coupling, R.coupling, null],
       ['Warranty', L.warranty, R.warranty, null],
       ['__rule', '', '', null],
-      ['Gross', money(L.gross), money(R.gross), cmp(L.gross, R.gross, false)],
+      ['Gross', money(L.gross), money(R.gross), cmp(L.gross, R.gross, false, 0)],
       ['Critical load panel', L.clp > 0 ? money(L.clp) : 'included', R.clp > 0 ? money(R.clp) : 'included', null],
-      ['NYSERDA', '\u2212' + money(L.incentive), '\u2212' + money(R.incentive), cmp(L.incentive, R.incentive, true)],
-      ['Net cost', money(L.net), money(R.net), cmp(L.net, R.net, false)],
+      ['NYSERDA', '\u2212' + money(L.incentive), '\u2212' + money(R.incentive), cmp(L.incentive, R.incentive, true, 0)],
+      ['Net cost', money(L.net), money(R.net), cmp(L.net, R.net, false, 0)],
       ['__rule', '', '', null],
-      ['Annual savings', money(L.annual) + '/yr', money(R.annual) + '/yr', cmp(L.annual, R.annual, true)],
-      ['Payback', isFinite(L.payback) ? L.payback.toFixed(1) + ' yrs' : '\u2014', isFinite(R.payback) ? R.payback.toFixed(1) + ' yrs' : '\u2014', cmp(L.payback, R.payback, false)],
-      ['25-yr savings', money(L.life25), money(R.life25), cmp(L.life25, R.life25, true)],
-      ['Cost per usable kWh', money2(L.perUsable), money2(R.perUsable), cmp(L.perUsable, R.perUsable, false)]
+      ['Annual savings', money(L.annual) + '/yr', money(R.annual) + '/yr', cmp(L.annual, R.annual, true, 0)],
+      ['Payback', isFinite(L.payback) ? L.payback.toFixed(1) + ' yrs' : '\u2014', isFinite(R.payback) ? R.payback.toFixed(1) + ' yrs' : '\u2014', cmp(L.payback, R.payback, false, 1)],
+      ['25-yr savings', money(L.life25), money(R.life25), cmp(L.life25, R.life25, true, 0)],
+      ['Cost per usable kWh', money2(L.perUsable), money2(R.perUsable), cmp(L.perUsable, R.perUsable, false, 2)]
     ];
   }
 
@@ -5910,7 +5914,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     injectStyles();
     ensurePanel();
     injectButton();
-    console.log('[v6] EG4 vs Enphase 10C comparison tab ready');
+    console.log('[v6.1] EG4 vs Enphase 10C comparison tab ready (display-precision ties)');
   }
 
   if (document.readyState === 'loading') {

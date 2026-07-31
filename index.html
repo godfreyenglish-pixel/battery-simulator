@@ -5656,5 +5656,269 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[v5] Battery-only proposal toggle ready');
 })();
 </script>
+  <script>
+// EG4 vs ENPHASE 10C COMPARISON TAB — v6
+// Whiteboard item (1), final bullet: side-by-side comparison tab.
+// Adds a 4th mode ("Compare") beside Arbitrage / Backup / Solar Only.
+// Runs BOTH brands against the SAME load profile and qty so the comparison
+// is apples-to-apples, then flags the better value per row.
+//
+// Load LAST, after v4 (pricing) and v5 (proposal toggle).
+(function () {
+  'use strict';
+
+  var WARRANTY = {
+    eg4:        '10 yr / 10,000 cycles',
+    enphase10c: '15 yr / 6,000 cycles'
+  };
+  var COUPLING = { eg4: 'DC hybrid', enphase10c: 'AC-coupled' };
+  var LEFT = 'eg4', RIGHT = 'enphase10c';
+
+  function money(n) { return '$' + Math.round(n).toLocaleString(); }
+  function money2(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 }); }
+
+  // ── Annual arbitrage savings for a given brand at a given qty, on the
+  //    currently loaded profile. dailySave is already weekday-blended by v4,
+  //    so multiplying by calendar days is correct.
+  function annualSaveFor(brand, qty) {
+    var base = activeSetup();
+    var s = Object.assign({}, base, { hasBatt: true, brand: brand, qty: qty });
+    var orig = s.season;
+    s.season = 'summer';
+    var su = simulateArbitrage(s, STATE.peakRate);
+    s.season = 'winter';
+    var wi = simulateArbitrage(s, STATE.winterPeakRate);
+    s.season = orig;
+    return su.dailySave * SUMMER_DAYS + wi.dailySave * WINTER_DAYS;
+  }
+
+  function modelFor(brand, qty) {
+    var b = BRANDS[brand];
+    if (!b) return null;
+    var q = Math.min(qty, b.maxQty);
+    var cost = batterySystemCost({ hasBatt: true, brand: brand, qty: q, hasClp: true });
+    var annual = annualSaveFor(brand, q);
+    var pb = paybackYears(cost.net, annual);
+    return {
+      brand: brand,
+      name: b.name,
+      qty: q,
+      nameplate: b.kwh * q,
+      usable: b.kwh * b.dod * q,
+      cont: b.contKw * q,
+      warranty: WARRANTY[brand] || '\u2014',
+      coupling: COUPLING[brand] || '\u2014',
+      gross: cost.gross,
+      incentive: cost.incentive || 0,
+      net: cost.net,
+      clp: cost.clpCost || cost.clp || 0,
+      annual: annual,
+      payback: pb,
+      life25: lifetimeSavings(annual),
+      perUsable: (b.kwh * b.dod * q) > 0 ? cost.net / (b.kwh * b.dod * q) : 0
+    };
+  }
+
+  // rows: [label, leftText, rightText, winner]  winner: 'l' | 'r' | null
+  function buildRows(L, R) {
+    function cmp(a, b, higherWins) {
+      if (!isFinite(a) || !isFinite(b) || a === b) return null;
+      return (higherWins ? a > b : a < b) ? 'l' : 'r';
+    }
+    return [
+      ['Quantity', L.qty + ' unit' + (L.qty > 1 ? 's' : ''), R.qty + ' unit' + (R.qty > 1 ? 's' : ''), null],
+      ['Nameplate', L.nameplate.toFixed(1) + ' kWh', R.nameplate.toFixed(1) + ' kWh', cmp(L.nameplate, R.nameplate, true)],
+      ['Usable', L.usable.toFixed(1) + ' kWh', R.usable.toFixed(1) + ' kWh', cmp(L.usable, R.usable, true)],
+      ['Continuous', L.cont.toFixed(2) + ' kW', R.cont.toFixed(2) + ' kW', cmp(L.cont, R.cont, true)],
+      ['Coupling', L.coupling, R.coupling, null],
+      ['Warranty', L.warranty, R.warranty, null],
+      ['__rule', '', '', null],
+      ['Gross', money(L.gross), money(R.gross), cmp(L.gross, R.gross, false)],
+      ['Critical load panel', L.clp > 0 ? money(L.clp) : 'included', R.clp > 0 ? money(R.clp) : 'included', null],
+      ['NYSERDA', '\u2212' + money(L.incentive), '\u2212' + money(R.incentive), cmp(L.incentive, R.incentive, true)],
+      ['Net cost', money(L.net), money(R.net), cmp(L.net, R.net, false)],
+      ['__rule', '', '', null],
+      ['Annual savings', money(L.annual) + '/yr', money(R.annual) + '/yr', cmp(L.annual, R.annual, true)],
+      ['Payback', isFinite(L.payback) ? L.payback.toFixed(1) + ' yrs' : '\u2014', isFinite(R.payback) ? R.payback.toFixed(1) + ' yrs' : '\u2014', cmp(L.payback, R.payback, false)],
+      ['25-yr savings', money(L.life25), money(R.life25), cmp(L.life25, R.life25, true)],
+      ['Cost per usable kWh', money2(L.perUsable), money2(R.perUsable), cmp(L.perUsable, R.perUsable, false)]
+    ];
+  }
+
+  function injectStyles() {
+    if (document.getElementById('cmpStyles')) return;
+    var st = document.createElement('style');
+    st.id = 'cmpStyles';
+    st.textContent =
+      '.cmp-grid{width:100%;border-collapse:collapse;font-size:13px}' +
+      '.cmp-grid th{padding:12px 10px;text-align:center;font-size:12px;font-weight:700;' +
+        'color:var(--text);border-bottom:2px solid var(--border-2);letter-spacing:.01em}' +
+      '.cmp-grid th:first-child{text-align:left;color:var(--text-4);font-weight:500;font-size:11px;' +
+        'text-transform:uppercase;letter-spacing:.06em}' +
+      '.cmp-grid td{padding:9px 10px;text-align:center;border-bottom:1px solid var(--border);' +
+        'color:var(--text-2);font-variant-numeric:tabular-nums}' +
+      '.cmp-grid td:first-child{text-align:left;color:var(--text-4);font-size:12px}' +
+      '.cmp-grid tr.rule td{padding:0;height:10px;border-bottom:2px solid var(--border-2)}' +
+      '.cmp-win{color:var(--green)!important;font-weight:700;position:relative}' +
+      '.cmp-win::after{content:"";position:absolute;left:8px;right:8px;bottom:3px;height:1px;' +
+        'background:var(--green);opacity:.35}' +
+      '.cmp-head-l{color:var(--yellow)}.cmp-head-r{color:var(--teal)}' +
+      '.cmp-note{font-size:11px;color:var(--text-4);line-height:1.5;margin-top:14px;' +
+        'padding-top:12px;border-top:1px solid var(--border)}' +
+      '.cmp-verdict{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:16px;' +
+        'padding:14px 16px;background:var(--card-2);border:1px solid var(--border);border-radius:12px}' +
+      '.cmp-verdict .vk{font-size:11px;color:var(--text-4);text-transform:uppercase;letter-spacing:.08em}' +
+      '.cmp-verdict .vv{font-size:15px;font-weight:700;color:var(--text)}' +
+      '.cmp-qty{display:flex;align-items:center;gap:8px;margin-bottom:14px}' +
+      '.cmp-qty span{font-size:11px;color:var(--text-4);text-transform:uppercase;letter-spacing:.06em}' +
+      '.cmp-qty button{background:var(--card-2);border:1px solid var(--border-2);color:var(--text-2);' +
+        'width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:15px;line-height:1}' +
+      '.cmp-qty button:disabled{opacity:.35;cursor:default}' +
+      '.cmp-qty b{color:var(--text);font-size:14px;min-width:16px;text-align:center}';
+    document.head.appendChild(st);
+  }
+
+  function ensurePanel() {
+    if (document.getElementById('cmpResults')) return;
+    var arb = document.getElementById('arbResults');
+    if (!arb || !arb.parentNode) return;
+    var div = document.createElement('div');
+    div.id = 'cmpResults';
+    div.className = 'hidden';
+    div.innerHTML = '<div class="card"><div id="cmpBody"></div></div>';
+    arb.parentNode.insertBefore(div, arb.nextSibling);
+  }
+
+  if (STATE.cmpQty === undefined) STATE.cmpQty = 2;
+
+  function renderCompare() {
+    var body = document.getElementById('cmpBody');
+    if (!body) return;
+    if (!BRANDS[RIGHT]) {
+      body.innerHTML = '<div style="color:var(--text-4);font-size:13px">' +
+        'Enphase 10C is not loaded. Check that the v3 brand patch ran.</div>';
+      return;
+    }
+
+    var maxQty = Math.min(BRANDS[LEFT].maxQty, BRANDS[RIGHT].maxQty);
+    var qty = Math.max(1, Math.min(STATE.cmpQty, maxQty));
+    STATE.cmpQty = qty;
+
+    var L = modelFor(LEFT, qty), R = modelFor(RIGHT, qty);
+    var rows = buildRows(L, R);
+
+    var better = (L.perUsable <= R.perUsable) ? L : R;
+    var delta = Math.abs(L.net - R.net);
+
+    var html =
+      '<div class="cmp-qty"><span>Quantity</span>' +
+        '<button id="cmpMinus"' + (qty <= 1 ? ' disabled' : '') + '>\u2212</button>' +
+        '<b>' + qty + '</b>' +
+        '<button id="cmpPlus"' + (qty >= maxQty ? ' disabled' : '') + '>+</button>' +
+        '<span style="margin-left:6px">both brands, same profile</span>' +
+      '</div>' +
+      '<div class="cmp-verdict">' +
+        '<span class="vk">Better value</span>' +
+        '<span class="vv">' + better.name + '</span>' +
+        '<span class="vk">at</span>' +
+        '<span class="vv">' + money2(better.perUsable) + '</span>' +
+        '<span class="vk">per usable kWh</span>' +
+        '<span class="vk" style="margin-left:auto">net spread ' + money(delta) + '</span>' +
+      '</div>' +
+      '<table class="cmp-grid"><thead><tr><th></th>' +
+        '<th class="cmp-head-l">' + L.name + '</th>' +
+        '<th class="cmp-head-r">' + R.name + '</th></tr></thead><tbody>';
+
+    rows.forEach(function (r) {
+      if (r[0] === '__rule') { html += '<tr class="rule"><td colspan="3"></td></tr>'; return; }
+      html += '<tr><td>' + r[0] + '</td>' +
+        '<td' + (r[3] === 'l' ? ' class="cmp-win"' : '') + '>' + r[1] + '</td>' +
+        '<td' + (r[3] === 'r' ? ' class="cmp-win"' : '') + '>' + r[2] + '</td></tr>';
+    });
+
+    html += '</tbody></table>' +
+      '<div class="cmp-note">Both columns run the same load profile, rate plan, and discharge window. ' +
+      'Savings use the blended weekday/weekend schedule and a 3.3% utility escalator. ' +
+      'The 10C bundles its backup gateway, so no separate critical load panel is priced. ' +
+      'Green marks the better figure per row, not the better system overall.</div>';
+
+    body.innerHTML = html;
+
+    var minus = document.getElementById('cmpMinus');
+    var plus = document.getElementById('cmpPlus');
+    if (minus) minus.onclick = function () { STATE.cmpQty = Math.max(1, qty - 1); renderCompare(); };
+    if (plus) plus.onclick = function () { STATE.cmpQty = Math.min(maxQty, qty + 1); renderCompare(); };
+  }
+  window.renderCompare = renderCompare;
+
+  // ── Mode wiring ──
+  var _origSetMode = window.setMode;
+  window.setMode = function (m) {
+    if (m !== 'compare') {
+      var cp = document.getElementById('cmpResults');
+      if (cp) cp.classList.add('hidden');
+      var cb = document.getElementById('modeCmp');
+      if (cb) cb.classList.remove('active');
+      return _origSetMode(m);
+    }
+
+    STATE.mode = 'compare';
+    ['modeArb', 'modeBak', 'modeSol'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.remove('active', 'backup', 'solar');
+    });
+    var btn = document.getElementById('modeCmp');
+    if (btn) btn.classList.add('active');
+
+    ['arbResults', 'bakResults', 'solResults'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
+    });
+    var panel = document.getElementById('cmpResults');
+    if (panel) panel.classList.remove('hidden');
+
+    var battCard = document.getElementById('battCard');
+    var rateCard = document.getElementById('rateCard');
+    var critCard = document.getElementById('criticalCard');
+    if (battCard) battCard.classList.add('hidden');
+    if (rateCard) rateCard.classList.remove('hidden');
+    if (critCard) critCard.classList.add('hidden');
+
+    renderCompare();
+  };
+
+  var _origRender = window.render;
+  window.render = function () {
+    if (STATE.mode === 'compare') { renderCompare(); return; }
+    return _origRender();
+  };
+
+  function injectButton() {
+    if (document.getElementById('modeCmp')) return;
+    var bar = document.querySelector('.mode-toggle');
+    if (!bar) return;
+    var b = document.createElement('button');
+    b.className = 'mode-btn';
+    b.id = 'modeCmp';
+    b.innerHTML = '<svg class="mode-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="2.5"><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>Compare';
+    b.onclick = function () { setMode('compare'); };
+    bar.appendChild(b);
+  }
+
+  function boot() {
+    injectStyles();
+    ensurePanel();
+    injectButton();
+    console.log('[v6] EG4 vs Enphase 10C comparison tab ready');
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(boot, 1000); });
+  } else {
+    setTimeout(boot, 1000);
+  }
+})();
+</script>
 </body>
 </html>

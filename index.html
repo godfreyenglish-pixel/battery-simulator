@@ -5568,5 +5568,93 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[v4] 10C 7.08kW · stacked commission · NYSERDA capped · Con Ed weekend blend');
 })();
 </script>
+  <script>
+// BATTERY-ONLY PROPOSAL TOGGLE — v5
+// Whiteboard item (1): battery-only proposal generation.
+// Adds a "Battery only" checkbox beside Generate Proposal. When on, the payload
+// drops the free gift, limits options to the battery config, and forces the
+// recommendation to battery. proposal.html reads payload.batteryOnly.
+//
+// Load AFTER PROPOSAL GENERATOR v1. Uses a dedicated flag, NOT the existing
+// STATE.batteryOnlyView, which is the savings-attribution toggle.
+(function () {
+  'use strict';
+
+  if (STATE.proposalBatteryOnly === undefined) {
+    var saved = '0';
+    try { saved = localStorage.getItem('rt-proposal-battery-only') || '0'; } catch (e) {}
+    STATE.proposalBatteryOnly = (saved === '1');
+  }
+
+  function b64urlEncode(str) {
+    return btoa(unescape(encodeURIComponent(str)))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function b64urlDecode(raw) {
+    var s = raw.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    try { return decodeURIComponent(escape(atob(s))); } catch (e) { return atob(s); }
+  }
+
+  var _origBuild = window.buildProposalUrl;
+  window.buildProposalUrl = function () {
+    var url = _origBuild();
+    if (!STATE.proposalBatteryOnly) return url;
+
+    var i = url.indexOf('?p=');
+    if (i === -1) return url;
+
+    var payload;
+    try {
+      payload = JSON.parse(b64urlDecode(url.slice(i + 3)));
+    } catch (e) {
+      console.error('[v5] could not decode proposal payload', e);
+      return url;
+    }
+
+    payload.batteryOnly = true;
+    delete payload.gift;
+    if (payload.options) {
+      delete payload.options.solar;
+      delete payload.options.solbat;
+    }
+    payload.recommended = 'battery';
+
+    return url.slice(0, i + 3) + b64urlEncode(JSON.stringify(payload));
+  };
+
+  function injectToggle() {
+    var wrap = document.getElementById('genProposalWrap');
+    if (!wrap || document.getElementById('battOnlyProposalToggle')) return;
+
+    var label = document.createElement('label');
+    label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:11px;' +
+      'color:#9CA3AF;cursor:pointer;user-select:none';
+    label.innerHTML = '<input type="checkbox" id="battOnlyProposalToggle" ' +
+      (STATE.proposalBatteryOnly ? 'checked' : '') +
+      ' style="accent-color:#FBBF24;width:13px;height:13px;cursor:pointer">Battery only';
+
+    label.querySelector('input').addEventListener('change', function (e) {
+      STATE.proposalBatteryOnly = e.target.checked;
+      try {
+        localStorage.setItem('rt-proposal-battery-only', e.target.checked ? '1' : '0');
+      } catch (err) {}
+    });
+
+    var btn = document.getElementById('genProposalBtn');
+    if (btn) wrap.insertBefore(label, btn);
+    else wrap.appendChild(label);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(injectToggle, 900); });
+  } else {
+    setTimeout(injectToggle, 900);
+  }
+
+  console.log('[v5] Battery-only proposal toggle ready');
+})();
+</script>
 </body>
 </html>

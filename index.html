@@ -5847,5 +5847,231 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   }
 })();
 </script>
+<script>// CLIENT VIEW & UI POLISH — v7
+// Six changes, all presentation. No pricing, dispatch, or savings math is touched.
+//
+//  1. --accent was never defined in :root. 11 call sites across earlier patches
+//     resolved to nothing, which is why the active Con Edison / O&R button and
+//     the TOU checkboxes rendered unstyled. One line fixes all 11.
+//  2. Mobile (<=980px) puts results ABOVE config. The single-column stack was
+//     burying the savings tiles ~6 screens down on a phone.
+//  3. Client view: when the page is opened from a share link (?s= or ?client=),
+//     installer-only controls are hidden. Escape hatch link in the footer.
+//  4. Rate card body collapses behind an ADVANCED toggle. Collapsed by default
+//     for clients, remembered for the installer.
+//  5. "Annual Savings from Switch" relabelled — that figure includes the battery.
+//  6. Chart.js is a CDN dependency with no fallback. If it fails to load the
+//     client saw an empty black panel. Now shows a message.
+//
+// Load LAST. Wraps renderArbitrage, so it must sit after every earlier wrapper.
+(function () {
+  'use strict';
+
+  var P = new URLSearchParams(location.search);
+  var forced = P.get('view');
+  var fromShare = !!(P.get('s') || P.get('client'));
+  var CLIENT = (forced === 'client') || (fromShare && forced !== 'installer');
+
+  // ── 1 + 2 + 4 + 6: STYLES ──
+  var css = document.createElement('style');
+  css.id = 'v7Styles';
+  css.textContent = [
+    /* 1. the missing token — restores every var(--accent) call site */
+    ':root { --accent: var(--yellow); }',
+
+    /* 2. phone/tablet: results first, config second */
+    '@media (max-width: 980px) {',
+    '  .grid-main > *:nth-child(1) { order: 2; }',
+    '  .grid-main > *:nth-child(2) { order: 1; }',
+    '}',
+
+    /* 4. collapsible rate card */
+    '#rateCard .card-title { display: flex; align-items: center; gap: 8px; }',
+    '#rateBody[hidden] { display: none; }',
+    '.v7-toggle {',
+    '  margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;',
+    '  text-transform: uppercase; color: var(--text-4); background: none;',
+    '  border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px;',
+    '  cursor: pointer; line-height: 1.6;',
+    '}',
+    '.v7-toggle:hover { color: var(--text-2); border-color: var(--border-2); }',
+
+    /* 3. client view hides installer controls */
+    'body.v7-client #genProposalWrap,',
+    'body.v7-client #annualOverrideWrap,',
+    'body.v7-client #v7TouRow,',
+    'body.v7-client #shareBtn,',
+    'body.v7-client #modeLM { display: none !important; }',
+
+    /* 6. chart fallback */
+    '.v7-chart-fallback {',
+    '  display: flex; align-items: center; justify-content: center; height: 100%;',
+    '  text-align: center; color: var(--text-4); font-size: 13px; line-height: 1.5;',
+    '  padding: 24px; border: 1px dashed var(--border); border-radius: 10px;',
+    '}',
+
+    /* footer view-switch link */
+    '.v7-viewlink { color: var(--text-4); text-decoration: none; border-bottom: 1px dotted var(--border-2); }',
+    '.v7-viewlink:hover { color: var(--text-2); }'
+  ].join('\n');
+  document.head.appendChild(css);
+
+  if (CLIENT) document.body.classList.add('v7-client');
+
+  // ── 4: COLLAPSE THE RATE CARD ──
+  function collapseRateCard() {
+    var card = document.getElementById('rateCard');
+    if (!card || document.getElementById('rateBody')) return false;
+    var title = card.querySelector('.card-title');
+    if (!title) return false;
+
+    var body = document.createElement('div');
+    body.id = 'rateBody';
+    while (title.nextSibling) body.appendChild(title.nextSibling);
+    card.appendChild(body);
+
+    var btn = document.createElement('button');
+    btn.className = 'v7-toggle';
+    btn.type = 'button';
+    title.appendChild(btn);
+
+    var collapsed = CLIENT;
+    if (!CLIENT) {
+      try { collapsed = localStorage.getItem('rt-rate-collapsed') === '1'; } catch (e) {}
+    }
+
+    function paint() {
+      body.hidden = collapsed;
+      btn.textContent = collapsed ? 'Advanced ▾' : 'Advanced ▴';
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    }
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      collapsed = !collapsed;
+      if (!CLIENT) { try { localStorage.setItem('rt-rate-collapsed', collapsed ? '1' : '0'); } catch (err) {} }
+      paint();
+    });
+    paint();
+    return true;
+  }
+
+  // Earlier patches insert straight after the card title (insertAdjacentElement
+  // 'afterend'), which lands them OUTSIDE #rateBody and leaves them visible while
+  // the card is collapsed. Sweep any strays back in on every tick.
+  function sweepRateCard() {
+    var body = document.getElementById('rateBody');
+    var card = document.getElementById('rateCard');
+    if (!body || !card) return;
+    var title = card.querySelector('.card-title');
+    if (!title) return;
+    var strays = [], n = title.nextSibling;
+    while (n && n !== body) { strays.push(n); n = n.nextSibling; }
+    for (var i = strays.length - 1; i >= 0; i--) body.insertBefore(strays[i], body.firstChild);
+  }
+
+  // ── 3: TAG THE ATTRIBUTION CHECKBOX ROW SO CSS CAN HIDE IT ──
+  function tagTouRow() {
+    var cb = document.getElementById('batteryOnlyToggle');
+    if (!cb) return false;
+    var row = cb.closest('label');
+    row = row && row.parentElement ? row.parentElement : null;
+    if (row && !row.id) row.id = 'v7TouRow';
+    return true;
+  }
+
+  // ── 6: CHART.JS FALLBACK ──
+  function chartFallback() {
+    if (typeof window.Chart !== 'undefined') return;
+    var wrap = document.querySelector('.chart-canvas-wrap');
+    if (!wrap || wrap.querySelector('.v7-chart-fallback')) return;
+    var cv = wrap.querySelector('canvas');
+    if (cv) cv.style.display = 'none';
+    var msg = document.createElement('div');
+    msg.className = 'v7-chart-fallback';
+    msg.textContent = 'The 24-hour chart could not load on this network. '
+      + 'Every number on this page is still accurate — only the graphic is missing. '
+      + 'Try again on a different connection.';
+    wrap.appendChild(msg);
+    var bar = document.querySelector('.anim-bar');
+    if (bar) bar.style.display = 'none';
+  }
+
+  // ── 5: HONEST LABELS ON THE SAVINGS BREAKDOWN ──
+  // The third breakdown card said "Annual Savings from Switch" while the figure
+  // it prints is the switch AND the battery combined — the same number the hero
+  // tile already labels "Switch + Battery". Two names, one number, one screen.
+  var RELABEL = [
+    ['.bd-title', 'Annual Savings from Switch', 'Annual Savings · Switch + Battery'],
+    ['.bd-line-key', 'Rate III bill (proposed)', 'Rate III bill (with battery)']
+  ];
+  function fixLabels() {
+    RELABEL.forEach(function (r) {
+      var sel = r[0], from = r[1], to = r[2];
+      document.querySelectorAll(sel).forEach(function (el) {
+        if (el.textContent.trim() === from) el.textContent = to;
+      });
+    });
+  }
+
+  var _v7prevRenderArb = window.renderArbitrage;
+  if (typeof _v7prevRenderArb === 'function') {
+    window.renderArbitrage = function () {
+      _v7prevRenderArb.apply(this, arguments);
+      fixLabels();
+    };
+  }
+
+  // ── 3: FOOTER ESCAPE HATCH ──
+  function injectViewLink() {
+    if (document.getElementById('v7ViewLink')) return;
+    var reset = null;
+    document.querySelectorAll('a, span, button').forEach(function (el) {
+      if (!reset && /reset saved config/i.test(el.textContent || '')) reset = el;
+    });
+    var host = reset ? reset.parentElement : document.querySelector('footer');
+    if (!host) return;
+    var a = document.createElement('a');
+    a.id = 'v7ViewLink';
+    a.className = 'v7-viewlink';
+    a.href = '#';
+    a.style.marginLeft = '10px';
+    a.textContent = CLIENT ? 'Installer view' : 'Client view';
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      var q = new URLSearchParams(location.search);
+      q.set('view', CLIENT ? 'installer' : 'client');
+      location.search = q.toString();
+    });
+    host.appendChild(document.createTextNode(' · '));
+    host.appendChild(a);
+  }
+
+  // ── INIT ──
+  // Earlier patches inject their DOM on timers up to ~900ms. Retry until the
+  // pieces exist, then stop. Every step is idempotent.
+  var tries = 0;
+  (function boot() {
+    tries++;
+    var rateDone = collapseRateCard() || !!document.getElementById('rateBody');
+    var touDone = tagTouRow() || !!document.getElementById('v7TouRow');
+    sweepRateCard();
+    chartFallback();
+    injectViewLink();
+    fixLabels();
+    // #utilitySelector is injected on DOMContentLoaded, after our first tick.
+    // Keep going until it exists so the sweep catches it.
+    var utilDone = !!document.getElementById('utilitySelector');
+    if ((rateDone && touDone && utilDone && tries > 8) || tries > 25) {
+      setTimeout(sweepRateCard, 600);
+      if (typeof render === 'function') { try { render(); } catch (e) {} }
+      console.log('[v7] Client view ' + (CLIENT ? 'ON' : 'off')
+        + ' · --accent restored · mobile results-first · rate card collapsible');
+      return;
+    }
+    setTimeout(boot, 200);
+  })();
+})();
+</script>
 </body>
 </html>

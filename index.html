@@ -6421,6 +6421,16 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   function scoreOf(us, them) {
     function hi(a, b) { var m = Math.max(a, b); return [m > 0 ? a / m : 0, m > 0 ? b / m : 0]; }
     function lo(a, b) { var m = Math.min(a, b); return [a > 0 ? m / a : 0, b > 0 ? m / b : 0]; }
+
+    // If either quote has no battery in it, the two battery dimensions are not
+    // a comparison, they are a walkover. Scoring a solar-only quote zero on 35%
+    // of the grade for a category it never bid in is not a real verdict, and a
+    // client who spots it discounts everything else on the page. Drop those
+    // dimensions and redistribute their weight across what both sides DID quote.
+    var themHasBattery = !!(them.usableKwh || them.contKw || them.batteryWarrantyYrs);
+    var usHasBattery = !!(us.usableKwh || us.contKw);
+    var scoreBattery = themHasBattery && usHasBattery;
+
     var vals = {
       cost:     lo(us.net, them.net),
       savings:  hi(us.life25, them.life25),
@@ -6429,13 +6439,24 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
                    them.installerWarrantyYrs * 0.5 + them.batteryWarrantyYrs * 0.5),
       backup:   hi(us.usableKwh + us.contKw, them.usableKwh + them.contKw)
     };
-    var a = 0, b = 0, rows = [];
-    WEIGHTS.forEach(function (W) {
-      var v = vals[W.k];
-      a += W.w * v[0]; b += W.w * v[1];
-      rows.push({ label: W.label, w: W.w, us: v[0], them: v[1] });
+    var active = WEIGHTS.filter(function (W) {
+      return scoreBattery || (W.k !== 'battery' && W.k !== 'backup');
     });
-    return { rows: rows, us: Math.round(a), them: Math.round(b), winner: a >= b ? 'us' : 'them' };
+    var totalW = active.reduce(function (t, W) { return t + W.w; }, 0) || 1;
+
+    var a = 0, b = 0, rows = [];
+    active.forEach(function (W) {
+      var v = vals[W.k];
+      var w = W.w * 100 / totalW;                 // rescale so the shown weights sum to 100
+      a += w * v[0]; b += w * v[1];
+      rows.push({ label: W.label, w: Math.round(w), us: v[0], them: v[1] });
+    });
+    return {
+      rows: rows, us: Math.round(a), them: Math.round(b),
+      winner: a >= b ? 'us' : 'them',
+      excludedBattery: !scoreBattery,
+      excludedBecause: !themHasBattery ? 'them' : (!usHasBattery ? 'us' : null)
+    };
   }
 
   // ------------------------------------------------- notify the installer ---
@@ -6665,12 +6686,25 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
         (function () {
           var kwGap = (us.kw && them.kw) ? Math.abs(us.kw - them.kw) / Math.max(us.kw, them.kw) : 0;
           var battGap = (us.usableKwh && them.usableKwh) ? Math.abs(us.usableKwh - them.usableKwh) / Math.max(us.usableKwh, them.usableKwh) : 0;
-          if (kwGap < 0.15 && battGap < 0.3) return '';
+          var noBatt = (!!us.usableKwh) !== (!!them.usableKwh);
+          var noSolar = (!!us.kw) !== (!!them.kw);
+          if (!noBatt && !noSolar && kwGap < 0.15 && battGap < 0.3) return '';
+          var head, detail;
+          if (noBatt || noSolar) {
+            var withoutB = !them.usableKwh ? esc(them.name) : 'Rivertown';
+            var withoutS = !them.kw ? esc(them.name) : 'Rivertown';
+            head = 'These two quotes are not for the same kind of system.';
+            detail = (noBatt ? withoutB + ' did not quote a battery. ' : '') +
+                     (noSolar ? withoutS + ' did not quote solar. ' : '') +
+                     'Compare them on what each one actually includes rather than on the bottom line.';
+          } else {
+            head = 'These are not the same size system.';
+            detail = 'Rivertown is quoted at ' + (us.kw || 0) + ' kW with ' + Math.round(us.usableKwh || 0) +
+                     ' kWh of usable battery; ' + esc(them.name) + ' is quoted at ' + (them.kw || 0) + ' kW with ' +
+                     Math.round(them.usableKwh || 0) + ' kWh. Price and savings both scale with size, so read the two together rather than the price on its own.';
+          }
           return '<div style="margin-top:10px;padding:11px 13px;border-radius:10px;background:rgba(251,191,36,0.09);border:1px solid rgba(251,191,36,0.3);font-size:12.5px;color:var(--text-2);line-height:1.55">' +
-            '<b>These are not the same size system.</b> Rivertown is quoted at ' + (us.kw || 0) + ' kW with ' +
-            Math.round(us.usableKwh || 0) + ' kWh of usable battery; ' + esc(them.name) + ' is quoted at ' +
-            (them.kw || 0) + ' kW with ' + Math.round(them.usableKwh || 0) + ' kWh. ' +
-            'Price and savings both scale with size, so read the two together rather than the price on its own.</div>';
+            '<b>' + head + '</b> ' + detail + '</div>';
         })() +
         '<table style="width:100%;border-collapse:collapse;margin-top:12px">' +
           '<thead><tr><th></th>' +
@@ -6703,6 +6737,12 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
         '<div style="margin-top:14px">' +
           '<div style="' + CS.h + '">How this was scored</div>' +
+          (V.excludedBattery ?
+            '<div style="font-size:12px;color:var(--text-3);margin-top:6px;line-height:1.55">' +
+              'Battery earnings and backup capability are <b>not scored here</b>, because ' +
+              (V.excludedBecause === 'them' ? esc(them.name) + '\u2019s quote does not include a battery' : 'this Rivertown configuration does not include a battery') +
+              '. Scoring a quote on something it never bid would decide the result before the numbers did. ' +
+              'Their weight has been spread across the categories below.</div>' : '') +
           '<table style="width:100%;border-collapse:collapse;margin-top:8px">' +
             V.rows.map(function (r) {
               return '<tr><td style="font-size:12px;color:var(--text-3);padding:5px 0">' + esc(r.label) +

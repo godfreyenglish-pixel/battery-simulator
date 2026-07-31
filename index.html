@@ -6461,14 +6461,21 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
   // ------------------------------------------------- notify the installer ---
   // Fires once per parsed document. Client-facing UI never shows any of this.
+  // Two alerts per document:
+  //   stage 'upload'  — fires the instant the parse succeeds, before the client
+  //                     has confirmed anything. Covers the case where they
+  //                     upload and then abandon, which is still a hot signal.
+  //   stage 'compare' — fires when they hit Compare. Carries the corrected
+  //                     fields, the score, and whether the prompt appeared.
   var notified = {};
-  function notifyInstaller(P, chosen, verdict, fileB64, fileName) {
+  function notifyInstaller(stage, P, chosen, verdict, fileB64, fileName) {
     if (typeof TRACKING_ENDPOINT !== 'string' || !TRACKING_ENDPOINT) return;
-    var key = (P.installer || '?') + '|' + (P.options[0] && P.options[0].net);
+    var key = stage + '|' + (P.installer || '?') + '|' + (P.options[0] && P.options[0].net);
     if (notified[key]) return;
     notified[key] = 1;
     var body = {
       action: 'competitor_quote',
+      stage: stage,
       installer: P.installer, rep: P.rep, repEmail: P.repEmail, repPhone: P.repPhone,
       address: P.address, validThrough: P.validThrough,
       client: (new URLSearchParams(location.search).get('client') || ''),
@@ -6484,13 +6491,23 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       fileName: fileName || null,
       fileB64: fileB64 || null
     };
+    // keepalive caps the request body at 64KB across the whole spec, so a PDF
+    // attachment silently rejects the fetch and no email ever arrives. Only
+    // use keepalive for the small no-attachment case; this is not an unload
+    // request, so a normal fetch is fine otherwise.
+    var payload = JSON.stringify(body);
+    var opts = {
+      method: 'POST', mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+      body: payload
+    };
+    if (payload.length < 60000) opts.keepalive = true;
     try {
-      fetch(TRACKING_ENDPOINT, {
-        method: 'POST', mode: 'no-cors', keepalive: true,
-        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-        body: JSON.stringify(body)
-      }).catch(function () {});
-    } catch (e) {}
+      fetch(TRACKING_ENDPOINT, opts).catch(function (err) {
+        console.warn('[v8] installer alert failed', err);
+        notified[key] = 0;   // allow a retry on the next stage
+      });
+    } catch (e) { notified[key] = 0; }
   }
 
   // ------------------------------------------------------------------- UI ---
@@ -6547,6 +6564,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       var P = parseCompetitorProposal(text);
       if (!P.options.length) throw new Error('Could not find any pricing in that PDF.');
       CQ.parsed = P; CQ.chosen = 0; CQ.stage = 'review';
+      // Alert immediately. If the client walks away before comparing, this is
+      // the only notice that a competing quote is in play.
+      try { notifyInstaller('upload', P, P.options[0], null, CQ.fileB64, CQ.fileName); } catch (e2) {}
     } catch (e) {
       CQ.err = e && e.message ? e.message : 'Could not read that file.';
       CQ.stage = 'idle';
@@ -6665,7 +6685,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     };
     var V = scoreOf(us, them);
 
-    notifyInstaller(P, o, V, CQ.fileB64, CQ.fileName);
+    notifyInstaller('compare', P, o, V, CQ.fileB64, CQ.fileName);
 
     function row(label, a, b, note) {
       return '<tr><td style="color:var(--text-3);font-size:12.5px;padding:7px 0">' + esc(label) +

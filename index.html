@@ -6756,6 +6756,10 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     return renderIdle(h);
   }
 
+  // v6.1 calls its own closure-scoped renderCompare, so wrapping
+  // window.renderCompare never fires. It also rewrites #cmpBody wholesale on
+  // every qty change, which wipes our panel. Watch for the panel going missing
+  // and re-attach. CQ state lives outside the DOM, so the stage survives.
   var _prevRenderCompare = window.renderCompare;
   if (typeof _prevRenderCompare === 'function') {
     window.renderCompare = function () {
@@ -6763,6 +6767,14 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       try { render(); } catch (e) { console.error('[v8]', e); }
     };
   }
+  setInterval(function () {
+    try {
+      if (typeof STATE === 'undefined' || STATE.mode !== 'compare') return;
+      if (!document.getElementById('cmpBody')) return;
+      if (document.getElementById('cqHost')) return;   // already attached
+      render();
+    } catch (e) {}
+  }, 400);
 
   window.__cqParse = parseCompetitorProposal;
   window.__cqNormalize = normalizeCompetitor;

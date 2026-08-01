@@ -5901,6 +5901,13 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     'body.v7-client #annualOverrideWrap,',
     'body.v7-client #v7TouRow,',
     'body.v7-client #shareBtn,',
+    /* The pricing gear opens a panel showing solar $/W. That is cost basis and
+       must never be on a client's screen. The header Compare button opens the
+       A/B setup workspace, which is an installer working view, not a client one. */
+    'body.v7-client #ppwGear,',
+    'body.v7-client #ppwPop,',
+    'body.v7-client #compareBtn,',
+    'body.v7-client #setupTabs,',
     'body.v7-client #modeLM { display: none !important; }',
 
     /* 6. chart fallback */
@@ -6047,6 +6054,17 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     host.appendChild(a);
   }
 
+  // ── CLIENT VIEW: HARD-CLOSE THE PRICING PANEL ──
+  // #ppwPop is appended to <body> and toggled with inline display, so a CSS
+  // rule alone can lose to the inline style once it has been opened.
+  function sealPricing() {
+    if (!CLIENT) return;
+    var pop = document.getElementById('ppwPop');
+    if (pop) { pop.style.display = 'none'; pop.setAttribute('aria-hidden', 'true'); }
+    var gear = document.getElementById('ppwGear');
+    if (gear) { gear.style.display = 'none'; gear.disabled = true; }
+  }
+
   // ── INIT ──
   // Earlier patches inject their DOM on timers up to ~900ms. Retry until the
   // pieces exist, then stop. Every step is idempotent.
@@ -6056,6 +6074,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var rateDone = collapseRateCard() || !!document.getElementById('rateBody');
     var touDone = tagTouRow() || !!document.getElementById('v7TouRow');
     sweepRateCard();
+    sealPricing();
     chartFallback();
     injectViewLink();
     fixLabels();
@@ -6064,6 +6083,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var utilDone = !!document.getElementById('utilitySelector');
     if ((rateDone && touDone && utilDone && tries > 8) || tries > 25) {
       setTimeout(sweepRateCard, 600);
+      setTimeout(sealPricing, 600);
+      if (CLIENT) setInterval(sealPricing, 1000);   // gear is injected on a timer
       if (typeof render === 'function') { try { render(); } catch (e) {} }
       console.log('[v7] Client view ' + (CLIENT ? 'ON' : 'off')
         + ' · --accent restored · mobile results-first · rate card collapsible');

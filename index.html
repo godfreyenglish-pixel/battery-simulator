@@ -6321,7 +6321,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   var COMMON_TERM = 25;
   var WEIGHTS = [
     { k: 'cost',     label: 'Net cost after incentives',      w: 25, lower: true },
-    { k: 'savings',  label: 'Savings over ' + COMMON_TERM + ' years', w: 25 },
+    // Net of the system price on BOTH sides -- see ourNumbers(). The label has
+    // to say so, or "savings" reads as money in hand rather than money ahead.
+    { k: 'savings',  label: COMMON_TERM + '-year savings, after paying for the system', w: 25 },
     { k: 'battery',  label: 'What the battery earns per year', w: 20 },
     { k: 'warranty', label: 'Warranty coverage',              w: 15 },
     { k: 'backup',   label: 'Backup capability',              w: 15 }
@@ -6329,6 +6331,17 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
   function money(n) { return '$' + Math.round(n || 0).toLocaleString(); }
   function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  // The figure a rubric score is derived from, printed next to it. Shared by
+  // the on-screen rubric and the standalone document so the two cannot drift.
+  function rawFmt(v, fmt) {
+    if (v == null || !isFinite(v)) return '';
+    if (fmt === 'money') return money(v);
+    if (fmt === 'moneyYr') return money(v) + '/yr';
+    if (fmt === 'years') return (Math.round(v * 10) / 10) + ' yrs';
+    if (fmt === 'kwh') return (Math.round(v * 10) / 10) + ' kWh';
+    return String(v);
+  }
+  window.__cqRawFmt = rawFmt;
   function b64urlDecode(raw) {
     var s = String(raw).replace(/-/g, '+').replace(/_/g, '/');
     while (s.length % 4) s += '=';
@@ -6371,7 +6384,14 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       kw: o.kw || 0,
       batteryKwh: o.batt || (spec ? spec.total : 0),
       net: o.net || 0,
-      life25: o.life25 || 0,
+      // NET of what the client pays for the system, so it matches the
+      // competitor side. computeOptions().life25 is GROSS 25-year savings;
+      // normalizeCompetitor has always returned savings-minus-price. Comparing
+      // the two was scoring our gross against their net -- in the rubric AND in
+      // the dollar row of the table. Subtract here so every consumer of
+      // ourNumbers() gets the same measurement.
+      life25: Math.round((o.life25 || 0) - (o.net || 0)),
+      lifeGross: o.life25 || 0,
       year1: o.year1 || 0,
       batteryAnnual: batteryAnnual,
       usableKwh: spec ? spec.usable : 0,
@@ -6439,9 +6459,26 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   }
 
   // --------------------------------------------------------------- grading --
+  // Every row is a RATIO, not a mark out of a hundred: the better quote scores
+  // 100 and the other is shown in proportion to it. The page has to SAY that,
+  // because a client reading 100 as "perfect" and 88 as "nearly perfect" is
+  // reading something the number does not mean -- and a column of three
+  // straight 100s with no explanation reads as a scorecard we wrote to win.
   function scoreOf(us, them) {
-    function hi(a, b) { var m = Math.max(a, b); return [m > 0 ? a / m : 0, m > 0 ? b / m : 0]; }
-    function lo(a, b) { var m = Math.min(a, b); return [a > 0 ? m / a : 0, b > 0 ? m / b : 0]; }
+    // Returns null when there is nothing honest to compare, so the caller can
+    // DROP the row instead of printing "0 vs 0". A zeroed row reads to a client
+    // as a broken page, and it quietly drags both totals down by its full
+    // weight, which makes the headline margin meaningless too.
+    function pair(a, b, lower) {
+      a = (typeof a === 'number' && isFinite(a)) ? a : null;
+      b = (typeof b === 'number' && isFinite(b)) ? b : null;
+      if (a === null || b === null) return null;
+      if (a <= 0 && b <= 0) return null;          // neither side has a figure to stand on
+      if (a <= 0) return [0, 1];                  // only one side scores at all
+      if (b <= 0) return [1, 0];
+      var m = lower ? Math.min(a, b) : Math.max(a, b);
+      return lower ? [m / a, m / b] : [a / m, b / m];
+    }
 
     // If either quote has no battery in it, the two battery dimensions are not
     // a comparison, they are a walkover. Scoring a solar-only quote zero on 35%
@@ -6452,31 +6489,52 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var usHasBattery = !!(us.usableKwh || us.contKw);
     var scoreBattery = themHasBattery && usHasBattery;
 
-    var vals = {
-      cost:     lo(us.net, them.net),
-      savings:  hi(us.life25, them.life25),
-      battery:  hi(us.batteryAnnual, them.batteryAnnual),
-      warranty: hi(us.installerWarrantyYrs * 0.5 + us.batteryWarrantyYrs * 0.5,
-                   them.installerWarrantyYrs * 0.5 + them.batteryWarrantyYrs * 0.5),
-      backup:   hi(us.usableKwh + us.contKw, them.usableKwh + them.contKw)
+    var usWarr = us.installerWarrantyYrs * 0.5 + us.batteryWarrantyYrs * 0.5;
+    var themWarr = them.installerWarrantyYrs * 0.5 + them.batteryWarrantyYrs * 0.5;
+
+    // raw carries the underlying figure for each side so the page can print it
+    // next to the bar. Showing "100" on its own is what made the rubric look
+    // like a grade; showing "100  $41,880" makes it obviously a comparison.
+    var DIMS = {
+      cost:     { v: pair(us.net, them.net, true),
+                  raw: [us.net, them.net], fmt: 'money' },
+      savings:  { v: pair(us.life25, them.life25),
+                  raw: [us.life25, them.life25], fmt: 'money' },
+      battery:  { v: pair(us.batteryAnnual, them.batteryAnnual),
+                  raw: [us.batteryAnnual, them.batteryAnnual], fmt: 'moneyYr' },
+      warranty: { v: pair(usWarr, themWarr),
+                  raw: [usWarr, themWarr], fmt: 'years' },
+      backup:   { v: pair(us.usableKwh + us.contKw, them.usableKwh + them.contKw),
+                  raw: [us.usableKwh, them.usableKwh], fmt: 'kwh' }
     };
-    var active = WEIGHTS.filter(function (W) {
-      return scoreBattery || (W.k !== 'battery' && W.k !== 'backup');
+
+    var dropped = [], active = [];
+    WEIGHTS.forEach(function (W) {
+      if (!scoreBattery && (W.k === 'battery' || W.k === 'backup')) return;  // excludedBattery covers these
+      var D = DIMS[W.k];
+      if (!D || !D.v) { dropped.push({ k: W.k, label: W.label }); return; }
+      active.push({ W: W, D: D });
     });
-    var totalW = active.reduce(function (t, W) { return t + W.w; }, 0) || 1;
+    var totalW = active.reduce(function (t, x) { return t + x.W.w; }, 0) || 1;
 
     var a = 0, b = 0, rows = [];
-    active.forEach(function (W) {
-      var v = vals[W.k];
-      var w = W.w * 100 / totalW;                 // rescale so the shown weights sum to 100
-      a += w * v[0]; b += w * v[1];
-      rows.push({ label: W.label, w: Math.round(w), us: v[0], them: v[1] });
+    active.forEach(function (x) {
+      var w = x.W.w * 100 / totalW;               // rescale so the shown weights sum to 100
+      var u = Math.max(0, Math.min(1, x.D.v[0]));
+      var t = Math.max(0, Math.min(1, x.D.v[1]));
+      a += w * u; b += w * t;
+      rows.push({ label: x.W.label, w: Math.round(w), us: u, them: t,
+                  usRaw: x.D.raw[0], themRaw: x.D.raw[1], fmt: x.D.fmt });
     });
     return {
       rows: rows, us: Math.round(a), them: Math.round(b),
-      winner: a >= b ? 'us' : 'them',
+      // No scorable rows means no verdict. Defaulting to 'us' there would put
+      // "Rivertown Solar comes out ahead" on a page that scored nothing.
+      winner: rows.length ? (a >= b ? 'us' : 'them') : null,
+      scored: rows.length > 0,
       excludedBattery: !scoreBattery,
-      excludedBecause: !themHasBattery ? 'them' : (!usHasBattery ? 'us' : null)
+      excludedBecause: !themHasBattery ? 'them' : (!usHasBattery ? 'us' : null),
+      dropped: dropped
     };
   }
 
@@ -6758,8 +6816,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
           row('Net price after incentives', money(us.net), money(them.net)) +
           row('What the battery earns per year', money(us.batteryAnnual), money(0),
               'Their proposal models the battery as backup only') +
-          row('Savings over ' + COMMON_TERM + ' years', money(us.life25), money(them.life25),
-              'Same assumptions on both sides') +
+          row(COMMON_TERM + '-year savings, after paying for the system', money(us.life25), money(them.life25),
+              'Same assumptions on both sides. Both figures are savings minus the system price.') +
           row('Battery warranty', us.batteryWarrantyYrs + ' yrs', (them.batteryWarrantyYrs || 0) + ' yrs') +
           row('Installer coverage', 'Lifetime', instWarr ? instWarr + ' yrs' : '—') +
         '</tbody></table>' +
@@ -6778,23 +6836,43 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
         '<div style="margin-top:14px">' +
           '<div style="' + CS.h + '">How this was scored</div>' +
+          // The 100 is a ratio against the other quote, not a mark out of a
+          // hundred. Say it before the numbers, and print the real figure next
+          // to each score so nobody has to take the ratio on faith.
+          '<div style="font-size:12px;color:var(--text-3);margin-top:6px;line-height:1.55">' +
+            'In each row the better of the two quotes is set to <b>100</b> and the other is shown in ' +
+            'proportion to it. These are comparisons between these two quotes, not marks out of a hundred. ' +
+            'The figure each score is based on is printed beside it.</div>' +
           (V.excludedBattery ?
             '<div style="font-size:12px;color:var(--text-3);margin-top:6px;line-height:1.55">' +
               'Battery earnings and backup capability are <b>not scored here</b>, because ' +
               (V.excludedBecause === 'them' ? esc(them.name) + '\u2019s quote does not include a battery' : 'this Rivertown configuration does not include a battery') +
               '. Scoring a quote on something it never bid would decide the result before the numbers did. ' +
               'Their weight has been spread across the categories below.</div>' : '') +
+          ((V.dropped && V.dropped.length) ?
+            '<div style="font-size:12px;color:var(--text-3);margin-top:6px;line-height:1.55">' +
+              'Not scored on the figures currently loaded: <b>' +
+              esc(V.dropped.map(function (d) { return d.label; }).join(', ')) + '</b>. ' +
+              'Neither quote produces a positive number there, so there is nothing to compare rather than a tie at zero. ' +
+              'That usually means the annual usage on file needs updating \u2014 worth asking Rivertown to rerun it.</div>' : '') +
+          (V.scored ?
           '<table style="width:100%;border-collapse:collapse;margin-top:8px">' +
             V.rows.map(function (r) {
               return '<tr><td style="font-size:12px;color:var(--text-3);padding:5px 0">' + esc(r.label) +
                 ' <span style="color:var(--text-4)">' + r.w + '%</span></td>' +
-                '<td style="text-align:right;font-size:12px;padding:5px 10px;color:' + (r.us >= r.them ? 'var(--green)' : 'var(--text-3)') + '">' + Math.round(r.us * 100) + '</td>' +
-                '<td style="text-align:right;font-size:12px;padding:5px 0;color:' + (r.them > r.us ? 'var(--green)' : 'var(--text-3)') + '">' + Math.round(r.them * 100) + '</td></tr>';
+                '<td style="text-align:right;font-size:12px;padding:5px 10px;color:' + (r.us >= r.them ? 'var(--green)' : 'var(--text-3)') + '">' +
+                  Math.round(r.us * 100) + ' <span style="color:var(--text-4);font-size:11px">' + esc(rawFmt(r.usRaw, r.fmt)) + '</span></td>' +
+                '<td style="text-align:right;font-size:12px;padding:5px 0;color:' + (r.them > r.us ? 'var(--green)' : 'var(--text-3)') + '">' +
+                  Math.round(r.them * 100) + ' <span style="color:var(--text-4);font-size:11px">' + esc(rawFmt(r.themRaw, r.fmt)) + '</span></td></tr>';
             }).join('') +
             '<tr><td style="font-size:12.5px;font-weight:700;padding:8px 0;border-top:1px solid var(--border)">Total</td>' +
             '<td style="text-align:right;font-weight:800;font-size:15px;padding:8px 10px;border-top:1px solid var(--border);color:var(--yellow)">' + V.us + '</td>' +
             '<td style="text-align:right;font-weight:800;font-size:15px;padding:8px 0;border-top:1px solid var(--border);color:var(--text-2)">' + V.them + '</td></tr>' +
-          '</table>' +
+          '</table>'
+          :
+          '<div style="font-size:12.5px;color:var(--text-3);margin-top:8px;line-height:1.55">' +
+            'There is not enough on file to score these two quotes against each other yet. ' +
+            'The figures above still stand on their own.</div>') +
         '</div>' +
 
         (V.winner === 'them' ?
@@ -7088,7 +7166,12 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var them = {
       name: P.installer || 'the other installer',
       kw: o.kw || 0, net: o.net || 0,
-      life: N.netCommon, batteryAnnual: 0,
+      // scoreOf() reads `life25`. This object used to carry only `life`, so the
+      // savings row compared a real number against undefined and printed
+      // "0 vs 0" on the standalone document while the on-screen Compare tab --
+      // which builds its own `them` with life25 -- scored it correctly. Carry
+      // both: life25 for the scorer, life for the payload the document renders.
+      life25: N.netCommon, life: N.netCommon, batteryAnnual: 0,
       usableKwh: P.battery.usableKwh || 0, contKw: P.battery.contKw || 0,
       installerWarrantyYrs: instWarr, batteryWarrantyYrs: P.battery.warrantyYrs || 0
     };
@@ -7135,8 +7218,16 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       mismatch: mismatchText(us, them),
       verdict: {
         us: V.us, them: V.them, winner: V.winner,
+        scored: V.scored !== false,
         excludedBattery: !!V.excludedBattery, excludedBecause: V.excludedBecause || null,
-        rows: (V.rows || []).map(function (r) { return {label: r.label, w: r.w, us: r.us, them: r.them}; })
+        // dropped rows and the raw figure behind each score both have to travel,
+        // or the document silently reverts to bare ratios with no explanation.
+        dropped: (V.dropped || []).map(function (d) { return {k: d.k, label: d.label}; }),
+        rows: (V.rows || []).map(function (r) {
+          var rnd = function (n) { return (typeof n === 'number' && isFinite(n)) ? Math.round(n * 10) / 10 : null; };
+          return {label: r.label, w: r.w, us: Math.round(r.us * 1000) / 1000, them: Math.round(r.them * 1000) / 1000,
+                  usRaw: rnd(r.usRaw), themRaw: rnd(r.themRaw), fmt: r.fmt};
+        })
       }
       // deliberately absent: P.flags
     };

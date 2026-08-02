@@ -7019,5 +7019,204 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[v9] Share links now carry $/W, utility, shoulder rate, attribution toggle, compare qty and usage override.');
 })();
 </script>
+<script>// SIDE-BY-SIDE DOCUMENT — v10 (competitor feature, stage 2)
+// Adds the button the client presses to turn the on-screen comparison into a
+// standalone document at rivertownproposals.com/compare.html.
+//
+// Rules carried over from v8 and not relaxed:
+//   - NO $/W in the payload, on either side. Nothing is computed here that
+//     could be divided back into one beyond the net price the client already
+//     sees, and the structural flags never leave this file.
+//   - The corrected version of the competitor's own claim IS included, so the
+//     document matches what the Compare tab already shows on screen.
+//   - When the competitor wins, the payload carries the margin and the
+//     categories they lead on, so the document can state it plainly and offer
+//     the counter-offer route rather than burying the result.
+//
+// Load LAST, after v8.
+(function () {
+  'use strict';
+
+  var COMPARE_URL = 'https://rivertownproposals.com/compare.html';
+
+  function b64url(s) {
+    return btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function money(n) { return '$' + Math.round(n || 0).toLocaleString(); }
+
+  function brandLabel() {
+    try {
+      var ab = STATE.workspaces ? STATE.workspaces.arbBak.setupB : STATE.setupB;
+      var b = BRANDS[ab.brand];
+      return b ? (b.name + (ab.qty > 1 ? ' ×' + ab.qty : '')) : null;
+    } catch (e) { return null; }
+  }
+
+  function mismatchText(us, them) {
+    var kwGap = (us.kw && them.kw) ? Math.abs(us.kw - them.kw) / Math.max(us.kw, them.kw) : 0;
+    var battGap = (us.usableKwh && them.usableKwh) ? Math.abs(us.usableKwh - them.usableKwh) / Math.max(us.usableKwh, them.usableKwh) : 0;
+    var noBatt = (!!us.usableKwh) !== (!!them.usableKwh);
+    var noSolar = (!!us.kw) !== (!!them.kw);
+    if (!noBatt && !noSolar && kwGap < 0.15 && battGap < 0.3) return null;
+    if (noBatt || noSolar) {
+      return (noBatt ? (!them.usableKwh ? them.name : 'Rivertown') + ' did not quote a battery. ' : '') +
+             (noSolar ? (!them.kw ? them.name : 'Rivertown') + ' did not quote solar. ' : '') +
+             'Compare them on what each one actually includes rather than on the bottom line.';
+    }
+    return 'These are not the same size system. Rivertown is quoted at ' + (us.kw || 0) + ' kW with ' +
+           Math.round(us.usableKwh || 0) + ' kWh of usable battery; ' + them.name + ' is quoted at ' +
+           (them.kw || 0) + ' kW with ' + Math.round(them.usableKwh || 0) + ' kWh. Price and savings both ' +
+           'scale with size, so read the two together rather than the price on its own.';
+  }
+
+  // Builds the document payload. Returns null if the comparison is not ready.
+  function buildPayload() {
+    var CQ = window.__competitorQuote;
+    if (!CQ || CQ.stage !== 'result' || !CQ.parsed) return null;
+    if (typeof window.__cqOurs !== 'function') return null;
+
+    var P = CQ.parsed, o = P.options[CQ.chosen];
+    var us = window.__cqOurs();
+    if (!us || !o) return null;
+    var A = window.__cqAssume(P);
+    var N = window.__cqNormalize(o, A);
+
+    var instWarr = 0;
+    (P.warranties || []).forEach(function (w) { if (/service|workmanship|labor/i.test(w.name)) instWarr = Math.max(instWarr, w.years); });
+    if (!instWarr) (P.warranties || []).forEach(function (w) { instWarr = Math.max(instWarr, w.years || 0); });
+
+    var them = {
+      name: P.installer || 'the other installer',
+      kw: o.kw || 0, net: o.net || 0,
+      life: N.netCommon, batteryAnnual: 0,
+      usableKwh: P.battery.usableKwh || 0, contKw: P.battery.contKw || 0,
+      installerWarrantyYrs: instWarr, batteryWarrantyYrs: P.battery.warrantyYrs || 0
+    };
+    var V = window.__cqScore(us, them);
+
+    var claimed = (P.claimedSavings && P.claimedSavings[CQ.chosen] != null) ? P.claimedSavings[CQ.chosen] : null;
+
+    var first = '';
+    try { var bill = (typeof getBill === 'function') ? getBill() : null; } catch (e) {}
+    try {
+      var c = new URLSearchParams(location.search).get('client') || '';
+      first = c ? c.split('-')[0].replace(/^./, function (m) { return m.toUpperCase(); }) : '';
+    } catch (e) {}
+
+    return {
+      client: first || 'your home',
+      date: new Date().toLocaleDateString('en-US', {month: 'long', day: 'numeric', year: 'numeric'}),
+      replyTo: 'godfrey@rivertownsolar.com',
+      assume: {
+        usageKwh: Math.round(A.usageKwh), rate: A.rate, escalator: A.escalator,
+        basicCharge: A.basicCharge, term: A.commonTerm, theirTerm: A.theirTerm
+      },
+      us: {
+        name: 'Rivertown Solar', kw: us.kw || 0, battery: brandLabel(),
+        batteryKwh: us.batteryKwh || 0, usableKwh: us.usableKwh || 0, contKw: us.contKw || 0,
+        net: us.net || 0, life: us.life25 || 0, batteryAnnual: Math.round(us.batteryAnnual || 0),
+        batteryWarrantyYrs: us.batteryWarrantyYrs || 0, installerWarranty: 'Lifetime'
+      },
+      them: {
+        name: them.name, option: o.label || '',
+        kw: them.kw, usableKwh: them.usableKwh, contKw: them.contKw,
+        net: them.net, life: Math.round(them.life), batteryAnnual: 0,
+        batteryWarrantyYrs: them.batteryWarrantyYrs, installerWarrantyYrs: them.installerWarrantyYrs,
+        battery: P.battery.make || null,
+        panel: P.panel && P.panel.watts ? (P.panel.watts + 'W' + (P.panel.make ? ' ' + P.panel.make : '')) : null
+        // deliberately absent: grossPpw, netPpw
+      },
+      claim: (claimed != null) ? {
+        stated: Math.round(claimed),
+        corrected: Math.round(N.netTheirTerm),
+        theirEscalator: P.assumedEscalator,
+        term: A.theirTerm
+      } : null,
+      mismatch: mismatchText(us, them),
+      verdict: {
+        us: V.us, them: V.them, winner: V.winner,
+        excludedBattery: !!V.excludedBattery, excludedBecause: V.excludedBecause || null,
+        rows: (V.rows || []).map(function (r) { return {label: r.label, w: r.w, us: r.us, them: r.them}; })
+      }
+      // deliberately absent: P.flags
+    };
+  }
+  window.__cqCompareUrl = function () {
+    var p = buildPayload();
+    return p ? (COMPARE_URL + '?p=' + b64url(JSON.stringify(p))) : null;
+  };
+
+  // ------------------------------------------------- tell Godfrey it went ---
+  var told = {};
+  function notifyProposal(p) {
+    if (typeof TRACKING_ENDPOINT !== 'string' || !TRACKING_ENDPOINT) return;
+    var CQ = window.__competitorQuote, P = CQ.parsed;
+    var key = (P.installer || '?') + '|' + (P.options[CQ.chosen] || {}).net;
+    if (told[key]) return;
+    told[key] = 1;
+    var body = {
+      action: 'competitor_quote', stage: 'proposal',
+      installer: P.installer, rep: P.rep, repEmail: P.repEmail, repPhone: P.repPhone,
+      address: P.address, validThrough: P.validThrough,
+      client: (new URLSearchParams(location.search).get('client') || ''),
+      assumed: {rate: P.assumedRate, escalator: P.assumedEscalator, usageKwh: P.assumedUsageKwh, term: P.claimTermYears},
+      options: P.options, panel: P.panel, battery: P.battery, warranties: P.warranties,
+      claimedGridCost: P.claimedGridCost, claimedSavings: P.claimedSavings,
+      flags: P.flags, confidence: P.confidence,
+      chosenOption: P.options[CQ.chosen],
+      verdict: p.verdict,
+      promptShown: p.verdict.winner === 'them',
+      correctedClaim: p.claim,
+      pageUrl: location.href, fileName: CQ.fileName || null
+    };
+    var payload = JSON.stringify(body);
+    var opts = {method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'text/plain;charset=UTF-8'}, body: payload};
+    if (payload.length < 60000) opts.keepalive = true;
+    try { fetch(TRACKING_ENDPOINT, opts).catch(function () { told[key] = 0; }); } catch (e) { told[key] = 0; }
+  }
+
+  // ------------------------------------------------------------- the button --
+  var BTN = 'background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:10px;' +
+            'padding:11px 20px;font-size:13px;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block';
+
+  function inject() {
+    var host = document.getElementById('cqHost');
+    if (!host) return;
+    var CQ = window.__competitorQuote;
+    if (!CQ || CQ.stage !== 'result') return;
+    if (host.querySelector('#cqDocWrap')) return;
+
+    var p = buildPayload();
+    if (!p) return;
+    var themWon = p.verdict.winner === 'them';
+
+    var wrap = document.createElement('div');
+    wrap.id = 'cqDocWrap';
+    wrap.style.cssText = 'margin-top:14px;padding:15px;border-radius:12px;border:1px solid var(--border);background:var(--card-2)';
+    wrap.innerHTML =
+      '<div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-4);font-weight:700">Take this with you</div>' +
+      '<div style="font-size:12.5px;color:var(--text-3);margin-top:6px;line-height:1.55">' +
+        'Open the full side-by-side as its own page you can read properly, save as a PDF, or send to whoever else is deciding.' +
+        (themWon ? ' It states where ' + p.them.name + ' comes out ahead and how to ask Rivertown for a counter offer.' : '') +
+      '</div>' +
+      '<a id="cqDocBtn" href="#" target="_blank" rel="noopener" style="' + BTN + ';margin-top:11px">' +
+        'Open the side-by-side →</a>';
+    host.appendChild(wrap);
+
+    var btn = wrap.querySelector('#cqDocBtn');
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      var fresh = buildPayload();
+      if (!fresh) return;
+      try { notifyProposal(fresh); } catch (err) {}
+      var url = window.__cqCompareUrl();
+      if (url) window.open(url, '_blank', 'noopener');
+    });
+  }
+
+  setInterval(function () { try { inject(); } catch (e) {} }, 500);
+  console.log('[v10] Side-by-side document ready.');
+})();
+</script>
 </body>
 </html>

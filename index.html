@@ -7309,5 +7309,54 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[v10] Side-by-side document ready.');
 })();
 </script>
+<script>// DAILY USAGE LABEL — v11
+// Typing an annual figure that is not divisible by 365 put the raw quotient on
+// screen: "38.9041095890411 kWh/day". The Home Load Profile card is visible in
+// client view, so this was a float landing in front of customers.
+//
+// refreshControls() is a top-level function declaration, so it is a property of
+// window and a wrapper here intercepts the bare calls elsewhere in the file.
+// The slider's own oninput only ever produces integers, so it needs no change.
+//
+// Load LAST.
+(function () {
+  'use strict';
+
+  function tidy() {
+    var el = document.getElementById('dailyLabel');
+    if (!el) return;
+    var m = /^\s*(-?\d+(?:\.\d+)?)/.exec(el.textContent || '');
+    if (!m) return;
+    var n = parseFloat(m[1]);
+    if (!isFinite(n)) return;
+    var out = (Math.round(n * 10) / 10);
+    var txt = (out % 1 === 0 ? String(out) : out.toFixed(1)) + ' kWh/day';
+    if (el.textContent !== txt) el.textContent = txt;
+  }
+
+  var _refresh = window.refreshControls;
+  if (typeof _refresh === 'function') {
+    window.refreshControls = function () {
+      var r = _refresh.apply(this, arguments);
+      try { tidy(); } catch (e) {}
+      return r;
+    };
+  }
+
+  // Belt and braces: anything that writes the label directly still gets tidied,
+  // without an interval polling the DOM forever.
+  function watch() {
+    var el = document.getElementById('dailyLabel');
+    if (!el) { setTimeout(watch, 300); return; }
+    tidy();
+    new MutationObserver(function () { try { tidy(); } catch (e) {} })
+      .observe(el, {childList: true, characterData: true, subtree: true});
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watch);
+  else watch();
+
+  console.log('[v11] Daily usage label rounded to one decimal.');
+})();
+</script>
 </body>
 </html>

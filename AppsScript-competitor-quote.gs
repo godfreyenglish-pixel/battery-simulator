@@ -12,14 +12,19 @@
  *  4. Deploy > Manage deployments > edit the active Web app deployment >
  *     Version: New version > Deploy.  The /exec URL does not change.
  *     Execute as: Me.  Who has access: Anyone.
- *  5. Set ALERT_TO below.
+ *  5. Set CQ_ALERT_TO below.
  *
  * The tool POSTs with mode:'no-cors' and Content-Type text/plain, so nothing
  * is read back. Failures here are silent on the client by design.
  */
 
-var ALERT_TO = 'godfrey@rivertownsolar.com';
-var LOG_SHEET_NAME = 'Competitor Quotes';
+// EVERY .gs FILE IN AN APPS SCRIPT PROJECT SHARES ONE GLOBAL SCOPE.
+// ClickTracker.gs already declares LOG_SHEET_NAME and NOTIFY_EMAIL. Re-declaring
+// either one is a parse-time SyntaxError that stops the ENTIRE project running,
+// including every time-driven trigger. Hence the CQ_ prefix on everything here.
+// Do not remove it.
+var CQ_ALERT_TO = 'godfrey@rivertownsolar.com';
+var CQ_LOG_SHEET_NAME = 'Competitor Quotes';
 
 function doPost(e) {
   try {
@@ -148,7 +153,7 @@ function handleCompetitorQuote_(d) {
     lines += '\n\n(No PDF attached — file was over the size cap or could not be read.)';
   }
 
-  MailApp.sendEmail(ALERT_TO, subject, lines, opts2);
+  MailApp.sendEmail(CQ_ALERT_TO, subject, lines, opts2);
   logCompetitorQuote_(d, v);
 }
 
@@ -156,9 +161,9 @@ function logCompetitorQuote_(d, v) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) return;
-    var sh = ss.getSheetByName(LOG_SHEET_NAME);
+    var sh = ss.getSheetByName(CQ_LOG_SHEET_NAME);
     if (!sh) {
-      sh = ss.insertSheet(LOG_SHEET_NAME);
+      sh = ss.insertSheet(CQ_LOG_SHEET_NAME);
       sh.appendRow(['When', 'Stage', 'Client', 'Installer', 'Rep', 'Option', 'Net', 'Gross $/W', 'Net $/W',
                     'Their escalator', 'Their claim', 'Score us', 'Score them', 'Winner', 'Flags', 'Confidence']);
       sh.setFrozenRows(1);

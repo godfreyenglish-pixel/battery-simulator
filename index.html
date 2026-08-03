@@ -7368,8 +7368,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 // new look later is a one-line change to ON below.
 //
 // Scope: CSS tokens, typography, depth, the hero treatment, chart options and
-// a little motion. No control is moved, hidden or rewired, with one deliberate
-// exception noted at CLIENT-VIEW below.
+// a little motion. Nothing is moved, hidden or rewired — every tile, control
+// and tab present without the flag is present with it.
 //
 // Load LAST.
 (function () {
@@ -7476,11 +7476,11 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     font-size:23px !important;
   }
 
-  /* CLIENT-VIEW: the one element this skin removes. "Battery utilization, 62%
-     of usable cap per cycle" is an engineering metric, and on a call it invites
-     "so I'm only using 62% of what I paid for?" — a question that costs two
-     minutes to unwind and helps nobody. Installer view keeps it. */
-  html[data-ui="v2"] body.v7-client .results-hero .result-tile:nth-child(4){display:none}
+  /* Battery utilization stays. An earlier draft hid it in client view on the
+     theory that "62% of usable cap per cycle" invites an awkward question.
+     Reverted deliberately: a client may choose a battery for reasons that have
+     nothing to do with ROI, and hiding the number that shows the trade-off
+     gates a decision that is theirs to make. Do not re-add. */
 
   /* ---- controls -------------------------------------------------------- */
   html[data-ui="v2"] .seg-btn{border-radius:10px;font-weight:550;transition:all .18s cubic-bezier(.22,1,.36,1)}

@@ -7358,5 +7358,378 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[v11] Daily usage label rounded to one decimal.');
 })();
 </script>
+<script>// PREMIUM SKIN — v12   (opt-in, ?ui=v2)
+// A presentation layer for evaluation. Nothing here runs unless the URL carries
+// ?ui=v2, so the live tool is byte-for-byte unchanged for every existing link.
+//
+// Why a flag and not a fork: index.html is one file with 22 stacked script
+// blocks. A second copy means every future fix lands twice and the two drift.
+// One file wearing two skins keeps a single source of truth, and promoting the
+// new look later is a one-line change to ON below.
+//
+// Scope: CSS tokens, typography, depth, the hero treatment, chart options and
+// a little motion. No control is moved, hidden or rewired, with one deliberate
+// exception noted at CLIENT-VIEW below.
+//
+// Load LAST.
+(function () {
+  'use strict';
+
+  var ON = false;
+  try { ON = new URLSearchParams(location.search).get('ui') === 'v2'; } catch (e) {}
+  if (!ON) return;
+
+  document.documentElement.setAttribute('data-ui', 'v2');
+
+  // ------------------------------------------------------------------ css --
+  var CSS = `
+  html[data-ui="v2"] body{
+    background:
+      radial-gradient(120% 70% at 50% -8%, rgba(251,191,36,.10), transparent 62%),
+      radial-gradient(80% 55% at 100% 100%, rgba(59,130,246,.07), transparent 60%),
+      linear-gradient(180deg,#0A101C 0%,#070B13 45%,#05080E 100%);
+    background-attachment:fixed;
+    font-variant-numeric:tabular-nums;
+  }
+
+  /* ---- surfaces: translucent and layered instead of flat with hard borders */
+  html[data-ui="v2"] .card,
+  html[data-ui="v2"] .bd-card,
+  html[data-ui="v2"] .roi-panel,
+  html[data-ui="v2"] .result-tile,
+  html[data-ui="v2"] .chart-wrap{
+    background:linear-gradient(168deg,rgba(255,255,255,.052),rgba(255,255,255,.016)) !important;
+    border:1px solid rgba(255,255,255,.075) !important;
+    border-radius:18px !important;
+    box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 14px 34px -22px rgba(0,0,0,.9);
+  }
+  html[data-ui="v2"] .spec-box,
+  html[data-ui="v2"] .window-display,
+  html[data-ui="v2"] .seg{
+    background:rgba(255,255,255,.035) !important;
+    border:1px solid rgba(255,255,255,.065) !important;
+    border-radius:13px !important;
+  }
+
+  /* ---- labels: sentence case, no shouting. The HTML already carries readable
+     casing; only the CSS was uppercasing it. */
+  html[data-ui="v2"] .card-title,
+  html[data-ui="v2"] .result-label,
+  html[data-ui="v2"] .roi-label,
+  html[data-ui="v2"] .roi-title,
+  html[data-ui="v2"] .bd-title,
+  html[data-ui="v2"] .spec-label,
+  html[data-ui="v2"] .live-stat-label,
+  html[data-ui="v2"] .compare-col-label,
+  html[data-ui="v2"] .runtime-label{
+    text-transform:none !important;
+    letter-spacing:-.004em !important;
+    font-weight:500 !important;
+    color:#7C8698 !important;
+    font-size:12px !important;
+  }
+  html[data-ui="v2"] .card-title{font-size:13.5px !important;color:#E8EDF5 !important;font-weight:650 !important}
+  html[data-ui="v2"] .card-title-bar{height:14px;border-radius:3px}
+
+  /* ---- figures: tabular sans, not monospace. Biggest single shift in feel. */
+  html[data-ui="v2"] .mono,
+  html[data-ui="v2"] .result-value,
+  html[data-ui="v2"] .roi-value,
+  html[data-ui="v2"] .field-value,
+  html[data-ui="v2"] .bd-line-val,
+  html[data-ui="v2"] .spec-value,
+  html[data-ui="v2"] .runtime-big,
+  html[data-ui="v2"] .live-stat-val,
+  html[data-ui="v2"] .compare-col-val,
+  html[data-ui="v2"] .scrub-hour,
+  html[data-ui="v2"] .roi-config{
+    font-family:'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif !important;
+    font-variant-numeric:tabular-nums;
+    font-feature-settings:'tnum' 1;
+    letter-spacing:-.025em;
+  }
+  html[data-ui="v2"] .result-value,
+  html[data-ui="v2"] .roi-value{font-weight:650 !important;color:#F2F5FA}
+
+  /* ---- the hero: one number carries the call, the rest support it --------- */
+  html[data-ui="v2"] .results-hero{gap:14px}
+  html[data-ui="v2"] .results-hero .result-tile:nth-child(2){
+    grid-column:1 / -1; order:-1; padding:26px 24px !important;
+    background:linear-gradient(160deg,rgba(251,191,36,.13),rgba(255,255,255,.02)) !important;
+    border-color:rgba(251,191,36,.26) !important;
+  }
+  html[data-ui="v2"] .results-hero .result-tile:nth-child(2) .result-value{
+    font-size:clamp(46px,8.6vw,74px) !important;
+    font-weight:750 !important; line-height:.97; margin-top:4px;
+    letter-spacing:-.045em !important;
+    background:linear-gradient(168deg,#FFE9A8 4%,#FBBF24 52%,#E09612 100%);
+    -webkit-background-clip:text; background-clip:text; color:transparent !important;
+    filter:drop-shadow(0 5px 26px rgba(251,191,36,.20));
+  }
+  html[data-ui="v2"] .results-hero .result-tile:nth-child(2) .result-label{
+    font-size:12.5px !important; color:#8A94A6 !important;
+  }
+  html[data-ui="v2"] .results-hero .result-tile:nth-child(2) .result-sub{
+    font-size:13px !important; color:#A7B0C0 !important; margin-top:8px;
+  }
+  html[data-ui="v2"] .results-hero .result-tile:not(:nth-child(2)) .result-value{
+    font-size:23px !important;
+  }
+
+  /* CLIENT-VIEW: the one element this skin removes. "Battery utilization, 62%
+     of usable cap per cycle" is an engineering metric, and on a call it invites
+     "so I'm only using 62% of what I paid for?" — a question that costs two
+     minutes to unwind and helps nobody. Installer view keeps it. */
+  html[data-ui="v2"] body.v7-client .results-hero .result-tile:nth-child(4){display:none}
+
+  /* ---- controls -------------------------------------------------------- */
+  html[data-ui="v2"] .seg-btn{border-radius:10px;font-weight:550;transition:all .18s cubic-bezier(.22,1,.36,1)}
+  html[data-ui="v2"] .seg-btn.active{
+    background:rgba(255,255,255,.09) !important;color:#F2F5FA !important;
+    box-shadow:0 1px 0 rgba(255,255,255,.07) inset,0 4px 12px -6px rgba(0,0,0,.8);
+  }
+  html[data-ui="v2"] .icon-btn{border-radius:11px;border-color:rgba(255,255,255,.09)}
+  html[data-ui="v2"] .switch-track{width:40px;height:22px;border-radius:11px;
+    background:rgba(255,255,255,.12);transition:background .22s cubic-bezier(.22,1,.36,1)}
+  html[data-ui="v2"] .switch-thumb{width:18px;height:18px;
+    transition:left .24s cubic-bezier(.34,1.56,.64,1),background .2s}
+  html[data-ui="v2"] .switch.on .switch-thumb{left:20px}
+  html[data-ui="v2"] .bd-line{border-bottom-style:solid;border-bottom-color:rgba(255,255,255,.055)}
+
+  /* ---- entrance, once, on first paint only ------------------------------ */
+  html[data-ui="v2"] body.v2-enter .result-tile,
+  html[data-ui="v2"] body.v2-enter .roi-panel,
+  html[data-ui="v2"] body.v2-enter .chart-wrap,
+  html[data-ui="v2"] body.v2-enter .card{
+    animation:v2rise .58s cubic-bezier(.22,1,.36,1) both;
+  }
+  html[data-ui="v2"] body.v2-enter .result-tile:nth-child(2){animation-delay:.04s}
+  html[data-ui="v2"] body.v2-enter .roi-panel{animation-delay:.13s}
+  html[data-ui="v2"] body.v2-enter .chart-wrap{animation-delay:.19s}
+  @keyframes v2rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+  /* ---- phones ----------------------------------------------------------- */
+  /* position:sticky on the hero tile only holds while .results-hero is still on
+     screen, so the number vanished a screen later. A condensed bar that fades in
+     once the hero scrolls past keeps it with them for the whole page. */
+  #v2bar{position:fixed;left:0;right:0;z-index:44;display:none;
+    align-items:baseline;gap:10px;padding:9px 16px;
+    background:linear-gradient(180deg,rgba(11,16,26,.96),rgba(9,13,21,.93));
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border-bottom:1px solid rgba(251,191,36,.22);
+    box-shadow:0 12px 28px -18px rgba(0,0,0,.95);
+    transform:translateY(-110%);transition:transform .3s cubic-bezier(.22,1,.36,1);
+    font-family:inherit}
+  #v2bar.show{transform:none}
+  #v2bar .l{font-size:11.5px;color:#8A94A6;font-weight:500}
+  #v2bar .v{font-size:21px;font-weight:750;letter-spacing:-.03em;color:#FBBF24;
+    font-variant-numeric:tabular-nums;margin-left:auto}
+  @media(max-width:980px){
+    #v2bar{display:flex}
+    html[data-ui="v2"] .results-hero .result-tile:nth-child(2){padding:20px 18px !important}
+    html[data-ui="v2"] .results-hero .result-tile:nth-child(2) .result-value{
+      font-size:clamp(40px,11.5vw,58px) !important;
+    }
+    html[data-ui="v2"] .results-hero .result-tile:nth-child(2) .result-sub{display:none}
+    html[data-ui="v2"] .result-value{font-size:20px !important}
+    html[data-ui="v2"] .card,html[data-ui="v2"] .result-tile,
+    html[data-ui="v2"] .roi-panel,html[data-ui="v2"] .bd-card{border-radius:16px !important}
+  }
+
+  /* ---- the flip-back badge --------------------------------------------- */
+  #v2badge{position:fixed;right:14px;bottom:14px;z-index:9999;
+    display:flex;align-items:center;gap:9px;padding:9px 13px;border-radius:12px;
+    background:rgba(12,17,26,.86);backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,.11);box-shadow:0 12px 30px -14px rgba(0,0,0,.9);
+    font-size:12px;color:#9CA3AF;font-family:inherit}
+  #v2badge b{color:#FBBF24;font-weight:700;letter-spacing:.06em;font-size:10.5px;text-transform:uppercase}
+  #v2badge a{color:#D1D5DB;text-decoration:none;border-bottom:1px solid rgba(255,255,255,.25)}
+  #v2badge a:hover{color:#fff}
+  @media print{#v2badge{display:none}}
+  @media(max-width:640px){
+    #v2badge{right:10px;bottom:10px;padding:7px 10px;font-size:11px;gap:7px;opacity:.92}
+    #v2badge span:not(:last-child){display:none}
+  }
+  `;
+  var st = document.createElement('style');
+  st.id = 'v2Styles';
+  st.textContent = CSS;
+  (document.head || document.documentElement).appendChild(st);
+
+  // -------------------------------------------------------------- chart ----
+  // chartOptions() is a top-level declaration, so it is a property of window and
+  // wrapping it here catches every chart the app builds. Only grid, ticks and
+  // fonts change; datasets, stacking and the scrub annotations are untouched.
+  var _opts = window.chartOptions;
+  if (typeof _opts === 'function') {
+    window.chartOptions = function () {
+      var o = _opts.apply(this, arguments);
+      try {
+        var FONT = {family: 'Geist, -apple-system, BlinkMacSystemFont, sans-serif', size: 11};
+        if (o.scales) {
+          if (o.scales.x) {
+            o.scales.x.grid = {display: false};
+            o.scales.x.border = {display: false};
+            o.scales.x.ticks = Object.assign({}, o.scales.x.ticks, {color: '#7C8698', font: FONT});
+          }
+          if (o.scales.y) {
+            o.scales.y.grid = {color: 'rgba(255,255,255,.055)', drawTicks: false};
+            o.scales.y.border = {display: false};
+            o.scales.y.ticks = Object.assign({}, o.scales.y.ticks, {color: '#7C8698', font: FONT});
+            if (o.scales.y.title) o.scales.y.title.color = '#6E7887';
+          }
+          if (o.scales.y1) {
+            o.scales.y1.ticks = Object.assign({}, o.scales.y1.ticks, {color: '#C9922A', font: FONT});
+            if (o.scales.y1.title) o.scales.y1.title.color = '#C9922A';
+          }
+        }
+        if (o.plugins && o.plugins.tooltip) {
+          o.plugins.tooltip.backgroundColor = 'rgba(12,17,26,.95)';
+          o.plugins.tooltip.borderColor = 'rgba(255,255,255,.12)';
+          o.plugins.tooltip.cornerRadius = 11;
+          o.plugins.tooltip.padding = 13;
+        }
+      } catch (e) {}
+      return o;
+    };
+  }
+
+  // ------------------------------------------------------------- count-up --
+  // The client watches the number move when they touch a slider, rather than it
+  // simply being different. Guarded so the observer does not react to itself.
+  function countUp(el) {
+    var busy = false, shown = null;
+    function parse(t) {
+      var m = /-?[\d,]+(?:\.\d+)?/.exec(String(t || ''));
+      return m ? parseFloat(m[0].replace(/,/g, '')) : null;
+    }
+    function run() {
+      if (busy) return;
+      var target = parse(el.textContent);
+      if (target === null || target === shown) return;
+      var raw = el.textContent, from = (shown === null ? 0 : shown), t0 = null;
+      var dec = /\.\d/.test(raw) ? ((/\.(\d+)/.exec(raw) || [])[1] || '').length : 0;
+      shown = target;
+      if (Math.abs(target - from) < 0.005) return;
+      busy = true;
+      function step(ts) {
+        if (!t0) t0 = ts;
+        var p = Math.min(1, (ts - t0) / 620);
+        var e = 1 - Math.pow(1 - p, 4);
+        var v = from + (target - from) * e;
+        var s = raw.replace(/-?[\d,]+(?:\.\d+)?/,
+          v.toLocaleString(undefined, {minimumFractionDigits: dec, maximumFractionDigits: dec}));
+        el.textContent = s;
+        if (p < 1) { requestAnimationFrame(step); }
+        else { el.textContent = raw; busy = false; }
+      }
+      requestAnimationFrame(step);
+    }
+    new MutationObserver(function () { if (!busy) run(); })
+      .observe(el, {childList: true, characterData: true, subtree: true});
+    run();
+  }
+
+  // -------------------------------------------- condensed bar on phones ---
+  // Sits under the existing sticky header, so its offset is measured rather
+  // than guessed — the header height changes with the viewport.
+  function stickyBar() {
+    var hero = document.getElementById('rAnnualSave');
+    if (!hero || document.getElementById('v2bar')) return;
+    var tile = hero.closest('.result-tile');
+    if (!tile) return;
+
+    var bar = document.createElement('div');
+    bar.id = 'v2bar';
+    bar.innerHTML = '<span class="l">Annual savings</span><span class="v"></span>';
+    document.body.appendChild(bar);
+
+    var val = bar.querySelector('.v');
+    function place() {
+      var h = document.querySelector('header.top');
+      var r = h ? h.getBoundingClientRect() : null;
+      bar.style.top = (r && getComputedStyle(h).position === 'sticky' ? Math.max(0, r.bottom) : 0) + 'px';
+    }
+    function sync() { val.textContent = hero.textContent; }
+    sync(); place();
+
+    new MutationObserver(sync).observe(hero, {childList: true, characterData: true, subtree: true});
+    window.addEventListener('resize', place, {passive: true});
+    window.addEventListener('scroll', place, {passive: true});
+
+    try {
+      new IntersectionObserver(function (es) {
+        bar.classList.toggle('show', !es[0].isIntersecting);
+      }, {rootMargin: '-72px 0px 0px 0px', threshold: 0}).observe(tile);
+    } catch (e) {}
+  }
+
+  // ------------------------------------------------- inline caps sweep ----
+  // Several headings carry text-transform:uppercase as an INLINE style rather
+  // than a class ("24-Hour Battery Behavior", "Peak Coverage", "Annual Usage"),
+  // and an inline style beats any stylesheet rule. CSS cannot select on it, so
+  // clear it in script. The brand mark keeps its caps deliberately.
+  function decaps(root) {
+    var scope = root || document;
+    var els = scope.querySelectorAll('[style*="uppercase"]');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (el.classList.contains('brand-sub') || el.closest('.brand')) continue;
+      if (el.dataset.v2decap) continue;
+      el.dataset.v2decap = '1';
+      el.style.textTransform = 'none';
+      el.style.letterSpacing = 'normal';
+      if (parseFloat(getComputedStyle(el).fontSize) < 12) el.style.fontSize = '12px';
+      el.style.color = '#7C8698';
+    }
+  }
+
+  // ----------------------------------------------------------- the badge ---
+  function badge() {
+    if (document.getElementById('v2badge')) return;
+    var u = new URL(location.href);
+    u.searchParams.delete('ui');
+    var d = document.createElement('div');
+    d.id = 'v2badge';
+    d.innerHTML = '<b>Preview</b><span>new interface ·</span>' +
+                  '<a href="' + u.toString().replace(/"/g, '&quot;') + '">back to current</a>';
+    document.body.appendChild(d);
+  }
+
+  function boot() {
+    document.body.classList.add('v2-enter');
+    setTimeout(function () { document.body.classList.remove('v2-enter'); }, 1400);
+    badge();
+    decaps();
+    stickyBar();
+    var hero = document.getElementById('rAnnualSave');
+    if (hero) countUp(hero);
+
+    // render() rebuilds innerHTML in places, which brings the inline caps back.
+    // Wrapping it is cheaper and steadier than polling the whole document.
+    var _render = window.render;
+    if (typeof _render === 'function') {
+      window.render = function () {
+        var r = _render.apply(this, arguments);
+        try { decaps(); } catch (e) {}
+        return r;
+      };
+    }
+    // Anything drawn outside render(), e.g. the compare tab, still gets caught.
+    try {
+      new MutationObserver(function () { try { decaps(); } catch (e) {} })
+        .observe(document.body, {childList: true, subtree: true});
+    } catch (e) {}
+
+    // Charts already built before this block ran keep the old options until the
+    // next render, so ask for one.
+    try { if (typeof render === 'function') render(); } catch (e) {}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+
+  console.log('[v12] Premium skin active (?ui=v2). Remove the parameter for the current design.');
+})();
+</script>
 </body>
 </html>

@@ -5643,13 +5643,31 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     else wrap.appendChild(label);
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () { setTimeout(injectToggle, 900); });
-  } else {
-    setTimeout(injectToggle, 900);
+  // ROOT-CAUSE FIX: the Generate Proposal button (PROPOSAL GENERATOR v1) was
+  // wired with a CLOSURE-scoped buildProposalUrl, so the click bypassed this
+  // block's window.buildProposalUrl wrapper entirely — payload.batteryOnly was
+  // never set and the proposal came out full solar+battery even with "Battery
+  // only" checked. Re-point the button at window.buildProposalUrl so the wrapper
+  // (which injects batteryOnly and strips the solar options) actually runs.
+  function rewireButton() {
+    var btn = document.getElementById('genProposalBtn');
+    if (!btn || btn.__boRewired) return;
+    btn.__boRewired = true;
+    btn.onclick = function () {
+      try { window.open(window.buildProposalUrl(), '_blank'); }
+      catch (e) { console.error('[Proposal]', e); alert('Could not build the proposal from the current model.'); }
+    };
   }
 
-  console.log('[v5] Battery-only proposal toggle ready');
+  function tick() { injectToggle(); rewireButton(); }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { setTimeout(tick, 900); });
+  } else {
+    setTimeout(tick, 900);
+  }
+  setInterval(tick, 1200);
+
+  console.log('[v5.1] Battery-only proposal toggle + button rewire ready');
 })();
 </script>
   <script>

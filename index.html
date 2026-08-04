@@ -8034,14 +8034,20 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 (function(){
   'use strict';
   var UTILS = [
-    { v:'coned',    label:'Con Edison (TOU arbitrage)',        tou:true  },
-    { v:'onr',      label:'Orange & Rockland (TOU arbitrage)', tou:true  },
-    { v:'nyseg',    label:'NYSEG (no TOU)',                   tou:false },
-    { v:'natgrid',  label:'National Grid (no TOU)',           tou:false },
-    { v:'chg',      label:'Central Hudson (no TOU)',          tou:false },
-    { v:'psegli',   label:'PSEG Long Island (no TOU)',        tou:false },
-    { v:'other',    label:'Other / flat rate (no TOU)',       tou:false }
+    { v:'coned',      label:'Con Edison (TOU arbitrage)',        tou:true                          },
+    { v:'coned_flat', label:'Con Edison (no TOU, stay flat)',    tou:false, optOut:true, retail:0.38 },
+    { v:'onr',        label:'Orange & Rockland (TOU arbitrage)', tou:true                          },
+    { v:'nyseg',      label:'NYSEG (no TOU)',                    tou:false, retail:0.21           },
+    { v:'natgrid',    label:'National Grid (no TOU)',            tou:false, retail:0.24           },
+    { v:'chg',        label:'Central Hudson (no TOU)',           tou:false, retail:0.22           },
+    { v:'psegli',     label:'PSEG Long Island (no TOU)',         tou:false, retail:0.24           },
+    { v:'other',      label:'Other / flat rate (no TOU)',        tou:false                         }
   ];
+  // Expose per-utility meta so the self-supply card and the accuracy notice can
+  // read retail / opt-out flags. 'optOut' = the utility HAS a TOU plan but the
+  // client is staying flat (Con Ed), which reads differently from "no TOU exists".
+  window.__utilMeta = {};
+  UTILS.forEach(function(u){ window.__utilMeta[u.v] = u; });
   function isTou(v){ for(var i=0;i<UTILS.length;i++) if(UTILS[i].v===v) return UTILS[i].tou; return true; }
   function shortName(v){ for(var i=0;i<UTILS.length;i++) if(UTILS[i].v===v) return UTILS[i].label.replace(/\s*\(.*\)/,''); return 'your utility'; }
   // Seed from the existing preset system so a share link that set O&R is reflected.
@@ -8080,7 +8086,10 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       // Drive the real preset system so O&R (or Con Ed) rates + peak windows
       // actually apply. No-TOU utilities fall back to the Con Ed rate base — the
       // rate card is hidden for them anyway, so only the self-supply plan shows.
-      if (typeof window.switchUtility === 'function') window.switchUtility(presetKey(e.target.value));
+      // Guard it so a hiccup inside switchUtility/render can't strand the utility
+      // UI — apply() must still run to flip the tab into the right mode.
+      try { if (typeof window.switchUtility === 'function') window.switchUtility(presetKey(e.target.value)); }
+      catch (err) { console.warn('[utility] switchUtility failed, continuing', err); }
       apply();
     });
   }
@@ -8104,7 +8113,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var hasSolar=!!meta.hasNetMetered || !!s.hasSolar || (meta.detail && meta.detail.exportAnnual>0);
     var exportAnnual=(meta.detail&&meta.detail.exportAnnual) || meta.implicitSolarAnnualKwh || 0;
     var b=backup(s);
-    var retail=parseFloat((document.getElementById('el1Rate')||{}).value)||0.38;
+    var uMeta=(window.__utilMeta&&window.__utilMeta[window.__utility])||{};
+    var optOut=!!uMeta.optOut;
+    var retail=uMeta.retail || parseFloat((document.getElementById('el1Rate')||{}).value) || 0.38;
     var capturable=b.usable>0 ? Math.min(exportAnnual, b.usable*365) : exportAnnual;
 
     var cards='<div class="card"><div class="ssk">Backup runtime</div>'
@@ -8119,14 +8130,20 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var note = hasSolar
       ? '<div class="ss-note"><b>Self-supply bill savings ≈ $0/yr under 1:1 net metering.</b> '+util+' already credits exported solar at the full retail rate (~$'+retail.toFixed(2)+'/kWh), so shifting it to the evening changes the <i>timing</i>, not the bill. This battery’s dollar value is <b>backup power</b> plus <b>protecting that self-supply if net metering is reduced or ends.</b>'
         + (b.usable>0?' Solar also recharges the battery each day, so real outage coverage runs well beyond the whole-home hours above.':'')+'</div>'
-      : '<div class="ss-note flat">No solar and no time-of-use rate on '+util+', so there’s no arbitrage or export to capture. The value here is <b>backup power and resilience</b> during outages.</div>';
+      : '<div class="ss-note flat">'+(optOut
+          ? 'No solar, and this client isn’t switching to the time-of-use rate, so there’s no arbitrage or export to capture.'
+          : 'No solar and no time-of-use rate on '+util+', so there’s no arbitrage or export to capture.')
+        +' The value here is <b>backup power and resilience</b> during outages.</div>';
 
     var link=(s.src==='csv')
       ? '<button id="ssBreakdownLink" type="button" style="display:block;width:100%;margin:12px 0 0;padding:8px 10px;background:rgba(20,184,166,.10);border:1px solid rgba(20,184,166,.35);border-radius:6px;color:#5EEAD4;font-size:12px;font-weight:600;cursor:pointer;text-align:center">📊 View full usage breakdown →</button>'
       : '';
 
+    var subExplain = optOut
+      ? util+' offers a time-of-use rate, but this client is staying on the flat rate — so there’s no rate <i>arbitrage</i> to model. Here’s where the battery still earns its keep:'
+      : util+' has no residential time-of-use plan, so battery <i>rate arbitrage</i> doesn’t apply. Here’s where this battery still earns its keep:';
     return '<div class="ss-head">No-arbitrage plan · '+util+'</div>'
-      +'<div class="ss-sub">'+util+' has no residential time-of-use plan, so battery <i>rate arbitrage</i> doesn’t apply. Here’s where this battery still earns its keep:</div>'
+      +'<div class="ss-sub">'+subExplain+'</div>'
       +'<div class="ss-cards">'+cards+'</div>'+note
       +'<div class="ss-three"><b>Every battery client gets a plan:</b> backup power in outages, self-supply of their own solar, and future-proofing against rate and net-metering changes — even where arbitrage isn’t on the table.</div>'+link;
   }
@@ -8197,7 +8214,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 // method, savings assumptions, sources, and how accurate the numbers are.
 (function(){
   'use strict';
-  var NAMES = { coned:'Con Edison', onr:'Orange & Rockland', nyseg:'NYSEG', natgrid:'National Grid', chg:'Central Hudson', psegli:'PSEG Long Island', other:'your utility' };
+  var NAMES = { coned:'Con Edison', coned_flat:'Con Edison', onr:'Orange & Rockland', nyseg:'NYSEG', natgrid:'National Grid', chg:'Central Hudson', psegli:'PSEG Long Island', other:'your utility' };
   var TOU = { coned:true, onr:true };
 
   var CSS = '#rateAccWrap{margin-top:10px}'
@@ -8226,11 +8243,19 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
         'The default rate levels are all-in (delivery + ~11¢ estimated supply); O&amp;R prices supply separately and it floats monthly, so enter the client’s actual rate for an exact bill — the savings spread stays the same.'
       ], src:'Source: O&amp;R published TOU delivery rates (oru.com), $29/mo service charge. Windows &amp; spread are official; absolute $ levels are an estimate. Editable.' };
     }
+    var uMeta=(window.__utilMeta&&window.__utilMeta[u])||{};
+    var optOut=!!uMeta.optOut;
+    var rTxt = uMeta.retail ? ' (~$'+uMeta.retail.toFixed(2)+'/kWh)' : '';
+    var firstPara = optOut
+      ? name + ' offers a residential time-of-use rate, but this client is staying on the flat rate, so there’s no rate arbitrage to model. The tab shows a self-supply + backup plan instead.'
+      : name + ' has no residential time-of-use rate, so there’s no rate arbitrage to model. The tab shows a self-supply + backup plan instead.';
     return { title:'How ' + name + ' savings are calculated', paras:[
-      name + ' has no residential time-of-use rate, so there’s no rate arbitrage to model. The tab shows a self-supply + backup plan instead.',
-      'Under 1:1 net metering, exported solar is already credited at the full retail rate, so moving it to the evening changes the timing, not the bill — self-supply savings ≈ $0. The battery’s value here is backup power and protection if net metering is reduced or ends.',
+      firstPara,
+      'Under 1:1 net metering, exported solar is already credited at the full retail rate' + rTxt + ', so moving it to the evening changes the timing, not the bill — self-supply savings ≈ $0. The battery’s value here is backup power and protection if net metering is reduced or ends.',
       'Backup runtime = usable battery kWh ÷ average household load (whole-home) or ÷ ~0.5 kW (essentials), read from your uploaded interval data. Solar recharges the battery each day, so real outage coverage runs longer.'
-    ], src:'Source: ' + name + ' has no residential TOU tariff; NY 1:1 net metering. Runtime is a planning estimate from average load.' };
+    ], src: optOut
+        ? 'Source: client staying on ' + name + '’s flat rate (not switching to TOU); NY 1:1 net metering. Runtime is a planning estimate.'
+        : 'Source: ' + name + ' has no residential TOU tariff; NY 1:1 net metering. Runtime is a planning estimate from average load.' };
   }
 
   function renderPanel(panel){

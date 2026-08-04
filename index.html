@@ -4894,6 +4894,21 @@ setupEvents();
 
     var exportKwh = exported.reduce(function(a,r){ return a + r.raw * scale; }, 0);
 
+    // Net-metered SINGLE channel: NYSEG/Avangrid, O&R, and pre-PTO Con Ed feeds
+    // encode solar export as NEGATIVE values on the delivered channel (flow 1)
+    // instead of a separate flow-19 channel. Those negatives survive into the
+    // hourly profile above, so detect them exactly like the CSV path does and
+    // publish the same three meta fields. This is what fires the "existing solar
+    // detected" banner AND the net-metering credit correction (getCost zeroes
+    // the VDER export credit when csvMeta.hasNetMetered is true — without it the
+    // tool double-counts the solar offset and overstates Rate III savings).
+    var hasNetMetered = hourly.some(function(v){ return v < 0; });
+    var implicitSolarKwh = 0, grossLoadKwh = 0;
+    if (hasNetMetered) {
+      implicitSolarKwh = hourly.reduce(function(a,v){ return a + (v < 0 ? -v : 0); }, 0) * 365;
+      grossLoadKwh    = hourly.reduce(function(a,v){ return a + Math.max(0, v); }, 0) * 365;
+    }
+
     var firstDate = new Date(imported[0].epoch * 1000);
     var lastDate  = new Date(imported[imported.length-1].epoch * 1000);
     var dailyAvg = totalKwh / dayCount;
@@ -4910,8 +4925,12 @@ setupEvents();
       partialYear: dayCount < 330,
       filesCount: 1,
       exportKwh: exportKwh,
-      hasExport: exportKwh > 0
+      hasExport: exportKwh > 0,
+      hasNetMetered: hasNetMetered,
+      implicitSolarAnnualKwh: implicitSolarKwh,
+      grossLoadAnnualKwh: grossLoadKwh
     };
+    if (hasNetMetered) meta.label = 'Green Button XML · implicit solar: ~' + Math.round(implicitSolarKwh).toLocaleString() + ' kWh/yr';
     return { hourly: hourly, meta: meta };
   };
 
@@ -4941,7 +4960,7 @@ setupEvents();
   var fi = document.querySelector('input[type="file"]');
   if (fi) fi.accept = '.csv,.pdf,.xml';
 
-  console.log('[XML Parser v2] Energy-channel only, import/export split, scale guard.');
+  console.log('[XML Parser v3] Energy-channel only, import/export split, scale guard, single-channel net-meter detection.');
 })();
         </script>
 <script>// GREEN BUTTON XLSX SUPPORT v1 — Battery Load Simulator

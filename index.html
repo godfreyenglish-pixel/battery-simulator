@@ -3910,6 +3910,25 @@ setupEvents();
       }
     }
 
+    // Fix the rate-card help captions for O&R. The base captions are Con Ed's;
+    // the walker above only swaps names, so it leaves Con Ed dollar amounts
+    // ($22/mo, $0.38, $0.16) and a doubled "O&R TOU TOU". Overwrite the specific
+    // help lines from the preset so the numbers and wording are correct. Runs
+    // after the walker every render and is idempotent, so it always wins.
+    var u = UTILITY_PRESETS[STATE.utility];
+    var pk = document.getElementById('peakRate');
+    var rcard = pk ? pk.closest('.card') : null;
+    if (u && rcard) {
+      rcard.querySelectorAll('div').forEach(function(d){
+        if (d.classList.contains('field-label') || d.children.length) return;
+        var t = d.textContent;
+        if (/pays today|flat residential|SC-1 all-in/i.test(t))            d.textContent = u.flatHelp;
+        else if (/default ~\$/.test(t))                                    d.textContent = u.chargeHelp;
+        else if (/value-stack|net metering|export credit|Zone H/i.test(t)) d.textContent = u.exportHelp;
+        else if (/peak rate applies/i.test(t))                            d.textContent = 'Peak applies during the O&R peak window shown above · pick when the battery dispatches within it.';
+      });
+    }
+
     // Restore utility selector labels
     var conEdBtn = document.querySelector('#utilitySeg [data-utility="conEd"]');
     var oruBtn = document.querySelector('#utilitySeg [data-utility="oru"]');

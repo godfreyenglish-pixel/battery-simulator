@@ -7111,6 +7111,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       pack.x = {
         ppw: (window.__ppw != null) ? window.__ppw : null,
         util: STATE.utility || null,
+        uiUtil: window.__utility || null,   // v14 picker value (nyseg / coned_flat / onr…) so no-TOU picks survive a shared link
         sh: (typeof STATE.shoulderRate === 'number') ? STATE.shoulderRate : null,
         bov: STATE.batteryOnlyView ? 1 : 0,
         cq: (typeof STATE.cmpQty === 'number') ? STATE.cmpQty : null,
@@ -7182,6 +7183,17 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     if (x.ppw != null) {
       var pi = document.getElementById('ppwInput');
       if (pi) pi.value = x.ppw;   // cosmetic only; pricing reads window.__ppw
+    }
+    // Restore the v14 utility picker (drives no-TOU self-supply mode). Waits for
+    // the dropdown to be injected, then sets it and re-applies so a shared NYSEG /
+    // Con-Ed-flat link opens in the right mode instead of defaulting to Con Ed TOU.
+    if (x.uiUtil) {
+      var up = document.getElementById('utilityPick');
+      if (up) {
+        window.__utility = x.uiUtil;
+        up.value = x.uiUtil;
+        if (typeof window.__applyUtilityMode === 'function') window.__applyUtilityMode();
+      } else { ready = false; }
     }
 
     if (ready) applied = true;
@@ -8182,6 +8194,15 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
         if(l && window.openGbBreakdown) l.onclick=function(){ window.openGbBreakdown(); };
       }
     }
+    // No-TOU has no arbitrage, so the Con Ed/Rate III breakdown cards (#breakdown)
+    // and the peak-shift chart (.chart-wrap) are meaningless and would show Con Ed
+    // numbers under NYSEG etc. Hide them in no-TOU + arbitrage so only the
+    // self-supply plan shows; restore for TOU utilities and for backup/solar modes.
+    var hideArbViz = inArb && noTou;
+    var bd=document.getElementById('breakdown');
+    if(bd) bd.style.display = hideArbViz ? 'none' : '';
+    var chartWrap=document.querySelector('.chart-wrap');
+    if(chartWrap) chartWrap.style.display = hideArbViz ? 'none' : '';
   }
   window.__applyUtilityMode=apply;
 

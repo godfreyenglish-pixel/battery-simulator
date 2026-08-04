@@ -3378,7 +3378,30 @@ function packSetup(s) {
       da: Math.round((s.csvMeta.dailyAvg || 0) * 10) / 10,
       an: Math.round(s.csvMeta.annual || 0),
       d: s.csvMeta.days || 0,
+      // Net-metering summary so a shared no-TOU solar link shows the full
+      // self-supply picture (solar detected + time-shift kWh) instead of "no solar".
+      nm: s.csvMeta.hasNetMetered ? 1 : 0,
+      is: Math.round(s.csvMeta.implicitSolarAnnualKwh || 0),
+      gl: Math.round(s.csvMeta.grossLoadAnnualKwh || 0),
+      ek: Math.round(s.csvMeta.exportKwh || 0),
+      he: s.csvMeta.hasExport ? 1 : 0,
     };
+    // Compact interval detail (XML uploads) so the client's "View full breakdown"
+    // report keeps its monthly table + peaks instead of degrading to summary.
+    if (s.csvMeta.detail) {
+      var D = s.csvMeta.detail;
+      base.cm.dt = {
+        mo: (D.monthly || []).map(function (m) { return [m.month, Math.round(m.exp), Math.round(m.imp), Math.round(m.net)]; }),
+        pe: D.peakExport ? [Math.round(D.peakExport.kwh * 10) / 10, D.peakExport.when] : null,
+        pi: D.peakImport ? [Math.round(D.peakImport.kwh * 10) / 10, D.peakImport.when] : null,
+        eh: D.exportHours || 0,
+        rs: D.rangeStart || '',
+        re: D.rangeEnd || '',
+        iv: D.intervalMin || 60,
+        iu: D.intervals || 0,
+        sr: D.source || 'Green Button (shared)',
+      };
+    }
   }
   return base;
 }
@@ -3396,7 +3419,36 @@ function unpackSetup(p) {
       days: p.cm.d || 0,
       rowCount: 24,
       label: `Shared · ${p.cm.da || 0} kWh/day · ${(p.cm.an || 0).toLocaleString()} kWh/yr`,
+      // Net-metering summary (added to shares so no-TOU solar clients see the
+      // full self-supply picture). Absent in old links -> defaults keep working.
+      hasNetMetered: !!p.cm.nm,
+      implicitSolarAnnualKwh: p.cm.is || 0,
+      grossLoadAnnualKwh: p.cm.gl || 0,
+      exportKwh: p.cm.ek || 0,
+      hasExport: !!p.cm.he,
     };
+    // Rebuild the rich breakdown detail from the compact form (XML shares).
+    if (p.cm.dt) {
+      var d = p.cm.dt;
+      var parts = (p.cm.r || '').split(/→|->/);
+      out.csvMeta.detail = {
+        source: d.sr || 'Green Button (shared)',
+        channel: 'shared',
+        intervalMin: d.iv || 60,
+        rangeStart: d.rs || (parts[0] || '').trim(),
+        rangeEnd: d.re || (parts[1] || '').trim(),
+        days: p.cm.d || 0,
+        intervals: d.iu || 0,
+        exportHours: d.eh || 0,
+        exportAnnual: p.cm.is || 0,
+        grossAnnual: p.cm.gl || 0,
+        netAnnual: p.cm.an || 0,
+        hourly: p.cp,
+        monthly: (d.mo || []).map(function (a) { return { month: a[0], exp: a[1], imp: a[2], net: a[3] }; }),
+        peakExport: d.pe ? { kwh: d.pe[0], when: d.pe[1] } : null,
+        peakImport: d.pi ? { kwh: d.pi[0], when: d.pi[1] } : null,
+      };
+    }
   }
   return out;
 }

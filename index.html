@@ -4896,18 +4896,27 @@ setupEvents();
 
     // Net-metered SINGLE channel: NYSEG/Avangrid, O&R, and pre-PTO Con Ed feeds
     // encode solar export as NEGATIVE values on the delivered channel (flow 1)
-    // instead of a separate flow-19 channel. Those negatives survive into the
-    // hourly profile above, so detect them exactly like the CSV path does and
-    // publish the same three meta fields. This is what fires the "existing solar
-    // detected" banner AND the net-metering credit correction (getCost zeroes
-    // the VDER export credit when csvMeta.hasNetMetered is true — without it the
-    // tool double-counts the solar offset and overstates Rate III savings).
-    var hasNetMetered = hourly.some(function(v){ return v < 0; });
-    var implicitSolarKwh = 0, grossLoadKwh = 0;
-    if (hasNetMetered) {
-      implicitSolarKwh = hourly.reduce(function(a,v){ return a + (v < 0 ? -v : 0); }, 0) * 365;
-      grossLoadKwh    = hourly.reduce(function(a,v){ return a + Math.max(0, v); }, 0) * 365;
-    }
+    // instead of a separate flow-19 channel.
+    //
+    // v4 — measure export/gross at the INTERVAL level, not off the averaged 24h
+    // profile. The hourly profile collapses every day into one representative
+    // day (sum / dayCount per hour); that cancels a sunny noon (-6 kWh export)
+    // against a cloudy noon (+2 kWh draw) in the same bucket, so ~30% of real
+    // export vanished before it was counted (measured 6.9k vs true 9.9k kWh/yr
+    // on a real NYSEG file). Summing the raw intervals directly cancels nothing.
+    // These feed the DISPLAY banner + the VDER credit correction (getCost zeroes
+    // the export credit when csvMeta.hasNetMetered is true, so a net meter's
+    // already-offset baseline is not credited twice and Rate III savings are not
+    // overstated). The dispatch sim still runs on the hourly profile — unchanged.
+    var annualize = 365 / dayCount;
+    var exportPeriodKwh = 0, grossPeriodKwh = 0, hasNetMetered = false;
+    imported.forEach(function(r){
+      var kwh = r.raw * scale;
+      if (kwh < 0) { exportPeriodKwh += -kwh; hasNetMetered = true; }
+      else { grossPeriodKwh += kwh; }
+    });
+    var implicitSolarKwh = hasNetMetered ? exportPeriodKwh * annualize : 0;
+    var grossLoadKwh     = hasNetMetered ? grossPeriodKwh * annualize : 0;
 
     var firstDate = new Date(imported[0].epoch * 1000);
     var lastDate  = new Date(imported[imported.length-1].epoch * 1000);
@@ -4960,7 +4969,7 @@ setupEvents();
   var fi = document.querySelector('input[type="file"]');
   if (fi) fi.accept = '.csv,.pdf,.xml';
 
-  console.log('[XML Parser v3] Energy-channel only, import/export split, scale guard, single-channel net-meter detection.');
+  console.log('[XML Parser v4] Energy-channel only, import/export split, scale guard, interval-level net-meter totals.');
 })();
         </script>
 <script>// GREEN BUTTON XLSX SUPPORT v1 — Battery Load Simulator

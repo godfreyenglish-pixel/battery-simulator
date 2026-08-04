@@ -7972,5 +7972,151 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[Breakdown v13] "View full breakdown" ready.');
 })();
 </script>
+<script>// UTILITY PICKER + NO-TOU SELF-SUPPLY PLAN — v14
+// Goal: a plan for EVERY battery client. The arbitrage tab assumes Con Ed-style
+// Rate III TOU. Utilities with no residential TOU (NYSEG, National Grid, etc.)
+// can't arbitrage, so instead of a meaningless $0 the tab shows a Self-Supply +
+// Backup plan built from the client's own data. Appended block, no base edits;
+// controls visibility via wrappers on render()/setMode() + an interval guard.
+(function(){
+  'use strict';
+  var UTILS = [
+    { v:'coned',    label:'Con Edison (Rate III TOU)',        tou:true  },
+    { v:'onr',      label:'Orange & Rockland (Rate III TOU)', tou:true  },
+    { v:'nyseg',    label:'NYSEG (no TOU)',                   tou:false },
+    { v:'natgrid',  label:'National Grid (no TOU)',           tou:false },
+    { v:'chg',      label:'Central Hudson (no TOU)',          tou:false },
+    { v:'psegli',   label:'PSEG Long Island (no TOU)',        tou:false },
+    { v:'other',    label:'Other / flat rate (no TOU)',       tou:false }
+  ];
+  function isTou(v){ for(var i=0;i<UTILS.length;i++) if(UTILS[i].v===v) return UTILS[i].tou; return true; }
+  function shortName(v){ for(var i=0;i<UTILS.length;i++) if(UTILS[i].v===v) return UTILS[i].label.replace(/\s*\(.*\)/,''); return 'your utility'; }
+  window.__utility = window.__utility || 'coned';
+
+  var fmt = function(n){ return (n==null||isNaN(n)) ? '—' : Math.round(n).toLocaleString(); };
+  function AS(){ try{ return (window.activeSetup||function(){return{};})(); }catch(e){ return {}; } }
+
+  var CSS = '#selfSupplyCard .ss-head{font-size:18px;font-weight:700;margin:0 0 4px}'
+    + '#selfSupplyCard .ss-sub{font-size:12.5px;color:var(--text-3);margin-bottom:14px;line-height:1.5}'
+    + '#selfSupplyCard .ss-cards{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}'
+    + '#selfSupplyCard .ss-cards .card{flex:1 1 190px;margin:0}'
+    + '#selfSupplyCard .ssk{font-size:11px;color:var(--text-4);text-transform:uppercase;letter-spacing:.03em}'
+    + '#selfSupplyCard .ssv{font-size:22px;font-weight:700;margin:4px 0}'
+    + '#selfSupplyCard .sss{font-size:11px;color:var(--text-4);line-height:1.4}'
+    + '#selfSupplyCard .teal{color:#14B8A6}'
+    + '#selfSupplyCard .ss-note{background:rgba(20,184,166,.08);border-left:2px solid #14B8A6;border-radius:4px;padding:10px 12px;color:var(--text-2);font-size:12px;line-height:1.5;margin:4px 0}'
+    + '#selfSupplyCard .ss-note.flat{background:rgba(251,191,36,.06);border-left-color:var(--yellow)}'
+    + '#selfSupplyCard .ss-three{font-size:12px;color:var(--text-3);margin-top:12px;line-height:1.5}';
+  function ensureStyle(){ if(document.getElementById('ssStyle')) return; var st=document.createElement('style'); st.id='ssStyle'; st.textContent=CSS; document.head.appendChild(st); }
+
+  function injectPicker(){
+    var rateCard=document.getElementById('rateCard');
+    if(!rateCard || document.getElementById('utilityPickWrap')) return;
+    var wrap=document.createElement('div'); wrap.className='card'; wrap.id='utilityPickWrap';
+    var opts=UTILS.map(function(u){ return '<option value="'+u.v+'"'+(u.v===window.__utility?' selected':'')+'>'+u.label+'</option>'; }).join('');
+    wrap.innerHTML='<div class="card-title"><span class="card-title-bar"></span>Utility &amp; Rate Plan</div>'
+      +'<div class="field"><div class="field-label">Client’s utility</div>'
+      +'<select id="utilityPick" class="num-input mono" style="width:100%">'+opts+'</select>'
+      +'<div id="utilityHint" style="font-size:11px;color:var(--text-4);margin-top:6px;line-height:1.4"></div></div>';
+    rateCard.parentNode.insertBefore(wrap, rateCard);
+    document.getElementById('utilityPick').addEventListener('change', function(e){ window.__utility=e.target.value; apply(); });
+  }
+  function injectCard(){
+    var arb=document.getElementById('arbResults');
+    if(!arb || document.getElementById('selfSupplyCard')) return;
+    var c=document.createElement('div'); c.id='selfSupplyCard'; c.className='card hidden';
+    arb.parentNode.insertBefore(c, arb.nextSibling);
+  }
+
+  function backup(s){
+    var spec=(window.batterySpecs?window.batterySpecs(s):null);
+    var usable=(spec&&spec.usable)?spec.usable:0;
+    var dailyKwh=s.daily||(s.csvMeta&&s.csvMeta.dailyAvg)||0;
+    var avgKw=dailyKwh/24;
+    return { usable:usable, whole:(avgKw>0?usable/avgKw:0), ess:(usable>0?usable/0.5:0) };
+  }
+
+  function buildHtml(){
+    var s=AS(), meta=s.csvMeta||{}, util=shortName(window.__utility);
+    var hasSolar=!!meta.hasNetMetered || !!s.hasSolar || (meta.detail && meta.detail.exportAnnual>0);
+    var exportAnnual=(meta.detail&&meta.detail.exportAnnual) || meta.implicitSolarAnnualKwh || 0;
+    var b=backup(s);
+    var retail=parseFloat((document.getElementById('el1Rate')||{}).value)||0.38;
+    var capturable=b.usable>0 ? Math.min(exportAnnual, b.usable*365) : exportAnnual;
+
+    var cards='<div class="card"><div class="ssk">Backup runtime</div>'
+      +'<div class="ssv">'+(b.usable>0&&b.whole?b.whole.toFixed(1):'—')+' hrs</div>'
+      +'<div class="sss">whole-home'+(b.usable>0?' · '+Math.round(b.ess)+' hrs on essentials · '+fmt(b.usable)+' kWh usable':' · pick a battery to size it')+'</div></div>';
+    if(hasSolar){
+      cards+='<div class="card"><div class="ssk">Solar the battery can time-shift</div>'
+        +'<div class="ssv teal">'+fmt(capturable)+' kWh/yr</div>'
+        +'<div class="sss">stored midday, used in the evening</div></div>';
+    }
+
+    var note = hasSolar
+      ? '<div class="ss-note"><b>Self-supply bill savings ≈ $0/yr under 1:1 net metering.</b> '+util+' already credits exported solar at the full retail rate (~$'+retail.toFixed(2)+'/kWh), so shifting it to the evening changes the <i>timing</i>, not the bill. This battery’s dollar value is <b>backup power</b> plus <b>protecting that self-supply if net metering is reduced or ends.</b>'
+        + (b.usable>0?' Solar also recharges the battery each day, so real outage coverage runs well beyond the whole-home hours above.':'')+'</div>'
+      : '<div class="ss-note flat">No solar and no time-of-use rate on '+util+', so there’s no arbitrage or export to capture. The value here is <b>backup power and resilience</b> during outages.</div>';
+
+    var link=(s.src==='csv')
+      ? '<button id="ssBreakdownLink" type="button" style="display:block;width:100%;margin:12px 0 0;padding:8px 10px;background:rgba(20,184,166,.10);border:1px solid rgba(20,184,166,.35);border-radius:6px;color:#5EEAD4;font-size:12px;font-weight:600;cursor:pointer;text-align:center">📊 View full usage breakdown →</button>'
+      : '';
+
+    return '<div class="ss-head">No-arbitrage plan · '+util+'</div>'
+      +'<div class="ss-sub">'+util+' has no residential time-of-use plan, so battery <i>rate arbitrage</i> doesn’t apply. Here’s where this battery still earns its keep:</div>'
+      +'<div class="ss-cards">'+cards+'</div>'+note
+      +'<div class="ss-three"><b>Every battery client gets a plan:</b> backup power in outages, self-supply of their own solar, and future-proofing against rate and net-metering changes — even where arbitrage isn’t on the table.</div>'+link;
+  }
+
+  function apply(){
+    ensureStyle(); injectPicker(); injectCard();
+    var noTou=!isTou(window.__utility);
+    var curMode=(typeof STATE!=='undefined' && STATE && STATE.mode) ? STATE.mode : 'arbitrage';
+    var inArb=curMode==='arbitrage';
+    var pick=document.getElementById('utilityPickWrap');
+    var rate=document.getElementById('rateCard');
+    var arb=document.getElementById('arbResults');
+    var card=document.getElementById('selfSupplyCard');
+    var hint=document.getElementById('utilityHint');
+    if(pick) pick.classList.toggle('hidden', !inArb);
+    if(hint) hint.textContent = noTou
+      ? 'No time-of-use plan — the tab shows a self-supply + backup plan instead of arbitrage.'
+      : 'Rate III TOU arbitrage applies (rates below).';
+    if(rate && inArb) rate.classList.toggle('hidden', noTou);
+    if(arb) arb.classList.toggle('hidden', !inArb || noTou);
+    if(card){
+      var show=inArb&&noTou;
+      card.classList.toggle('hidden', !show);
+      if(show){
+        card.innerHTML=buildHtml();
+        var l=document.getElementById('ssBreakdownLink');
+        if(l && window.openGbBreakdown) l.onclick=function(){ window.openGbBreakdown(); };
+      }
+    }
+  }
+  window.__applyUtilityMode=apply;
+
+  function hook(name){
+    var o=window[name];
+    if(typeof o==='function' && !o.__ssWrapped){
+      var w=function(){ var r=o.apply(this,arguments); try{ apply(); }catch(e){} return r; };
+      w.__ssWrapped=true; window[name]=w;
+    }
+  }
+  // Mode buttons carry inline onclick="setMode(...)"; wiring an extra listener
+  // guarantees apply() runs on every mode switch even before the render/setMode
+  // wrappers attach, so the self-supply card can't get stranded visible.
+  function wireModeButtons(){
+    ['modeArb','modeBak','modeSol'].forEach(function(id){
+      var el=document.getElementById(id);
+      if(el && !el.__ssWired){ el.__ssWired=true; el.addEventListener('click', function(){ setTimeout(apply,0); }); }
+    });
+  }
+  function boot(){ ensureStyle(); injectPicker(); injectCard(); wireModeButtons(); hook('render'); hook('setMode'); apply(); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  setInterval(function(){ injectPicker(); injectCard(); wireModeButtons(); hook('render'); hook('setMode'); }, 1500);
+  console.log('[Utility/No-TOU v14] Self-supply + backup plan ready.');
+})();
+</script>
 </body>
 </html>

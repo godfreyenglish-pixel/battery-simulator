@@ -1734,10 +1734,14 @@ function simulateBackup(s) {
 
   let critW = 0, surgeW = 0;
   for (const k in STATE.crit) {
-    if (STATE.crit[k]) {
+    // STATE.crit[k] is a QUANTITY (0-10 via the +/- controls), not a boolean.
+    // Multiply by it so picking 2+ of the same load actually raises the draw —
+    // without this, Continuous Draw / runtime / SOC ignored quantity entirely.
+    const qty = STATE.crit[k];
+    if (qty && CRIT_LOADS[k]) {
       const L = CRIT_LOADS[k];
-      critW += L.watts * L.duty;
-      surgeW += L.watts;
+      critW += L.watts * L.duty * qty;
+      surgeW += L.watts * qty;
     }
   }
   const critKw = critW / 1000;
@@ -2978,10 +2982,12 @@ function renderBackup() {
 
   let critRows = '';
   for (const k in STATE.crit) {
-    if (STATE.crit[k]) {
+    const qty = STATE.crit[k];
+    if (qty && CRIT_LOADS[k]) {
       const L = CRIT_LOADS[k];
-      const avgW = L.watts * L.duty;
-      critRows += `<div class="bd-line"><span class="bd-line-key">${L.name}</span><span class="bd-line-val">${avgW.toFixed(0)} W avg</span></div>`;
+      const avgW = L.watts * L.duty * qty;
+      const qLabel = qty > 1 ? ` ×${qty}` : '';
+      critRows += `<div class="bd-line"><span class="bd-line-key">${L.name}${qLabel}</span><span class="bd-line-val">${avgW.toFixed(0)} W avg</span></div>`;
     }
   }
   if (!critRows) critRows = '<div class="bd-line"><span class="bd-line-key" style="color:var(--text-4)">None selected</span></div>';

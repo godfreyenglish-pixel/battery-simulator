@@ -3760,7 +3760,13 @@ setupEvents();
     },
     oru: {
       id: 'oru', label: 'Orange & Rockland',
-      peakRate: 0.31, winterPeakRate: 0.16, offRate: 0.09, shoulderRate: 0.16,
+      // All-in $/kWh = O&R's published delivery-only TOU rates (oru.com, PSC No.10)
+      // + a representative ~$0.11/kWh flat supply component. Supply is the same in
+      // every window, so the peak-minus-off SPREAD (what drives arbitrage) exactly
+      // matches the tariff's delivery differential: summer 44.65¢ vs 2.88¢ = ~42¢;
+      // winter 15.98¢ vs 2.88¢ = ~13¢. Delivery: summer peak 44.651, shoulder /
+      // winter peak 15.976, off-peak 2.876 ¢/kWh. Edit per client's actual bill.
+      peakRate: 0.56, winterPeakRate: 0.27, offRate: 0.14, shoulderRate: 0.27,
       el1Rate: 0.208, basicCharge: 29, exportRate: 0.208,
       touTitle: 'O&R TOU (Time-of-Use Rate)',
       flatTitle: 'SC-1 Standard Rate (current bill)',
@@ -3924,8 +3930,10 @@ setupEvents();
     STATE.basicCharge = u.basicCharge;
     STATE.exportRate = u.exportRate;
 
-    // Update DOM inputs
-    ['peakRate','winterPeakRate','offRate','el1Rate','basicCharge','exportRate'].forEach(function(k) {
+    // Update DOM inputs (shoulderRate included so the O&R shoulder field reflects
+    // the preset — without it the input showed a stale value while STATE/getHourRate
+    // used the real one).
+    ['peakRate','winterPeakRate','offRate','shoulderRate','el1Rate','basicCharge','exportRate'].forEach(function(k) {
       var el = document.getElementById(k);
       if (el) el.value = u[k];
     });
@@ -8009,7 +8017,10 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   ];
   function isTou(v){ for(var i=0;i<UTILS.length;i++) if(UTILS[i].v===v) return UTILS[i].tou; return true; }
   function shortName(v){ for(var i=0;i<UTILS.length;i++) if(UTILS[i].v===v) return UTILS[i].label.replace(/\s*\(.*\)/,''); return 'your utility'; }
-  window.__utility = window.__utility || 'coned';
+  // Seed from the existing preset system so a share link that set O&R is reflected.
+  window.__utility = window.__utility || ((typeof STATE!=='undefined' && STATE.utility==='oru') ? 'onr' : 'coned');
+  // Map v14 picker values <-> the existing UTILITY_PRESETS keys.
+  function presetKey(v){ return v==='onr' ? 'oru' : 'conEd'; }
 
   var fmt = function(n){ return (n==null||isNaN(n)) ? '—' : Math.round(n).toLocaleString(); };
   function AS(){ try{ return (window.activeSetup||function(){return{};})(); }catch(e){ return {}; } }
@@ -8037,7 +8048,14 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       +'<select id="utilityPick" class="num-input mono" style="width:100%">'+opts+'</select>'
       +'<div id="utilityHint" style="font-size:11px;color:var(--text-4);margin-top:6px;line-height:1.4"></div></div>';
     rateCard.parentNode.insertBefore(wrap, rateCard);
-    document.getElementById('utilityPick').addEventListener('change', function(e){ window.__utility=e.target.value; apply(); });
+    document.getElementById('utilityPick').addEventListener('change', function(e){
+      window.__utility = e.target.value;
+      // Drive the real preset system so O&R (or Con Ed) rates + peak windows
+      // actually apply. No-TOU utilities fall back to the Con Ed rate base — the
+      // rate card is hidden for them anyway, so only the self-supply plan shows.
+      if (typeof window.switchUtility === 'function') window.switchUtility(presetKey(e.target.value));
+      apply();
+    });
   }
   function injectCard(){
     var arb=document.getElementById('arbResults');
@@ -8088,6 +8106,15 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
   function apply(){
     ensureStyle(); injectPicker(); injectCard();
+    // Retire the original Con Ed | O&R segment — the v14 dropdown supersedes it
+    // (and adds the no-TOU utilities), so there's one utility control, not two.
+    var oldSel=document.getElementById('utilitySelector');
+    if(oldSel) oldSel.style.display='none';
+    // If an external path (share link) switched the preset to O&R, reflect it.
+    var selEl=document.getElementById('utilityPick');
+    if(selEl && typeof STATE!=='undefined' && STATE.utility==='oru' && selEl.value!=='onr'){
+      selEl.value='onr'; window.__utility='onr';
+    }
     var noTou=!isTou(window.__utility);
     var curMode=(typeof STATE!=='undefined' && STATE && STATE.mode) ? STATE.mode : 'arbitrage';
     var inArb=curMode==='arbitrage';

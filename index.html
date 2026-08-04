@@ -4922,6 +4922,50 @@ setupEvents();
     var lastDate  = new Date(imported[imported.length-1].epoch * 1000);
     var dailyAvg = totalKwh / dayCount;
 
+    // ---- Rich interval-level detail for the "View full breakdown" report ----
+    // Measured off the raw intervals (nothing averaged away), so it can show a
+    // true monthly table and true single-hour peaks the 24h profile can't.
+    var monthMap = {};
+    var pkExp = { kwh: 0, epoch: null };
+    var pkImp = { kwh: 0, epoch: null };
+    var exportHours = 0;
+    imported.forEach(function(r){
+      var kwh = r.raw * scale;
+      var d = new Date(r.epoch * 1000);
+      var key = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+      var mm = monthMap[key] || (monthMap[key] = { exp: 0, imp: 0, net: 0 });
+      mm.net += kwh;
+      if (kwh < 0) { mm.exp += -kwh; exportHours++; if (-kwh > pkExp.kwh) pkExp = { kwh: -kwh, epoch: r.epoch }; }
+      else         { mm.imp += kwh;  if (kwh > pkImp.kwh) pkImp = { kwh: kwh, epoch: r.epoch }; }
+    });
+    var monthly = Object.keys(monthMap).sort().map(function(k){
+      return { month: k, exp: monthMap[k].exp, imp: monthMap[k].imp, net: monthMap[k].net };
+    });
+    function stampLocal(epoch){
+      if (epoch == null) return null;
+      var d = new Date(epoch * 1000);
+      return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2)
+        + ' ' + ('0'+d.getHours()).slice(-2) + ':00';
+    }
+    var detail = {
+      source: 'NYSEG / Avangrid (Green Button XML)',
+      channel: 'single net channel (flowDirection 1)',
+      intervalMin: Math.round((imported[0].dur || 3600) / 60),
+      rangeStart: stampLocal(imported[0].epoch).slice(0,10),
+      rangeEnd: stampLocal(imported[imported.length-1].epoch).slice(0,10),
+      days: dayCount,
+      intervals: imported.length,
+      exportHours: exportHours,
+      exportPeriod: exportPeriodKwh, grossPeriod: grossPeriodKwh, netPeriod: totalKwh,
+      exportAnnual: exportPeriodKwh * annualize,
+      grossAnnual: grossPeriodKwh * annualize,
+      netAnnual: totalKwh * annualize,
+      hourly: hourly.slice(),
+      monthly: monthly,
+      peakExport: pkExp.epoch ? { kwh: pkExp.kwh, when: stampLocal(pkExp.epoch) } : null,
+      peakImport: pkImp.epoch ? { kwh: pkImp.kwh, when: stampLocal(pkImp.epoch) } : null
+    };
+
     var meta = {
       range: firstDate.toISOString().slice(0,10) + ' \u2192 ' + lastDate.toISOString().slice(0,10),
       intervals: Math.round((imported[0].dur || 3600) / 60) + '-min (XML)',
@@ -4937,7 +4981,8 @@ setupEvents();
       hasExport: exportKwh > 0,
       hasNetMetered: hasNetMetered,
       implicitSolarAnnualKwh: implicitSolarKwh,
-      grossLoadAnnualKwh: grossLoadKwh
+      grossLoadAnnualKwh: grossLoadKwh,
+      detail: detail
     };
     if (hasNetMetered) meta.label = 'Green Button XML · implicit solar: ~' + Math.round(implicitSolarKwh).toLocaleString() + ' kWh/yr';
     return { hourly: hourly, meta: meta };
@@ -4969,7 +5014,7 @@ setupEvents();
   var fi = document.querySelector('input[type="file"]');
   if (fi) fi.accept = '.csv,.pdf,.xml';
 
-  console.log('[XML Parser v4] Energy-channel only, import/export split, scale guard, interval-level net-meter totals.');
+  console.log('[XML Parser v5] Interval-level net-meter totals + full breakdown detail (monthly, peaks).');
 })();
         </script>
 <script>// GREEN BUTTON XLSX SUPPORT v1 — Battery Load Simulator
@@ -7762,6 +7807,169 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   else boot();
 
   console.log('[v12] Premium skin active (?ui=v2). Remove the parameter for the current design.');
+})();
+</script>
+<script>// FULL BREAKDOWN REPORT — v13
+// Adds a "View full breakdown" link under the loaded-file status (#csvMetaBlock)
+// that opens a self-contained report window: firm totals, 24h profile, monthly
+// table + single-hour peaks (Green Button XML, from meta.detail), and a solar
+// production section that is honest about what a single net meter can/can't show.
+// Pure read of activeSetup().csvMeta — no parser changes, no base edits.
+(function(){
+  'use strict';
+  var fmt = function(n){ return (n==null||isNaN(n)) ? '—' : Math.round(n).toLocaleString(); };
+
+  function getMeta(){
+    try { var s = (window.activeSetup||function(){return{};})(); return s && s.csvMeta ? { meta:s.csvMeta, profile:s.csvProfile } : null; }
+    catch(e){ return null; }
+  }
+
+  // Build a uniform detail object. Prefer meta.detail (XML, interval-level);
+  // otherwise synthesize a summary-level one from csvMeta + the 24h profile.
+  function resolveDetail(meta, profile){
+    if (meta.detail) return meta.detail;
+    var parts = (meta.range||'').split(/→|->/);
+    return {
+      source: (meta.label||'Green Button').split(' · ')[0],
+      channel: 'net usage',
+      intervalMin: null,
+      rangeStart: (parts[0]||'').trim(),
+      rangeEnd: (parts[1]||'').trim(),
+      days: meta.days,
+      intervals: meta.rowCount,
+      exportHours: null,
+      exportAnnual: meta.implicitSolarAnnualKwh || 0,
+      grossAnnual: meta.grossLoadAnnualKwh || (meta.annual + (meta.implicitSolarAnnualKwh||0)),
+      netAnnual: meta.annual,
+      hourly: (profile && profile.length===24) ? profile.slice() : null,
+      monthly: null, peakExport: null, peakImport: null,
+      summaryOnly: true
+    };
+  }
+
+  function prodEstimate(hourly, firmExportAnnual){
+    var night=[20,21,22,23,0,1,2,3,4,5], base=0;
+    night.forEach(function(h){ base += hourly[h]; }); base = base/night.length;
+    var scen=[['Half of overnight baseload',0.5],['≈ overnight baseload',1.0],['1.25× overnight baseload',1.25]];
+    var rows=scen.map(function(s){
+      var load=base*s[1], p=0;
+      for(var h=6;h<18;h++) p += Math.max(0, load - hourly[h]);
+      return { label:s[0], annual:p*365, kw:p*365/1250 };
+    });
+    return { base:base, rows:rows, floor:firmExportAnnual };
+  }
+
+  function reportHtml(d){
+    var hourly = d.hourly;
+    var solarHrs = hourly ? hourly.map(function(v,h){return v<0?h:-1;}).filter(function(h){return h>=0;}) : [];
+    var winTxt = solarHrs.length ? (('0'+solarHrs[0]).slice(-2)+':00 – '+('0'+solarHrs[solarHrs.length-1]).slice(-2)+':59') : '—';
+
+    // 24h bar chart
+    var bars='';
+    if (hourly){
+      var maxAbs=1; hourly.forEach(function(v){ if(Math.abs(v)>maxAbs) maxAbs=Math.abs(v); });
+      for(var h=0;h<24;h++){
+        var v=hourly[h], w=Math.abs(v)/maxAbs*100, col=v<0?'#14B8A6':'#F59E0B';
+        bars += '<div class="row"><span class="hh">'+('0'+h).slice(-2)+':00</span>'
+             +  '<div class="track"><div class="bar" style="width:'+w.toFixed(1)+'%;background:'+col+'"></div></div>'
+             +  '<span class="val" style="color:'+col+'">'+(v>=0?'+':'')+v.toFixed(2)+'</span></div>';
+      }
+    }
+
+    // monthly
+    var monthly='';
+    if (d.monthly && d.monthly.length){
+      var mr = d.monthly.map(function(m){
+        return '<tr><td>'+m.month+'</td><td class="teal">'+fmt(m.exp)+'</td><td>'+fmt(m.imp)+'</td><td class="'+(m.net<0?'teal':'')+'">'+fmt(m.net)+'</td></tr>';
+      }).join('');
+      monthly = '<table class="mt"><thead><tr><th>Month</th><th>Export</th><th>Import</th><th>Net</th></tr></thead><tbody>'+mr+'</tbody></table>';
+    } else {
+      monthly = '<div class="note">Monthly breakdown and exact single-hour peaks need the raw intervals. Upload the <b>Green Button XML</b> export (not the CSV) to see them here.</div>';
+    }
+
+    // peaks
+    var peaks='';
+    if (d.peakExport || d.peakImport){
+      peaks = '<div class="cards">'
+        + (d.peakExport?'<div class="card"><div class="ck">Peak export hour</div><div class="cv teal">'+d.peakExport.kwh.toFixed(1)+' kWh</div><div class="cs">'+d.peakExport.when+'</div></div>':'')
+        + (d.peakImport?'<div class="card"><div class="ck">Peak import hour</div><div class="cv amber">'+d.peakImport.kwh.toFixed(1)+' kWh</div><div class="cs">'+d.peakImport.when+'</div></div>':'')
+        + '</div>';
+    }
+
+    // production
+    var prod='';
+    if (hourly){
+      var pe = prodEstimate(hourly, d.exportAnnual);
+      var pr = pe.rows.map(function(r){ return '<tr><td>'+r.label+'</td><td>'+fmt(r.annual)+' kWh/yr</td><td>'+r.kw.toFixed(1)+' kW</td></tr>'; }).join('');
+      prod = '<p class="lead">A single net meter records <b>load minus solar</b>. Solar the house burns the instant it is produced never reaches the meter, so total production is <b>not directly measurable</b> from this file.</p>'
+        + '<div class="cards"><div class="card"><div class="ck">Net export (firm floor on production)</div><div class="cv teal">'+fmt(d.exportAnnual)+' kWh/yr</div><div class="cs">measured, nothing assumed</div></div>'
+        + '<div class="card"><div class="ck">Overnight baseload (true load, no solar)</div><div class="cv">'+pe.base.toFixed(2)+' kWh/hr</div><div class="cs">8pm – 6am average</div></div></div>'
+        + '<div class="note">Estimated total production, by assumed midday household load. The spread is why a net meter can’t pin production down — for the exact figure pull the inverter / monitoring (SolarEdge, Enphase, etc.).</div>'
+        + '<table class="mt"><thead><tr><th>Assumed daytime load</th><th>Est. total production</th><th>Implied array</th></tr></thead><tbody>'+pr+'</tbody></table>';
+    }
+
+    var genStamp = new Date().toLocaleString();
+    return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    + '<title>Energy Data Breakdown</title><style>'
+    + '*{box-sizing:border-box}body{margin:0;background:#0B0F14;color:#E6EDF3;font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;padding:24px}'
+    + '.wrap{max-width:820px;margin:0 auto}h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;letter-spacing:.03em;text-transform:uppercase;color:#7DD3FC;margin:28px 0 12px;border-bottom:1px solid #1F2A37;padding-bottom:6px}'
+    + '.sub{color:#8B98A5;font-size:12.5px;margin-bottom:18px}'
+    + '.cards{display:flex;flex-wrap:wrap;gap:12px;margin:6px 0}.card{flex:1 1 200px;background:#111823;border:1px solid #1F2A37;border-radius:10px;padding:14px}'
+    + '.ck{font-size:11.5px;color:#8B98A5;text-transform:uppercase;letter-spacing:.03em}.cv{font-size:22px;font-weight:700;margin:4px 0}.cs{font-size:11.5px;color:#8B98A5}'
+    + '.teal{color:#14B8A6}.amber{color:#F59E0B}'
+    + '.row{display:flex;align-items:center;gap:10px;margin:2px 0}.hh{width:46px;color:#8B98A5;font-variant-numeric:tabular-nums;font-size:12px}'
+    + '.track{flex:1;background:#111823;border-radius:4px;height:16px;overflow:hidden}.bar{height:100%;border-radius:4px}.val{width:54px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px}'
+    + 'table.mt{width:100%;border-collapse:collapse;margin-top:8px}table.mt th{text-align:right;color:#8B98A5;font-size:11.5px;text-transform:uppercase;letter-spacing:.02em;padding:6px 10px;border-bottom:1px solid #1F2A37}'
+    + 'table.mt th:first-child{text-align:left}table.mt td{text-align:right;padding:6px 10px;border-bottom:1px solid #141C26;font-variant-numeric:tabular-nums}table.mt td:first-child{text-align:left}'
+    + '.note{background:rgba(125,211,252,.06);border-left:2px solid #38BDF8;border-radius:4px;padding:10px 12px;color:#B9C6D2;font-size:12.5px;margin:12px 0}'
+    + '.lead{color:#C7D2DD;font-size:13.5px}.legend{font-size:11.5px;color:#8B98A5;margin:6px 0 0}.foot{margin-top:28px;color:#61707E;font-size:11px;border-top:1px solid #1F2A37;padding-top:10px}'
+    + '@media print{body{background:#fff;color:#111}.card,.track{border-color:#ccc}}</style></head><body><div class="wrap">'
+    + '<h1>Energy Data Breakdown</h1>'
+    + '<div class="sub">'+d.source+(d.channel?' · '+d.channel:'')+' · '+(d.rangeStart||'?')+' → '+(d.rangeEnd||'?')+' · '+fmt(d.days)+' days'
+      + (d.intervals?' · '+fmt(d.intervals)+' readings':'')+(d.exportHours!=null?' · '+fmt(d.exportHours)+' export hours':'')+'</div>'
+    + '<h2>Firm totals (annualized, measured)</h2><div class="cards">'
+    + '<div class="card"><div class="ck">Solar exported to grid</div><div class="cv teal">'+fmt(d.exportAnnual)+'</div><div class="cs">kWh/yr net export</div></div>'
+    + '<div class="card"><div class="ck">Gross load from grid</div><div class="cv">'+fmt(d.grossAnnual)+'</div><div class="cs">kWh/yr</div></div>'
+    + '<div class="card"><div class="ck">Net grid draw</div><div class="cv amber">'+fmt(d.netAnnual)+'</div><div class="cs">kWh/yr gross minus export</div></div></div>'
+    + (d.summaryOnly?'<div class="note">Summary view (built from the 24-hour profile). Upload the <b>Green Button XML</b> for interval-exact export and the monthly + peaks sections.</div>':'')
+    + (hourly?'<h2>24-hour average profile</h2><div class="legend">Negative (teal) = exporting to grid · solar-active window '+winTxt+'</div>'+bars:'')
+    + '<h2>Monthly</h2>'+monthly
+    + (peaks?'<h2>Peaks</h2>'+peaks:'')
+    + '<h2>Solar production</h2>'+(prod||'<div class="note">Load a net-metered file to estimate production.</div>')
+    + '<div class="foot">Generated '+genStamp+' from your uploaded interval data · Rivertown Solar</div>'
+    + '</div></body></html>';
+  }
+
+  function openReport(){
+    var g = getMeta();
+    if (!g){ alert('Load a Green Button file first, then open the breakdown.'); return; }
+    var d = resolveDetail(g.meta, g.profile);
+    var w = window.open('', '_blank');
+    if (!w){ alert('Your browser blocked the popup. Allow popups for this site, then click again.'); return; }
+    w.document.open(); w.document.write(reportHtml(d)); w.document.close();
+  }
+  window.openGbBreakdown = openReport;
+
+  // Inject the link under the loaded-file status. Lives inside #csvMetaBlock so
+  // it shows/hides with the loaded state automatically. Interval guard re-injects
+  // if a view rebuild (client/installer toggle) ever replaces the node.
+  function inject(){
+    var block = document.getElementById('csvMetaBlock');
+    if (!block || document.getElementById('gbBreakdownLink')) return;
+    var link = document.createElement('button');
+    link.id = 'gbBreakdownLink';
+    link.type = 'button';
+    link.textContent = '📊 View full breakdown →';
+    link.setAttribute('style','display:block;width:100%;margin:8px 0 4px;padding:8px 10px;background:rgba(20,184,166,.10);border:1px solid rgba(20,184,166,.35);border-radius:6px;color:#5EEAD4;font-size:12px;font-weight:600;cursor:pointer;text-align:center');
+    link.onclick = function(e){ e.stopPropagation(); openReport(); };
+    var grid = block.querySelector('.csv-meta');
+    if (grid && grid.parentNode) grid.parentNode.insertBefore(link, grid.nextSibling);
+    else block.appendChild(link);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', inject);
+  else inject();
+  setInterval(inject, 1500);
+  console.log('[Breakdown v13] "View full breakdown" ready.');
 })();
 </script>
 </body>

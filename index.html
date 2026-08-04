@@ -3894,8 +3894,10 @@ setupEvents();
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
     while (walker.nextNode()) {
       var node = walker.currentNode;
-      // Skip the utility selector buttons
-      if (node.parentElement && node.parentElement.closest('#utilitySeg')) continue;
+      // Skip the utility selector buttons and the v14 utility card (its dropdown
+      // options, hint, and accuracy notice manage their own utility-aware wording;
+      // the blanket Rate III -> O&R TOU swap would turn "... TOU" into "TOU TOU").
+      if (node.parentElement && node.parentElement.closest('#utilitySeg, #utilityPickWrap')) continue;
       if (node.nodeValue.includes('EL1')) {
         node.nodeValue = node.nodeValue.replace(/EL1/g, 'SC-1');
       }
@@ -8026,8 +8028,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 (function(){
   'use strict';
   var UTILS = [
-    { v:'coned',    label:'Con Edison (Rate III TOU)',        tou:true  },
-    { v:'onr',      label:'Orange & Rockland (Rate III TOU)', tou:true  },
+    { v:'coned',    label:'Con Edison (TOU arbitrage)',        tou:true  },
+    { v:'onr',      label:'Orange & Rockland (TOU arbitrage)', tou:true  },
     { v:'nyseg',    label:'NYSEG (no TOU)',                   tou:false },
     { v:'natgrid',  label:'National Grid (no TOU)',           tou:false },
     { v:'chg',      label:'Central Hudson (no TOU)',          tou:false },
@@ -8145,7 +8147,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     if(pick) pick.classList.toggle('hidden', !inArb);
     if(hint) hint.textContent = noTou
       ? 'No time-of-use plan — the tab shows a self-supply + backup plan instead of arbitrage.'
-      : 'Rate III TOU arbitrage applies (rates below).';
+      : 'Time-of-use arbitrage applies (rates below).';
     if(rate && inArb) rate.classList.toggle('hidden', noTou);
     if(arb) arb.classList.toggle('hidden', !inArb || noTou);
     if(card){
@@ -8180,6 +8182,84 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   setInterval(function(){ injectPicker(); injectCard(); wireModeButtons(); hook('render'); hook('setMode'); }, 1500);
   console.log('[Utility/No-TOU v14] Self-supply + backup plan ready.');
+})();
+</script>
+<script>// RATE ACCURACY NOTICE — v15
+// A compact "How this is calculated" toggle on the Utility & Rate Plan card.
+// Collapsed it's one small line; clicking expands a short explainer whose content
+// depends on the selected utility (Con Ed TOU / O&R TOU / no-TOU self-supply) —
+// method, savings assumptions, sources, and how accurate the numbers are.
+(function(){
+  'use strict';
+  var NAMES = { coned:'Con Edison', onr:'Orange & Rockland', nyseg:'NYSEG', natgrid:'National Grid', chg:'Central Hudson', psegli:'PSEG Long Island', other:'your utility' };
+  var TOU = { coned:true, onr:true };
+
+  var CSS = '#rateAccWrap{margin-top:10px}'
+    + '#rateAccToggle{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#5EEAD4;cursor:pointer;user-select:none;background:none;border:none;padding:0;font-weight:600}'
+    + '#rateAccToggle .chev{transition:transform .15s}#rateAccToggle.open .chev{transform:rotate(90deg)}'
+    + '#rateAccPanel{margin-top:8px;background:rgba(20,184,166,.06);border:1px solid rgba(20,184,166,.28);border-radius:8px;padding:11px 12px;font-size:11.5px;line-height:1.55;color:var(--text-2)}'
+    + '#rateAccPanel h4{margin:0 0 6px;font-size:12px;color:#5EEAD4;font-weight:700}'
+    + '#rateAccPanel p{margin:0 0 8px}#rateAccPanel p:last-of-type{margin-bottom:0}'
+    + '#rateAccPanel .src{color:var(--text-4);font-size:10.5px;border-top:1px solid rgba(255,255,255,.07);padding-top:7px;margin-top:9px}';
+  function ensureStyle(){ if(document.getElementById('rateAccStyle'))return; var st=document.createElement('style'); st.id='rateAccStyle'; st.textContent=CSS; document.head.appendChild(st); }
+
+  function esc(s){ return s; }
+  function content(){
+    var u = window.__utility || 'coned';
+    var name = NAMES[u] || 'your utility';
+    if (u==='coned'){
+      return { title:'How Con Edison savings are calculated', paras:[
+        'Compares the current flat EL1 bill against Con Ed Rate III TOU with the battery charging overnight (off-peak, midnight–8am) and discharging across the 8am–midnight peak window.',
+        'Annual savings = (peak rate − off-peak rate) × kWh shifted per day, weighted by seasonal day counts, minus the off-peak cost to refill the battery. The 25-year figure compounds at a 3.3%/yr escalator (approved Con Ed filings). The basic service charge is always billed; solar exports are credited at the VDER value stack.'
+      ], src:'Source: Con Ed Rate III &amp; EL1 tariff, NY VDER (Zone H). Default all-in peak ≈ $0.38/kWh (Westchester). All rates are editable.' };
+    }
+    if (u==='onr'){
+      return { title:'How Orange &amp; Rockland savings are calculated', paras:[
+        'Compares the flat SC-1 bill against O&amp;R TOU. Peak applies weekdays only — summer 12–7pm, winter 10am–9pm — with a summer shoulder (10am–12pm &amp; 7–9pm) and off-peak 9pm–10am. Weekends bill fully off-peak (blended 5/7 weekday : 2/7 weekend).',
+        'Annual savings = (peak − off-peak) × kWh shifted, minus off-peak refill. The schedule and the peak-vs-off spread come straight from O&amp;R’s published delivery TOU rates (summer peak 44.65¢, shoulder/winter 15.98¢, off 2.88¢).',
+        'The default rate levels are all-in (delivery + ~11¢ estimated supply); O&amp;R prices supply separately and it floats monthly, so enter the client’s actual rate for an exact bill — the savings spread stays the same.'
+      ], src:'Source: O&amp;R published TOU delivery rates (oru.com), $29/mo service charge. Windows &amp; spread are official; absolute $ levels are an estimate. Editable.' };
+    }
+    return { title:'How ' + name + ' savings are calculated', paras:[
+      name + ' has no residential time-of-use rate, so there’s no rate arbitrage to model. The tab shows a self-supply + backup plan instead.',
+      'Under 1:1 net metering, exported solar is already credited at the full retail rate, so moving it to the evening changes the timing, not the bill — self-supply savings ≈ $0. The battery’s value here is backup power and protection if net metering is reduced or ends.',
+      'Backup runtime = usable battery kWh ÷ average household load (whole-home) or ÷ ~0.5 kW (essentials), read from your uploaded interval data. Solar recharges the battery each day, so real outage coverage runs longer.'
+    ], src:'Source: ' + name + ' has no residential TOU tariff; NY 1:1 net metering. Runtime is a planning estimate from average load.' };
+  }
+
+  function renderPanel(panel){
+    var c = content();
+    panel.innerHTML = '<h4>' + c.title + '</h4>'
+      + c.paras.map(function(p){ return '<p>' + p + '</p>'; }).join('')
+      + '<div class="src">' + c.src + '</div>';
+  }
+
+  function inject(){
+    var host = document.getElementById('utilityPickWrap');
+    if (!host || document.getElementById('rateAccWrap')) return;
+    ensureStyle();
+    var wrap = document.createElement('div'); wrap.id='rateAccWrap';
+    var btn = document.createElement('button');
+    btn.id='rateAccToggle'; btn.type='button';
+    btn.innerHTML = '<span class="chev">▸</span> How this is calculated · sources';
+    var panel = document.createElement('div'); panel.id='rateAccPanel'; panel.style.display='none';
+    btn.addEventListener('click', function(){
+      var open = panel.style.display==='none';
+      if (open){ renderPanel(panel); panel.style.display='block'; btn.classList.add('open'); }
+      else { panel.style.display='none'; btn.classList.remove('open'); }
+    });
+    wrap.appendChild(btn); wrap.appendChild(panel);
+    host.appendChild(wrap);
+    // Keep the panel current if the utility changes while it's open.
+    window.__rateAccRefresh = function(){ if (panel.style.display!=='none') renderPanel(panel); };
+    var pick = document.getElementById('utilityPick');
+    if (pick && !pick.__rateAccWired){ pick.__rateAccWired=true; pick.addEventListener('change', function(){ if(window.__rateAccRefresh) window.__rateAccRefresh(); }); }
+  }
+
+  function boot(){ ensureStyle(); inject(); }
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  setInterval(inject, 1500);
+  console.log('[Rate Accuracy v15] Explainer ready.');
 })();
 </script>
 </body>

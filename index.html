@@ -8266,10 +8266,12 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var chartWrap=document.querySelector('.chart-wrap');
     if(chartWrap) chartWrap.style.display = hideArbViz ? 'none' : '';
     // The premium-skin mobile sticky chip (#v2bar) mirrors the arbitrage "Annual
-    // savings" hero. There's no arbitrage under a no-TOU utility, so hide it —
-    // otherwise it keeps showing a stale Con Ed savings figure at the top.
+    // savings" hero, so it only belongs on the Arbitrage tab with a TOU rate.
+    // Hide it under a no-TOU utility (no arbitrage) AND on Backup/Solar tabs —
+    // the arbitrage tile is display:none there, which the scroll observer reads
+    // as "not intersecting" and would otherwise pin a stale savings figure up top.
     var v2bar=document.getElementById('v2bar');
-    if(v2bar) v2bar.style.display = hideArbViz ? 'none' : '';
+    if(v2bar) v2bar.style.display = (!inArb || noTou) ? 'none' : '';
   }
   window.__applyUtilityMode=apply;
 

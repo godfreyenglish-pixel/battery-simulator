@@ -7170,7 +7170,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
         sh: (typeof STATE.shoulderRate === 'number') ? STATE.shoulderRate : null,
         bov: STATE.batteryOnlyView ? 1 : 0,
         cq: (typeof STATE.cmpQty === 'number') ? STATE.cmpQty : null,
-        au: (typeof window.__annualUsage === 'number') ? window.__annualUsage : null
+        au: (typeof window.__annualUsage === 'number') ? window.__annualUsage : null,
+        inq: window.__inquiryShare ? 1 : 0   // "simple inquiry view" — trims tabs to Arbitrage + Backup on the client's screen
       };
       return enc(pack);
     };
@@ -7249,6 +7250,12 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
         up.value = x.uiUtil;
         if (typeof window.__applyUtilityMode === 'function') window.__applyUtilityMode();
       } else { ready = false; }
+    }
+
+    // Simple inquiry view — trim the client to Arbitrage + Backup (v16 enforces it).
+    if (x.inq) {
+      window.__inquiryView = true;
+      if (typeof window.__applyInquiryTrim === 'function') window.__applyInquiryTrim();
     }
 
     if (ready) applied = true;
@@ -8372,6 +8379,61 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', boot); else boot();
   setInterval(inject, 1500);
   console.log('[Rate Accuracy v15] Explainer ready.');
+})();
+</script>
+<script>// INQUIRY SHARE — v16
+// A "Simple inquiry view" share for cold leads: the client sees only the
+// Arbitrage (or no-arbitrage self-supply) tab and the Backup tab. Solar Only,
+// Compare and Load Mgmt are hidden so the link stays focused on the two stories
+// that matter to an inquiry. Chosen in the Share flow; the flag rides in the
+// share payload (x.inq via v9) so it survives short links.
+(function(){
+  'use strict';
+
+  // ---- share side: add the choice, flag the payload -----------------------
+  // The Share button uses inline onclick="copyShareLink()", so it resolves the
+  // GLOBAL — wrapping window.copyShareLink is enough (no closure trap here).
+  function wrapShare(){
+    var orig = window.copyShareLink;
+    if (typeof orig !== 'function' || orig.__inqWrapped) return;
+    var w = function(){
+      var yes = false;
+      try {
+        yes = window.confirm(
+          'Simple inquiry view?\n\n' +
+          'OK  = trimmed link for a cold lead (Arbitrage + Backup tabs only).\n' +
+          'Cancel = full client view (all tabs).'
+        );
+      } catch(e) {}
+      window.__inquiryShare = !!yes;                 // read by serializeState (v9) -> x.inq
+      try { return orig.apply(this, arguments); }
+      finally { setTimeout(function(){ window.__inquiryShare = false; }, 0); }
+    };
+    w.__inqWrapped = true;
+    window.copyShareLink = w;
+  }
+
+  // ---- view side: trim the tabs to Arbitrage + Backup ---------------------
+  var HIDE = ['modeSol', 'modeCmp', 'modeLM'];   // Solar Only, Compare, Load Mgmt
+  function trim(){
+    if (!window.__inquiryView) return;
+    HIDE.forEach(function(id){ var b = document.getElementById(id); if (b) b.style.display = 'none'; });
+    // If the shared state landed on a now-hidden tab, snap to Arbitrage.
+    try {
+      if (typeof STATE !== 'undefined' && STATE) {
+        if (['solar','loadmgmt'].indexOf(STATE.mode) >= 0 && typeof window.setMode === 'function') window.setMode('arbitrage');
+        if (STATE.compare && typeof window.toggleCompare === 'function') window.toggleCompare();
+      }
+    } catch(e) {}
+  }
+  window.__applyInquiryTrim = trim;
+
+  function boot(){ wrapShare(); trim(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+  // copyShareLink and the mode buttons are injected/defined on various timers;
+  // keep re-wrapping and re-trimming so the choice and the trim always stick.
+  setInterval(function(){ wrapShare(); trim(); }, 1200);
+  console.log('[Inquiry Share v16] ready.');
 })();
 </script>
 </body>

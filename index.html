@@ -8397,23 +8397,44 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   // failed and nothing copied — worst on mobile. Now a checkbox just sets the
   // flag that serializeState (v9) reads into x.inq. No dialog, no interference.
   function injectCheckbox(){
-    if (document.getElementById('inqShareToggle')) return;
-    var mt = document.querySelector('.mode-toggle'); if (!mt) return;
-    var row = document.getElementById('inqShareRow');
-    if (!row){
-      row = document.createElement('div'); row.id = 'inqShareRow';
-      row.style.cssText = 'margin:-8px 0 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
-      mt.insertAdjacentElement('afterend', row);
+    // Preferred home: the SAME row as "Proposal button" / "Battery only", so it
+    // flows with that row's flex gap instead of stacking as a cramped extra row.
+    // That row (genProposalWrap) is built on a 700ms timer, so on the first pass
+    // it may not exist yet — build our own row now, then migrate in once it does.
+    var wrap = document.getElementById('genProposalWrap');
+    var label = document.getElementById('inqShareLabel');
+
+    if (label){
+      // Already built. If it's sitting in the fallback row and the proposal row
+      // has since appeared, move it over and drop the now-empty fallback row.
+      if (wrap && label.parentElement !== wrap){
+        wrap.appendChild(label);
+        var orphan = document.getElementById('inqShareRow');
+        if (orphan && !orphan.querySelector('label')) orphan.remove();
+      }
+      return;
     }
-    // Installer-only control — clients never share, so hide it in client view.
-    if (document.body.classList.contains('v7-client')) { row.style.display = 'none'; }
-    var label = document.createElement('label');
+
+    var row = wrap;
+    if (!row){
+      var mt = document.querySelector('.mode-toggle'); if (!mt) return;
+      row = document.getElementById('inqShareRow');
+      if (!row){
+        row = document.createElement('div'); row.id = 'inqShareRow';
+        row.style.cssText = 'margin-top:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap';
+        mt.insertAdjacentElement('afterend', row);
+      }
+    }
+    label = document.createElement('label');
+    label.id = 'inqShareLabel';
     label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#9CA3AF;cursor:pointer;user-select:none';
     label.title = 'When shared, the client sees only the Arbitrage and Backup tabs';
     label.innerHTML = '<input type="checkbox" id="inqShareToggle"' + (window.__inquiryShare ? ' checked' : '') +
       ' style="accent-color:#FBBF24;width:13px;height:13px;cursor:pointer">Inquiry link (client sees Arbitrage + Backup only)';
     label.querySelector('input').addEventListener('change', function(e){ window.__inquiryShare = e.target.checked; });
     row.appendChild(label);
+    // Installer-only control — clients never share, so hide it in client view.
+    if (document.body.classList.contains('v7-client')) { label.style.display = 'none'; }
   }
 
   // ---- view side: trim the tabs to Arbitrage + Backup ---------------------

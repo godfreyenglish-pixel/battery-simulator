@@ -8390,27 +8390,30 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 (function(){
   'use strict';
 
-  // ---- share side: add the choice, flag the payload -----------------------
-  // The Share button uses inline onclick="copyShareLink()", so it resolves the
-  // GLOBAL — wrapping window.copyShareLink is enough (no closure trap here).
-  function wrapShare(){
-    var orig = window.copyShareLink;
-    if (typeof orig !== 'function' || orig.__inqWrapped) return;
-    var w = function(){
-      var yes = false;
-      try {
-        yes = window.confirm(
-          'Simple inquiry view?\n\n' +
-          'OK  = trimmed link for a cold lead (Arbitrage + Backup tabs only).\n' +
-          'Cancel = full client view (all tabs).'
-        );
-      } catch(e) {}
-      window.__inquiryShare = !!yes;                 // read by serializeState (v9) -> x.inq
-      try { return orig.apply(this, arguments); }
-      finally { setTimeout(function(){ window.__inquiryShare = false; }, 0); }
-    };
-    w.__inqWrapped = true;
-    window.copyShareLink = w;
+  // ---- share side: an INLINE checkbox, not a dialog -----------------------
+  // v16.0 added a native confirm() to the Share flow. Two native dialogs
+  // (confirm + the name prompt) plus the async short-link fetch pushed the copy
+  // past the browser's user-activation window, so navigator.clipboard.writeText
+  // failed and nothing copied — worst on mobile. Now a checkbox just sets the
+  // flag that serializeState (v9) reads into x.inq. No dialog, no interference.
+  function injectCheckbox(){
+    if (document.getElementById('inqShareToggle')) return;
+    var mt = document.querySelector('.mode-toggle'); if (!mt) return;
+    var row = document.getElementById('inqShareRow');
+    if (!row){
+      row = document.createElement('div'); row.id = 'inqShareRow';
+      row.style.cssText = 'margin:-8px 0 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+      mt.insertAdjacentElement('afterend', row);
+    }
+    // Installer-only control — clients never share, so hide it in client view.
+    if (document.body.classList.contains('v7-client')) { row.style.display = 'none'; }
+    var label = document.createElement('label');
+    label.style.cssText = 'display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#9CA3AF;cursor:pointer;user-select:none';
+    label.title = 'When shared, the client sees only the Arbitrage and Backup tabs';
+    label.innerHTML = '<input type="checkbox" id="inqShareToggle"' + (window.__inquiryShare ? ' checked' : '') +
+      ' style="accent-color:#FBBF24;width:13px;height:13px;cursor:pointer">Inquiry link (client sees Arbitrage + Backup only)';
+    label.querySelector('input').addEventListener('change', function(e){ window.__inquiryShare = e.target.checked; });
+    row.appendChild(label);
   }
 
   // ---- view side: trim the tabs to Arbitrage + Backup ---------------------
@@ -8428,12 +8431,12 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   }
   window.__applyInquiryTrim = trim;
 
-  function boot(){ wrapShare(); trim(); }
+  function boot(){ injectCheckbox(); trim(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
-  // copyShareLink and the mode buttons are injected/defined on various timers;
-  // keep re-wrapping and re-trimming so the choice and the trim always stick.
-  setInterval(function(){ wrapShare(); trim(); }, 1200);
-  console.log('[Inquiry Share v16] ready.');
+  // The mode toggle and client-view class settle on timers; keep re-checking so
+  // the checkbox lands (and stays hidden in client view) and the trim sticks.
+  setInterval(function(){ injectCheckbox(); trim(); }, 1200);
+  console.log('[Inquiry Share v16.1] inline checkbox ready.');
 })();
 </script>
 </body>

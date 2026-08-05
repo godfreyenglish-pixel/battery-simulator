@@ -419,8 +419,11 @@
     /* Compact action buttons in header — show icon + truncate label */
     .icon-btn { padding: 8px 10px; font-size: 12px; gap: 4px; }
     .icon-btn svg { width: 14px; height: 14px; }
-    /* Mode buttons (Arbitrage / Backup / Solar Only) — slightly tighter */
-    .mode-btn { padding: 12px 8px; font-size: 13px; }
+    /* Mode buttons (Arbitrage / Backup / Solar Only) — slightly tighter, and the
+       toggle wraps to a second row so 5 buttons don't overflow the phone width
+       (the overflow widened the layout viewport and caused a hair of side-scroll). */
+    .mode-toggle { display: flex; flex-wrap: wrap; width: 100%; }
+    .mode-btn { padding: 12px 8px; font-size: 13px; flex: 1 1 auto; }
     /* Cards — reduce padding so more content fits */
     .card { padding: 16px; border-radius: 12px; }
     .card + .card { margin-top: 12px; }
@@ -8255,6 +8258,11 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     if(bd) bd.style.display = hideArbViz ? 'none' : '';
     var chartWrap=document.querySelector('.chart-wrap');
     if(chartWrap) chartWrap.style.display = hideArbViz ? 'none' : '';
+    // The premium-skin mobile sticky chip (#v2bar) mirrors the arbitrage "Annual
+    // savings" hero. There's no arbitrage under a no-TOU utility, so hide it —
+    // otherwise it keeps showing a stale Con Ed savings figure at the top.
+    var v2bar=document.getElementById('v2bar');
+    if(v2bar) v2bar.style.display = hideArbViz ? 'none' : '';
   }
   window.__applyUtilityMode=apply;
 

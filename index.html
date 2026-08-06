@@ -8175,27 +8175,25 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   }
 
   function backup(s){
+    // Quote the SAME numbers the Backup tab shows. renderBackup() computes
+    // simulateBackup(setupB()) — always setup B, and it already folds in the
+    // client's selected critical loads (STATE.crit) with quantities. Reusing
+    // that exact function (rather than reimplementing it, or reading
+    // activeSetup()) guarantees the runtime here matches the Backup tab even
+    // when compare mode is on and setup A is the active one.
+    try {
+      if (typeof simulateBackup==='function' && typeof setupB==='function') {
+        var r = simulateBackup(setupB());
+        return { usable:r.usable||0, whole:r.wholeRuntime||0, crit:r.critRuntime||0,
+                 critW:r.critW||0, ess:(r.usable>0?r.usable/0.5:0) };
+      }
+    } catch(e){}
+    // Fallback if those globals aren't reachable for some reason.
     var spec=(window.batterySpecs?window.batterySpecs(s):null);
     var usable=(spec&&spec.usable)?spec.usable:0;
     var dailyKwh=s.daily||(s.csvMeta&&s.csvMeta.dailyAvg)||0;
     var avgKw=dailyKwh/24;
-    // Mirror simulateBackup() so the self-supply plan's runtime matches the
-    // Backup tab EXACTLY for the client's selected critical loads — same
-    // STATE.crit quantities, same CRIT_LOADS watts*duty. Previously this card
-    // showed a fixed 500W "essentials" guess (usable/0.5) that never tracked
-    // the loads the client actually picked, so the two tabs disagreed.
-    var critW=0;
-    try {
-      if (typeof STATE!=='undefined' && STATE && STATE.crit && typeof CRIT_LOADS!=='undefined') {
-        for (var k in STATE.crit){
-          var qty=STATE.crit[k];
-          if (qty && CRIT_LOADS[k]) critW += CRIT_LOADS[k].watts * CRIT_LOADS[k].duty * qty;
-        }
-      }
-    } catch(e){}
-    var critKw=critW/1000;
-    return { usable:usable, whole:(avgKw>0?usable/avgKw:0),
-             crit:(critKw>0?usable/critKw:0), critW:critW,
+    return { usable:usable, whole:(avgKw>0?usable/avgKw:0), crit:0, critW:0,
              ess:(usable>0?usable/0.5:0) };
   }
 

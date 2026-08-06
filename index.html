@@ -8179,7 +8179,24 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var usable=(spec&&spec.usable)?spec.usable:0;
     var dailyKwh=s.daily||(s.csvMeta&&s.csvMeta.dailyAvg)||0;
     var avgKw=dailyKwh/24;
-    return { usable:usable, whole:(avgKw>0?usable/avgKw:0), ess:(usable>0?usable/0.5:0) };
+    // Mirror simulateBackup() so the self-supply plan's runtime matches the
+    // Backup tab EXACTLY for the client's selected critical loads — same
+    // STATE.crit quantities, same CRIT_LOADS watts*duty. Previously this card
+    // showed a fixed 500W "essentials" guess (usable/0.5) that never tracked
+    // the loads the client actually picked, so the two tabs disagreed.
+    var critW=0;
+    try {
+      if (typeof STATE!=='undefined' && STATE && STATE.crit && typeof CRIT_LOADS!=='undefined') {
+        for (var k in STATE.crit){
+          var qty=STATE.crit[k];
+          if (qty && CRIT_LOADS[k]) critW += CRIT_LOADS[k].watts * CRIT_LOADS[k].duty * qty;
+        }
+      }
+    } catch(e){}
+    var critKw=critW/1000;
+    return { usable:usable, whole:(avgKw>0?usable/avgKw:0),
+             crit:(critKw>0?usable/critKw:0), critW:critW,
+             ess:(usable>0?usable/0.5:0) };
   }
 
   function buildHtml(){
@@ -8192,9 +8209,20 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var retail=uMeta.retail || parseFloat((document.getElementById('el1Rate')||{}).value) || 0.38;
     var capturable=b.usable>0 ? Math.min(exportAnnual, b.usable*365) : exportAnnual;
 
+    // Lead with the SELECTED critical-loads runtime when the client has picked
+    // loads on the Backup tab — that's the number the Backup tab headlines, so
+    // the two tabs now read the same figure. Fall back to whole-home when no
+    // loads are picked yet.
+    var hasCrit = b.usable>0 && b.crit>0;
+    var fHr = (typeof fmtHr==='function') ? fmtHr : function(n){ return (n>0? n.toFixed(1):'—')+' hr'; };
+    var bigHrs = hasCrit ? b.crit : b.whole;
+    var subTxt;
+    if (!b.usable) subTxt = 'pick a battery to size it';
+    else if (hasCrit) subTxt = 'on your selected loads ('+Math.round(b.critW)+'W) · '+fHr(b.whole)+' whole-home · '+fmt(b.usable)+' kWh usable';
+    else subTxt = 'whole-home · '+fmt(b.usable)+' kWh usable · pick critical loads on the Backup tab to refine';
     var cards='<div class="card"><div class="ssk">Backup runtime</div>'
-      +'<div class="ssv">'+(b.usable>0&&b.whole?b.whole.toFixed(1):'—')+' hrs</div>'
-      +'<div class="sss">whole-home'+(b.usable>0?' · '+Math.round(b.ess)+' hrs on essentials · '+fmt(b.usable)+' kWh usable':' · pick a battery to size it')+'</div></div>';
+      +'<div class="ssv">'+(b.usable>0?fHr(bigHrs):'—')+'</div>'
+      +'<div class="sss">'+subTxt+'</div></div>';
     if(hasSolar){
       cards+='<div class="card"><div class="ssk">Solar the battery can time-shift</div>'
         +'<div class="ssv teal">'+fmt(capturable)+' kWh/yr</div>'

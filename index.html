@@ -4162,9 +4162,11 @@ setupEvents();
   CRIT_LOADS.evCharger    = { name: 'EV Charger (L2)',       watts: 7600, duty: 0.30 };
   CRIT_LOADS.dehumidifier = { name: 'Dehumidifier',          watts: 500,  duty: 0.50 };
   CRIT_LOADS.waterHeater  = { name: 'Electric Water Heater', watts: 4500, duty: 0.15 };
+  CRIT_LOADS.windowAC     = { name: 'Window A/C Unit',        watts: 1000, duty: 0.50 };
+  CRIT_LOADS.gasWaterHeater = { name: 'Gas Water Heater (power vent)', watts: 150, duty: 0.15 };
 
   // Add defaults to STATE.crit (all off)
-  var newLoads = ['sumpPump','garageDoor','security','freezer','ejectorPump','evCharger','dehumidifier','waterHeater'];
+  var newLoads = ['sumpPump','garageDoor','security','freezer','ejectorPump','evCharger','dehumidifier','waterHeater','windowAC','gasWaterHeater'];
   newLoads.forEach(function(k) {
     if (STATE.crit[k] === undefined) STATE.crit[k] = false;
   });
@@ -4573,7 +4575,7 @@ setupEvents();
   'use strict';
 
   // ── ADD HEAT PUMP LOADS ──
-  CRIT_LOADS.heatPumpMini = { name: 'Mini-Split Heat Pump (per head)', watts: 1200, duty: 0.40 };
+  CRIT_LOADS.heatPumpMini = { name: 'Ductless Mini-Split (per head)', watts: 1200, duty: 0.40 };
   CRIT_LOADS.heatPumpCentral = { name: 'Central Heat Pump', watts: 4500, duty: 0.35 };
 
   // ── CONVERT STATE.crit FROM BOOLEAN TO QUANTITY ──

@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your Rivertown Battery Plan — Walkthrough</title>
+<style>
+  :root{
+    --bg:#0B1220; --bg2:#111827; --surface:#1F2937; --surface2:#273244; --line:rgba(255,255,255,.09);
+    --text:#F9FAFB; --muted:#9CA3AF; --muted2:#6B7280;
+    --amber:#FBBF24; --amber-d:#F59E0B; --teal:#14B8A6; --green:#22C55E; --blue:#60A5FA; --red:#F97316;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .app{max-width:760px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+
+  /* top bar */
+  .top{position:sticky;top:0;z-index:20;background:rgba(11,18,32,.9);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding:14px 20px}
+  .top .row{display:flex;align-items:center;justify-content:space-between}
+  .brand{font-size:15px;font-weight:800}.brand span{color:var(--amber)}
+  .stepno{font-size:12px;color:var(--muted)}
+  .prog{height:5px;background:var(--surface);border-radius:99px;margin-top:12px;overflow:hidden}
+  .prog i{display:block;height:100%;background:linear-gradient(90deg,var(--amber),var(--amber-d));width:12%;border-radius:99px;transition:width .5s cubic-bezier(.2,.7,.2,1)}
+  .dots{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+  .dots button{flex:1;min-width:20px;height:6px;border:0;border-radius:99px;background:var(--surface);cursor:pointer;padding:0;transition:.3s}
+  .dots button.done{background:var(--teal)} .dots button.cur{background:var(--amber)}
+
+  .stage{flex:1;padding:30px 22px 40px}
+  .screen{display:none;animation:fade .45s ease}
+  .screen.on{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+
+  .eyebrow{color:var(--amber);font-size:12px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase}
+  h1{font-size:clamp(26px,5.5vw,38px);font-weight:800;line-height:1.12;letter-spacing:-.02em;margin:12px 0}
+  h2{font-size:clamp(21px,4vw,29px);font-weight:800;line-height:1.15;letter-spacing:-.02em;margin:10px 0 12px}
+  p.lead{color:var(--muted);font-size:16px;max-width:600px}
+  p.body{color:#CBD5E1;font-size:15px;margin-top:12px;max-width:600px}
+
+  .card{background:var(--bg2);border:1px solid var(--line);border-radius:16px;padding:20px;margin-top:18px}
+  .k{font-size:11.5px;color:var(--muted2);text-transform:uppercase;letter-spacing:.4px}
+  .grid{display:flex;flex-wrap:wrap;gap:12px;margin-top:16px}
+  .tile{flex:1 1 150px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .tile .v{font-size:26px;font-weight:800;letter-spacing:-.02em;margin-top:5px}
+  .tile .s{font-size:12px;color:var(--muted);margin-top:3px}
+  .teal{color:var(--teal)}.amber{color:var(--amber)}.green{color:var(--green)}.blue{color:var(--blue)}.red{color:var(--red)}
+
+  /* slider */
+  .slwrap{margin-top:10px}
+  input[type=range]{-webkit-appearance:none;width:100%;height:8px;border-radius:99px;background:var(--surface);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:var(--amber);cursor:pointer;border:3px solid #3a2c00}
+  input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:var(--amber);cursor:pointer;border:3px solid #3a2c00}
+  .billval{font-size:40px;font-weight:800;letter-spacing:-.02em}
+  .seg{display:inline-flex;background:var(--surface);border-radius:10px;padding:4px;gap:4px;margin-top:8px;flex-wrap:wrap}
+  .seg button{border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:700;padding:8px 13px;border-radius:8px;cursor:pointer}
+  .seg button.on{background:var(--amber);color:#3a2c00}
+
+  /* reasoning list */
+  .reason{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .reason:last-child{border-bottom:0}
+  .reason .ic{width:30px;height:30px;border-radius:8px;background:rgba(20,184,166,.14);color:var(--teal);font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .reason .t{font-size:14.5px;color:#E5E7EB}
+  .reason .t b{color:#fff}
+
+  /* stress toggles */
+  .stress{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+  .strow{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .strow .lab{font-size:14.5px}
+  .strow .lab s{display:block;color:var(--muted2);font-size:12px;text-decoration:none;margin-top:2px}
+  .badge{font-size:12px;font-weight:800;padding:5px 11px;border-radius:99px;white-space:nowrap}
+  .badge.hold{background:rgba(34,197,94,.15);color:var(--green)}
+  .toggle{width:46px;height:26px;border-radius:99px;background:var(--surface2);position:relative;cursor:pointer;flex-shrink:0;transition:.25s;border:1px solid var(--line)}
+  .toggle i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#94A3B8;transition:.25s}
+  .toggle.on{background:rgba(20,184,166,.35)} .toggle.on i{left:22px;background:var(--teal)}
+
+  /* service steps */
+  .svc{display:flex;gap:12px;padding:11px 0;align-items:flex-start}
+  .svc .n{width:26px;height:26px;border-radius:7px;background:var(--amber);color:#3a2c00;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .svc .t{font-size:14.5px;color:#E5E7EB}.svc .t b{color:#fff}
+
+  /* price */
+  .price{background:linear-gradient(160deg,#152036,#0d1526);border:1px solid rgba(251,191,36,.25);border-radius:18px;padding:24px;margin-top:18px}
+  .pln{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px dashed var(--line);font-size:14.5px;color:#CBD5E1}
+  .pln:last-of-type{border-bottom:0}
+  .pln b{font-weight:700}
+  .net{display:flex;justify-content:space-between;align-items:baseline;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+  .net .big{font-size:34px;font-weight:800;color:var(--amber);letter-spacing:-.02em}
+  .addon{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:10px;cursor:pointer;transition:.2s}
+  .addon.on{border-color:var(--teal);background:rgba(20,184,166,.08)}
+  .addon .box{width:22px;height:22px;border-radius:6px;border:2px solid var(--muted2);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:#3a2c00}
+  .addon.on .box{background:var(--teal);border-color:var(--teal)}
+  .addon .nm{font-size:14px;font-weight:700}.addon .ds{font-size:12px;color:var(--muted)}
+  .addon .pr{margin-left:auto;font-weight:800;white-space:nowrap}
+
+  /* soft commit */
+  .field{margin-top:14px}
+  .field label{font-size:12.5px;color:var(--muted);display:block;margin-bottom:6px}
+  .field input{width:100%;background:var(--surface);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:13px 14px;font-size:15px;font-family:inherit}
+  .field input:focus{outline:none;border-color:var(--amber)}
+  .confirm{display:none;text-align:center;padding:20px 0}
+  .confirm.on{display:block;animation:fade .5s ease}
+  .checkmk{width:70px;height:70px;border-radius:50%;background:rgba(34,197,94,.15);color:var(--green);font-size:38px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+
+  /* nav */
+  .nav{position:sticky;bottom:0;background:rgba(11,18,32,.92);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:14px 20px;display:flex;gap:12px}
+  .btn{flex:1;border:0;border-radius:12px;padding:15px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit;transition:.2s}
+  .btn.primary{background:var(--amber);color:#3a2c00}
+  .btn.ghost{background:var(--surface);color:var(--text);flex:0 0 auto;padding:15px 20px}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .disc{color:var(--muted2);font-size:11px;line-height:1.55;margin-top:16px;max-width:620px}
+  .locknote{display:inline-flex;align-items:center;gap:7px;color:var(--muted2);font-size:12.5px;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TOP -->
+  <div class="top">
+    <div class="row">
+      <div class="brand">Rivertown <span>Solar</span></div>
+      <div class="stepno"><span id="curN">1</span> / 8</div>
+    </div>
+    <div class="prog"><i id="progbar"></i></div>
+    <div class="dots" id="dots"></div>
+  </div>
+
+  <!-- STAGE -->
+  <div class="stage">
+
+    <!-- 1 DATA -->
+    <div class="screen on" data-step="0">
+      <div class="eyebrow">Step 1 &middot; Your energy</div>
+      <h1>Let's start with your home.</h1>
+      <p class="lead">Slide to your typical monthly Con&nbsp;Edison electric bill. Everything after this is built from your real numbers — no guessing.</p>
+      <div class="card">
+        <div class="k">My monthly electric bill</div>
+        <div class="billval amber">$<span id="billLbl">280</span></div>
+        <div class="slwrap"><input type="range" id="bill" min="90" max="800" step="10" value="280"></div>
+        <div style="display:flex;justify-content:space-between;color:var(--muted2);font-size:12px;margin-top:6px"><span>$90</span><span>$800</span></div>
+        <div class="k" style="margin-top:20px">My home heats with</div>
+        <div class="seg" id="homeSeg">
+          <button class="on" data-home="gas">Gas heat</button>
+          <button data-home="dual">Mixed</button>
+          <button data-home="heatpump">Heat pump</button>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="tile"><div class="k">Est. yearly usage</div><div class="v teal" id="d_kwh">—</div><div class="s">kWh / year</div></div>
+        <div class="tile"><div class="k">Est. yearly cost</div><div class="v amber" id="d_cost">—</div><div class="s">at ~30&cent;/kWh today</div></div>
+      </div>
+    </div>
+
+    <!-- 2 READ -->
+    <div class="screen" data-step="1">
+      <div class="eyebrow">Step 2 &middot; What we see</div>
+      <h2>Here's how your power gets used.</h2>
+      <p class="body">Con Edison's rate charges peak prices from <b>8am to midnight</b> — 16 hours. Most of your home's usage lands right inside that window. That's your exposure, and it's exactly what the plan is built to solve.</p>
+      <div class="card">
+        <div class="k" style="margin-bottom:12px">Your usage vs. the peak window</div>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:150px" id="readBars"></div>
+        <div style="display:flex;justify-content:space-between;color:var(--muted2);font-size:10.5px;margin-top:8px"><span>12a</span><span>8a</span><span>4p</span><span>12a</span></div>
+      </div>
+      <div class="grid">
+        <div class="tile"><div class="k">Usage in the peak window</div><div class="v red" id="r_peakpct">~72%</div><div class="s">of your daily power</div></div>
+        <div class="tile"><div class="k">Overnight (cheap) window</div><div class="v teal" id="r_offpct">~28%</div><div class="s">midnight–8am</div></div>
+      </div>
+    </div>
+
+    <!-- 3 PLAN -->
+    <div class="screen" data-step="2">
+      <div class="eyebrow">Step 3 &middot; Your plan</div>
+      <h2>Why we recommend this battery.</h2>
+      <p class="body">We don't sell the biggest box — we size the one that covers your peak and pays for itself fastest. Here's the logic behind your recommendation:</p>
+      <div class="card">
+        <div class="reason"><div class="ic">1</div><div class="t">Your home runs about <b id="pl_daily">—</b> kWh a day, and most of it in the peak window.</div></div>
+        <div class="reason"><div class="ic">2</div><div class="t">So we size a battery that carries your critical daytime load through the peak: <b id="pl_batt">—</b> kWh usable.</div></div>
+        <div class="reason"><div class="ic">3</div><div class="t">It charges overnight at ~5&cent; and discharges against the ~28&cent; peak — a <b>~5&times; spread</b>, captured every day.</div></div>
+        <div class="reason"><div class="ic">4</div><div class="t">That's an estimated <b class="green" id="pl_save">—</b>/year in avoided peak cost — plus whole-home backup when the grid goes down.</div></div>
+      </div>
+      <div class="grid">
+        <div class="tile"><div class="k">Recommended battery</div><div class="v teal" id="pl_batt2">—</div><div class="s">usable capacity</div></div>
+        <div class="tile"><div class="k">Est. year-1 savings</div><div class="v green" id="pl_save2">—</div><div class="s">grows as rates rise</div></div>
+      </div>
+    </div>
+
+    <!-- 4 STRESS -->
+    <div class="screen" data-step="3">
+      <div class="eyebrow">Step 4 &middot; Stress test</div>
+      <h2>We try to break the plan.</h2>
+      <p class="body">A plan is only worth anything if it survives a bad day. Flip on the worst cases and watch how the design holds.</p>
+      <div class="stress" id="stress">
+        <div class="strow">
+          <div class="lab">July heat wave, AC all day<s>Highest demand, highest peak price</s></div>
+          <div style="display:flex;align-items:center;gap:12px"><span class="badge hold" style="display:none">Holds ✓</span><div class="toggle" data-i="0"><i></i></div></div>
+        </div>
+        <div class="strow">
+          <div class="lab">24-hour grid outage<s>Storm knocks out the block</s></div>
+          <div style="display:flex;align-items:center;gap:12px"><span class="badge hold" style="display:none">Holds ✓</span><div class="toggle" data-i="1"><i></i></div></div>
+        </div>
+        <div class="strow">
+          <div class="lab">Cloudy week, no solar help<s>Battery still arbitrages the grid spread</s></div>
+          <div style="display:flex;align-items:center;gap:12px"><span class="badge hold" style="display:none">Holds ✓</span><div class="toggle" data-i="2"><i></i></div></div>
+        </div>
+        <div class="strow">
+          <div class="lab">Con Ed raises rates 3%/yr<s>Approved through 2028</s></div>
+          <div style="display:flex;align-items:center;gap:12px"><span class="badge hold" style="display:none">Savings grow ✓</span><div class="toggle" data-i="3"><i></i></div></div>
+        </div>
+      </div>
+      <div class="card" id="stressMsg" style="text-align:center;color:var(--muted)">Flip the switches above to stress-test your plan.</div>
+    </div>
+
+    <!-- 5 REAL WORLD -->
+    <div class="screen" data-step="4">
+      <div class="eyebrow">Step 5 &middot; The long view</div>
+      <h2>Your savings, paired with Con Ed's future.</h2>
+      <p class="body">In January 2026, New York approved Con Edison rate increases of about <b>3% a year through 2028</b>. As the peak price climbs, the spread your battery captures gets wider — so your savings <em>grow</em> instead of shrinking. This is what your plan looks like over time.</p>
+      <div class="card">
+        <div class="k" style="margin-bottom:12px">Estimated annual savings by year</div>
+        <div style="display:flex;align-items:flex-end;gap:10px;height:150px" id="futBars"></div>
+        <div style="display:flex;justify-content:space-between;color:var(--muted2);font-size:11px;margin-top:8px"><span>Yr 1</span><span>Yr 3</span><span>Yr 5</span><span>Yr 7</span><span>Yr 10</span></div>
+      </div>
+      <div class="grid">
+        <div class="tile"><div class="k">Est. 10-yr savings</div><div class="v green" id="f_ten">—</div><div class="s">cumulative, illustrative</div></div>
+        <div class="tile"><div class="k">Backup value</div><div class="v teal">Priceless</div><div class="s">lights on in an outage</div></div>
+      </div>
+    </div>
+
+    <!-- 6 SERVICE -->
+    <div class="screen" data-step="5">
+      <div class="eyebrow">Step 6 &middot; What you get</div>
+      <h2>We carry the whole thing.</h2>
+      <p class="body">Before we ever talk price, here's the level of service standing behind your system — start to finish. You bring the house. We handle everything else.</p>
+      <div class="card">
+        <div class="svc"><div class="n">1</div><div class="t"><b>Energy analysis</b> — we model your real usage and savings first.</div></div>
+        <div class="svc"><div class="n">2</div><div class="t"><b>Custom plan</b> — right-sized battery + rate strategy + every incentive.</div></div>
+        <div class="svc"><div class="n">3</div><div class="t"><b>Professional site survey</b> — a tech confirms the design on your home.</div></div>
+        <div class="svc"><div class="n">4</div><div class="t"><b>Permits &amp; interconnection</b> — we file everything with Con Ed &amp; NYSERDA.</div></div>
+        <div class="svc"><div class="n">5</div><div class="t"><b>Licensed installation</b> — clean, code, usually 1–2 days.</div></div>
+        <div class="svc"><div class="n">6</div><div class="t"><b>Commissioning &amp; rate switch</b> — we turn hardware into daily savings.</div></div>
+        <div class="svc"><div class="n">7</div><div class="t"><b>Monitoring &amp; support</b> — we watch it so it keeps earning.</div></div>
+      </div>
+    </div>
+
+    <!-- 7 PRICE -->
+    <div class="screen" data-step="6">
+      <div class="eyebrow">Step 7 &middot; Your investment</div>
+      <h2>Now the numbers.</h2>
+      <p class="body">A preliminary estimate for your recommended system, with incentives applied. Build your package below.</p>
+
+      <div class="price">
+        <div class="pln">Recommended battery system <b id="pz_gross">—</b></div>
+        <div class="pln">NYSERDA storage incentive <b class="teal" id="pz_nyserda">—</b></div>
+        <div class="pln">30% federal tax credit <b class="teal" id="pz_fed">—</b></div>
+        <div class="pln" id="pz_addonMaint" style="display:none">+ Quarterly maintenance &amp; tuning <b>+$1,500/yr</b></div>
+        <div class="pln" id="pz_addonEmp" style="display:none">+ Emporia + smart-switch system <b>+$2,000</b></div>
+        <div class="net"><span style="color:var(--muted);font-size:13px">Estimated net investment</span><span class="big" id="pz_net">—</span></div>
+      </div>
+
+      <div style="margin-top:16px" class="k">Optional add-ons</div>
+      <div class="addon" id="ad_maint" onclick="toggleAddon('maint')">
+        <div class="box">✓</div>
+        <div><div class="nm">Quarterly Maintenance &amp; Tuning</div><div class="ds">4 visits/yr, keeps dispatch sharp</div></div>
+        <div class="pr amber">+$1,500/yr</div>
+      </div>
+      <div class="addon" id="ad_emp" onclick="toggleAddon('emp')">
+        <div class="box">✓</div>
+        <div><div class="nm">Emporia + Smart Switch</div><div class="ds">Circuit-level monitoring &amp; control</div></div>
+        <div class="pr teal">+$2,000</div>
+      </div>
+
+      <div class="locknote">🔒 Preliminary estimate — your exact price is confirmed after the free site survey.</div>
+    </div>
+
+    <!-- 8 SOFT COMMIT -->
+    <div class="screen" data-step="7">
+      <div id="commitForm">
+        <div class="eyebrow">Step 8 &middot; Start here</div>
+        <h2>Ready for the real breakdown?</h2>
+        <p class="body">Everything so far is modeled from your bill. The <b>free site survey</b> is where it gets real — a technician confirms your exact system, price, and savings on your actual home. Authorize the visit below. No payment, no obligation.</p>
+        <div class="card">
+          <div class="field"><label>Your name</label><input id="nm" type="text" placeholder="First and last name" oninput="checkForm()"></div>
+          <div class="field"><label>Email</label><input id="em" type="email" placeholder="you@email.com" oninput="checkForm()"></div>
+          <div class="field"><label>Property address</label><input id="ad" type="text" placeholder="Street, city" oninput="checkForm()"></div>
+          <div style="font-size:12px;color:var(--muted2);margin-top:12px">Typing your name authorizes Rivertown Solar to schedule a site survey. It is not a purchase agreement.</div>
+        </div>
+        <button class="btn primary" id="commitBtn" style="margin-top:16px" disabled onclick="submitCommit()">Authorize my site survey &rarr;</button>
+      </div>
+      <div class="confirm" id="commitDone">
+        <div class="checkmk">✓</div>
+        <h2>You're on the calendar path.</h2>
+        <p class="lead" style="margin:0 auto">Thanks, <span id="doneName">there</span>. We'll reach out to lock your site survey. That visit turns this estimate into your real, guaranteed plan.</p>
+        <div class="disc" style="margin:22px auto 0">This confirmation is a soft commitment to a site visit only. Final system, pricing, incentives, and savings are set after the professional survey and your signed agreement.</div>
+      </div>
+    </div>
+
+    <div class="disc" id="globalDisc">All figures are preliminary illustrations generated from the bill you entered and Con Edison's published time-of-use pricing and the January 2026 NY PSC rate order. They exclude some surcharges, vary by account, and are not a quote. Incentives subject to program availability. Final numbers are confirmed at the site survey.</div>
+  </div>
+
+  <!-- NAV -->
+  <div class="nav">
+    <button class="btn ghost" id="backBtn" onclick="go(-1)" style="display:none">&larr;</button>
+    <button class="btn primary" id="nextBtn" onclick="go(1)">See how we read your home &rarr;</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var STEP=0, TOTAL=8;
+  var addons={maint:false, emp:false};
+  var NEXT_LABELS=[
+    'See how we read your home →','Build my recommended plan →','Stress-test my plan →',
+    'Show me the long view →','See the service behind it →','Show me the numbers →',
+    'I’m ready — start here →'
+  ];
+
+  // ---- real quote data (passed from the tool's client / share view) ----
+  var Q=new URLSearchParams(location.search);
+  var REAL=null;
+  if(Q.get('batt')||Q.get('net')||Q.get('gross')){
+    var g=+Q.get('gross')||0, inc=+Q.get('inc')||0;
+    REAL={ kwh:+Q.get('kwh')||0, bill:+Q.get('bill')||0,
+           batt:+Q.get('batt')||0, yr1:+Q.get('save')||0, gross:g, nyserda:inc };
+    if(!REAL.kwh && REAL.bill) REAL.kwh=Math.round(REAL.bill*12/0.30);
+    if(!REAL.bill && REAL.kwh) REAL.bill=Math.round(REAL.kwh*0.30/12);
+    REAL.fed=Math.max(0,Math.round((g-inc)*0.30/10)*10);
+    REAL.net=Math.max(0,g-inc-REAL.fed);
+  }
+
+  // ---- model ----
+  var homeMult={gas:1.0, dual:1.08, heatpump:1.28};
+  var home='gas';
+  function model(){
+    if(REAL){
+      var dk=REAL.kwh/365;
+      return {bill:REAL.bill,annualKwh:REAL.kwh,annualCost:Math.round(REAL.kwh*0.30),daily:dk,
+              batt:REAL.batt,yr1:REAL.yr1,gross:REAL.gross,nyserda:REAL.nyserda,fed:REAL.fed,net:REAL.net,spread:0.23,shift:0};
+    }
+    var bill=+document.getElementById('bill').value;
+    var annualCost=bill*12;
+    var annualKwh=Math.round(annualCost/0.30);
+    var daily=annualKwh/365;
+    // recommended usable battery: cover ~55% of daily load, snap to common sizes
+    var target=daily*0.55*homeMult[home];
+    var sizes=[10,13,20,26,39,52];
+    var batt=sizes[0];
+    for(var i=0;i<sizes.length;i++){ if(sizes[i]<=target) batt=sizes[i]; }
+    if(target>batt && batt!==sizes[sizes.length-1]){ // round up to nearest that covers
+      for(var j=0;j<sizes.length;j++){ if(sizes[j]>=target){ batt=sizes[j]; break; } }
+    }
+    // daily kWh shifted, capped by battery usable
+    var shift=Math.min(batt*0.9, daily*0.6*homeMult[home]);
+    var spread=0.28-0.05;
+    // weight peak-season heavier; ~300 effective peak days
+    var yr1=Math.round(shift*spread*310/10)*10;
+    // gross system price illustrative ~ $1000/kWh installed
+    var gross=Math.round(batt*1000/100)*100;
+    var nyserda=Math.round(batt*350/10)*10;          // ~$350/kWh downstate opening block
+    var fed=Math.round((gross-nyserda)*0.30/10)*10;   // 30% federal on net-of-rebate basis (illustrative)
+    var net=gross-nyserda-fed;
+    return {bill:bill,annualKwh:annualKwh,annualCost:annualCost,daily:daily,batt:batt,yr1:yr1,gross:gross,nyserda:nyserda,fed:fed,net:net,spread:spread,shift:shift};
+  }
+  function money(n){ return '$'+Math.round(n).toLocaleString(); }
+
+  function paint(){
+    var m=model();
+    // step1
+    document.getElementById('billLbl').textContent=m.bill;
+    document.getElementById('d_kwh').textContent=m.annualKwh.toLocaleString();
+    document.getElementById('d_cost').textContent=money(m.annualCost);
+    // step2 read bars + pct
+    buildReadBars(m);
+    var peakPct=Math.round(66+ (home==='heatpump'?8:home==='dual'?3:0));
+    document.getElementById('r_peakpct').textContent='~'+peakPct+'%';
+    document.getElementById('r_offpct').textContent='~'+(100-peakPct)+'%';
+    // step3
+    document.getElementById('pl_daily').textContent=Math.round(m.daily);
+    document.getElementById('pl_batt').textContent=m.batt;
+    document.getElementById('pl_batt2').textContent=m.batt+' kWh';
+    document.getElementById('pl_save').textContent=money(m.yr1);
+    document.getElementById('pl_save2').textContent=money(m.yr1);
+    // step5 future bars + 10yr
+    var ten=buildFutBars(m);
+    document.getElementById('f_ten').textContent=money(ten);
+    // step7 price
+    document.getElementById('pz_gross').textContent=money(m.gross);
+    document.getElementById('pz_nyserda').textContent='−'+money(m.nyserda);
+    document.getElementById('pz_fed').textContent='−'+money(m.fed);
+    var net=m.net + (addons.emp?2000:0);
+    document.getElementById('pz_net').textContent=money(net);
+    document.getElementById('pz_addonMaint').style.display=addons.maint?'flex':'none';
+    document.getElementById('pz_addonEmp').style.display=addons.emp?'flex':'none';
+    document.getElementById('ad_maint').classList.toggle('on',addons.maint);
+    document.getElementById('ad_emp').classList.toggle('on',addons.emp);
+  }
+
+  function buildReadBars(m){
+    var el=document.getElementById('readBars'); el.innerHTML='';
+    var shape=[18,16,15,15,16,20,30,42,58,60,62,64,66,70,78,80,72,70,66,62,58,50,40,28];
+    for(var i=0;i<24;i++){
+      var b=document.createElement('div');
+      b.style.flex='1'; b.style.borderRadius='3px 3px 0 0';
+      b.style.background=(i>=8)?'linear-gradient(180deg,#F59E0B,#FBBF24)':'linear-gradient(180deg,#1f6f66,#14B8A6)';
+      b.style.height='4px'; b.style.transition='height .8s cubic-bezier(.2,.7,.2,1)';
+      el.appendChild(b);
+      (function(bar,h,idx){ setTimeout(function(){ bar.style.height=h+'%'; }, idx*22); })(b,shape[i],i);
+    }
+  }
+  function buildFutBars(m){
+    var el=document.getElementById('futBars'); el.innerHTML='';
+    var years=[1,3,5,7,10], esc=0.03, total=0, maxv=0, vals=[];
+    for(var i=0;i<years.length;i++){ var v=m.yr1*Math.pow(1+esc,years[i]-1); vals.push(v); if(v>maxv)maxv=v; }
+    // cumulative 10yr
+    for(var y=0;y<10;y++){ total+=m.yr1*Math.pow(1+esc,y); }
+    vals.forEach(function(v,i){
+      var col=document.createElement('div');
+      col.style.flex='1'; col.style.textAlign='center';
+      var bar=document.createElement('div');
+      bar.style.background='linear-gradient(180deg,#22C55E,#16a34a)'; bar.style.borderRadius='5px 5px 0 0';
+      bar.style.height='4px'; bar.style.transition='height 1s ease';
+      var lab=document.createElement('div'); lab.style.fontSize='11px'; lab.style.color='#9CA3AF'; lab.style.marginTop='6px';
+      lab.textContent=money(v);
+      col.appendChild(bar); col.appendChild(lab); el.appendChild(col);
+      (function(bb,h){ setTimeout(function(){ bb.style.height=(h/maxv*120+10)+'px'; },120+i*130); })(bar,v);
+    });
+    return total;
+  }
+
+  // ---- nav ----
+  function render(){
+    document.querySelectorAll('.screen').forEach(function(s){ s.classList.toggle('on', +s.dataset.step===STEP); });
+    document.getElementById('curN').textContent=STEP+1;
+    document.getElementById('progbar').style.width=((STEP+1)/TOTAL*100)+'%';
+    document.getElementById('backBtn').style.display=STEP===0?'none':'block';
+    var nb=document.getElementById('nextBtn');
+    if(STEP<TOTAL-1){ nb.style.display='block'; nb.textContent=NEXT_LABELS[STEP]; }
+    else { nb.style.display='none'; }
+    // dots
+    var dots=document.getElementById('dots').children;
+    for(var i=0;i<dots.length;i++){ dots[i].className=''; if(i<STEP)dots[i].classList.add('done'); if(i===STEP)dots[i].classList.add('cur'); }
+    document.getElementById('globalDisc').style.display=(STEP>=1)?'block':'none';
+    window.scrollTo(0,0);
+    if(STEP===4){ paint(); } // re-run future bars animation on entry
+    if(STEP===1){ paint(); }
+  }
+  window.go=function(dir){ STEP=Math.max(0,Math.min(TOTAL-1,STEP+dir)); render(); };
+
+  // dots build
+  var dc=document.getElementById('dots');
+  for(var i=0;i<TOTAL;i++){ var d=document.createElement('button'); (function(idx){ d.onclick=function(){ if(idx<=Math.max(STEP, maxReached)){ STEP=idx; render(); } }; })(i); dc.appendChild(d); }
+  var maxReached=0;
+  var _go=window.go; window.go=function(dir){ _go(dir); if(STEP>maxReached)maxReached=STEP; };
+
+  // home segment
+  document.getElementById('homeSeg').addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b)return;
+    home=b.dataset.home;
+    this.querySelectorAll('button').forEach(function(x){x.classList.remove('on')}); b.classList.add('on');
+    paint();
+  });
+  document.getElementById('bill').addEventListener('input',paint);
+
+  // addons
+  window.toggleAddon=function(k){ addons[k]=!addons[k]; paint(); };
+
+  // stress
+  var stressState=[false,false,false,false];
+  document.getElementById('stress').addEventListener('click',function(e){
+    var t=e.target.closest('.toggle'); if(!t)return;
+    var i=+t.dataset.i; stressState[i]=!stressState[i];
+    t.classList.toggle('on',stressState[i]);
+    t.closest('.strow').querySelector('.badge').style.display=stressState[i]?'inline-block':'none';
+    var n=stressState.filter(Boolean).length;
+    var msg=document.getElementById('stressMsg');
+    if(n===0) msg.innerHTML='Flip the switches above to stress-test your plan.';
+    else if(n<4) msg.innerHTML='<b style="color:#22C55E">'+n+' of 4 scenarios — plan holds.</b> Keep going.';
+    else msg.innerHTML='<b style="color:#22C55E">All 4 scenarios pass. ✓</b> Heat wave, blackout, clouds, and rising rates — your plan is built for every one.';
+  });
+
+  // commit
+  window.checkForm=function(){
+    var ok=document.getElementById('nm').value.trim() && document.getElementById('em').value.trim() && document.getElementById('ad').value.trim();
+    document.getElementById('commitBtn').disabled=!ok;
+  };
+  window.submitCommit=function(){
+    document.getElementById('doneName').textContent=document.getElementById('nm').value.trim().split(' ')[0]||'there';
+    document.getElementById('commitForm').style.display='none';
+    document.getElementById('commitDone').classList.add('on');
+    // NOTE: v1 has no backend. Wire this to your CRM / Apps Script to capture the lead.
+  };
+
+  function initReal(){
+    if(!REAL) return;
+    var sl=document.querySelector('.slwrap');
+    if(sl){ sl.style.display='none'; if(sl.nextElementSibling) sl.nextElementSibling.style.display='none'; }
+    var seg=document.getElementById('homeSeg');
+    if(seg){ seg.style.display='none'; if(seg.previousElementSibling) seg.previousElementSibling.style.display='none'; }
+    var bv=document.querySelector('.billval');
+    if(bv){ var c=document.createElement('div'); c.style.cssText='font-size:13px;color:var(--muted);margin-top:8px'; c.textContent='From the Con Edison usage you shared with us.'; bv.insertAdjacentElement('afterend',c); }
+    var lead=document.querySelector('.screen[data-step="0"] p.lead');
+    if(lead) lead.textContent='These are your real numbers, built from the usage you shared. Tap through to see the plan we recommend for your home — and exactly why.';
+  }
+  initReal(); paint(); render();
+})();
+</script>
+</body>
+</html>

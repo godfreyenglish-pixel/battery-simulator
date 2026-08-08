@@ -8492,5 +8492,73 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[Inquiry Share v16.1] inline checkbox ready.');
 })();
 </script>
+<script>// CLIENT SHARE VIEW — v17: hide battery price, add Proposal Walkthrough
+// In client/share view only (body.v7-client), the battery quote price is hidden
+// and replaced by a "See your full proposal" button that opens the walkthrough
+// funnel carrying this client's REAL numbers (battery kWh, annual savings, gross
+// + NYSERDA incentive). The funnel reveals the price only at its final step.
+// Installer view is untouched; nothing here affects solar-only mode.
+(function(){
+  'use strict';
+  var WALK='https://myarbitragetool.com/walkthrough.html';
+  function isClient(){ return document.body.classList.contains('v7-client'); }
+
+  // Fast, flash-free hide of the price-revealing ROI cells via :has(); the JS
+  // pass below is the fallback for browsers without :has().
+  function ensureCss(){
+    if(document.getElementById('v17css')) return;
+    var st=document.createElement('style'); st.id='v17css';
+    st.textContent='body.v7-client .roi-cell:has(#roiArbNet),body.v7-client .roi-cell:has(#roiArbPayback){display:none!important}';
+    document.head.appendChild(st);
+  }
+  function hidePrice(){
+    if(!isClient()) return;
+    ['roiArbNet','roiArbPayback'].forEach(function(id){
+      var el=document.getElementById(id); if(!el) return;
+      var cell=el.closest('.roi-cell'); if(cell) cell.style.display='none';
+    });
+  }
+
+  function num(s){ if(!s) return 0; var v=parseFloat((''+s).replace(/[^0-9.\-]/g,'')); return isFinite(v)?v:0; }
+  function quote(){
+    var s=(typeof setupB==='function')?setupB():((typeof STATE!=='undefined'&&STATE)?STATE.setupB:null);
+    if(!s) return null;
+    var spec=(typeof batterySpecs==='function')?batterySpecs(s):null;
+    var cost=(typeof batterySystemCost==='function')?batterySystemCost(s):null;
+    return {
+      batt: (spec&&spec.usable)?Math.round(spec.usable):0,
+      gross: cost?Math.round(cost.gross):0,
+      inc: cost?Math.round(cost.incentive):0,
+      save: num((document.getElementById('rAnnualSave')||{}).textContent),
+      kwh: Math.round((s.daily||0)*365)
+    };
+  }
+  function openWalk(){
+    var q=quote();
+    if(!q || !q.batt){ window.open(WALK,'_blank'); return; }
+    var p=new URLSearchParams();
+    p.set('batt',q.batt); p.set('gross',q.gross); p.set('inc',q.inc);
+    p.set('save',q.save); p.set('kwh',q.kwh);
+    window.open(WALK+'?'+p.toString(),'_blank');
+  }
+
+  function injectBtn(){
+    if(!isClient()) return;
+    if(document.getElementById('v17walkBtn')) return;
+    var arb=document.getElementById('arbResults'); if(!arb) return;
+    var wrap=document.createElement('div'); wrap.id='v17walkWrap';
+    wrap.style.cssText='margin-top:20px;text-align:center';
+    wrap.innerHTML='<button id="v17walkBtn" style="background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:12px;padding:15px 28px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 3px 14px rgba(251,191,36,.28);width:100%;max-width:440px">See your full proposal →</button>'
+      +'<div style="color:#8A94A6;font-size:12px;margin-top:8px">Walk through your plan, savings, and investment step by step.</div>';
+    arb.appendChild(wrap);
+    document.getElementById('v17walkBtn').addEventListener('click', openWalk);
+  }
+
+  function run(){ ensureCss(); hidePrice(); injectBtn(); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', run); else run();
+  setInterval(run,1400);
+  console.log('[Client Walkthrough v17] ready.');
+})();
+</script>
 </body>
 </html>

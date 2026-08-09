@@ -8539,6 +8539,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var p=new URLSearchParams();
     p.set('batt',q.batt); p.set('gross',q.gross); p.set('inc',q.inc);
     p.set('save',q.save); p.set('kwh',q.kwh);
+    // pass the CRM endpoint through so the walkthrough's "Authorize site survey"
+    // can post the request straight into the lead tracker
+    try{ if(typeof TRACKING_ENDPOINT!=='undefined' && TRACKING_ENDPOINT) p.set('api', TRACKING_ENDPOINT); }catch(e){}
     window.open(WALK+'?'+p.toString(),'_blank');
   }
 

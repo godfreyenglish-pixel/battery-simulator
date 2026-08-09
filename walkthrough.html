@@ -71,6 +71,11 @@
   .toggle{width:46px;height:26px;border-radius:99px;background:var(--surface2);position:relative;cursor:pointer;flex-shrink:0;transition:.25s;border:1px solid var(--line)}
   .toggle i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#94A3B8;transition:.25s}
   .toggle.on{background:rgba(20,184,166,.35)} .toggle.on i{left:22px;background:var(--teal)}
+  .stleft{flex:1}
+  .sres{font-size:13px;color:#CBD5E1;line-height:1.55;max-height:0;overflow:hidden;opacity:0;transition:max-height .45s ease,opacity .3s ease,margin-top .3s ease}
+  .sres.on{max-height:220px;opacity:1;margin-top:8px}
+  .sres b{color:#fff;font-weight:700}
+  .scorecard{background:var(--bg2);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:16px;text-align:center;color:var(--muted);font-size:14px;line-height:1.55}
 
   /* service steps */
   .svc{display:flex;gap:12px;padding:11px 0;align-items:flex-start}
@@ -186,26 +191,27 @@
     <div class="screen" data-step="3">
       <div class="eyebrow">Step 4 &middot; Stress test</div>
       <h2>We try to break the plan.</h2>
-      <p class="body">A plan is only worth anything if it survives a bad day. Flip on the worst cases and watch how the design holds.</p>
+      <p class="body">A plan only matters if it survives a bad day. Run it against the four worst cases &mdash; measured against <em>your</em> real numbers.</p>
+      <div style="margin-top:16px"><button class="btn primary" id="runStress" style="width:100%;max-width:420px" onclick="runStress()">Run the stress test &rarr;</button></div>
       <div class="stress" id="stress">
-        <div class="strow">
-          <div class="lab">July heat wave, AC all day<s>Highest demand, highest peak price</s></div>
-          <div style="display:flex;align-items:center;gap:12px"><span class="badge hold" style="display:none">Holds ✓</span><div class="toggle" data-i="0"><i></i></div></div>
+        <div class="strow" data-i="0">
+          <div class="stleft"><div class="lab">July heat wave &middot; AC running all day</div><div class="sres" id="sres0"></div></div>
+          <div class="toggle" data-i="0"><i></i></div>
         </div>
-        <div class="strow">
-          <div class="lab">24-hour grid outage<s>Storm knocks out the block</s></div>
-          <div style="display:flex;align-items:center;gap:12px"><span class="badge hold" style="display:none">Holds ✓</span><div class="toggle" data-i="1"><i></i></div></div>
+        <div class="strow" data-i="1">
+          <div class="stleft"><div class="lab">24-hour grid blackout</div><div class="sres" id="sres1"></div></div>
+          <div class="toggle" data-i="1"><i></i></div>
         </div>
-        <div class="strow">
-          <div class="lab">Cloudy week, no solar help<s>Battery still arbitrages the grid spread</s></div>
-          <div style="display:flex;align-items:center;gap:12px"><span class="badge hold" style="display:none">Holds ✓</span><div class="toggle" data-i="2"><i></i></div></div>
+        <div class="strow" data-i="2">
+          <div class="stleft"><div class="lab">A cloudy week &mdash; no sun at all</div><div class="sres" id="sres2"></div></div>
+          <div class="toggle" data-i="2"><i></i></div>
         </div>
-        <div class="strow">
-          <div class="lab">Con Ed raises rates 3%/yr<s>Approved through 2028</s></div>
-          <div style="display:flex;align-items:center;gap:12px"><span class="badge hold" style="display:none">Savings grow ✓</span><div class="toggle" data-i="3"><i></i></div></div>
+        <div class="strow" data-i="3">
+          <div class="stleft"><div class="lab">Con Ed raises rates 3%/yr</div><div class="sres" id="sres3"></div></div>
+          <div class="toggle" data-i="3"><i></i></div>
         </div>
       </div>
-      <div class="card" id="stressMsg" style="text-align:center;color:var(--muted)">Flip the switches above to stress-test your plan.</div>
+      <div class="scorecard" id="stressMsg">Tap &ldquo;Run the stress test,&rdquo; or flip each scenario yourself.</div>
     </div>
 
     <!-- 5 REAL WORLD -->
@@ -249,7 +255,6 @@
       <div class="price">
         <div class="pln">Recommended battery system <b id="pz_gross">—</b></div>
         <div class="pln">NYSERDA storage incentive <b class="teal" id="pz_nyserda">—</b></div>
-        <div class="pln">30% federal tax credit <b class="teal" id="pz_fed">—</b></div>
         <div class="pln" id="pz_addonMaint" style="display:none">+ Quarterly maintenance &amp; tuning <b>+$1,500/yr</b></div>
         <div class="pln" id="pz_addonEmp" style="display:none">+ Emporia + smart-switch system <b>+$2,000</b></div>
         <div class="net"><span style="color:var(--muted);font-size:13px">Estimated net investment</span><span class="big" id="pz_net">—</span></div>
@@ -322,8 +327,8 @@
            batt:+Q.get('batt')||0, yr1:+Q.get('save')||0, gross:g, nyserda:inc };
     if(!REAL.kwh && REAL.bill) REAL.kwh=Math.round(REAL.bill*12/0.30);
     if(!REAL.bill && REAL.kwh) REAL.bill=Math.round(REAL.kwh*0.30/12);
-    REAL.fed=Math.max(0,Math.round((g-inc)*0.30/10)*10);
-    REAL.net=Math.max(0,g-inc-REAL.fed);
+    REAL.fed=0; // no residential federal ITC in 2026 (25D ended 12/31/2025)
+    REAL.net=Math.max(0,g-inc);
   }
 
   // ---- model ----
@@ -355,8 +360,8 @@
     // gross system price illustrative ~ $1000/kWh installed
     var gross=Math.round(batt*1000/100)*100;
     var nyserda=Math.round(batt*350/10)*10;          // ~$350/kWh downstate opening block
-    var fed=Math.round((gross-nyserda)*0.30/10)*10;   // 30% federal on net-of-rebate basis (illustrative)
-    var net=gross-nyserda-fed;
+    var fed=0;                                        // no residential federal ITC in 2026 (25D ended 12/31/2025)
+    var net=gross-nyserda;
     return {bill:bill,annualKwh:annualKwh,annualCost:annualCost,daily:daily,batt:batt,yr1:yr1,gross:gross,nyserda:nyserda,fed:fed,net:net,spread:spread,shift:shift};
   }
   function money(n){ return '$'+Math.round(n).toLocaleString(); }
@@ -384,7 +389,6 @@
     // step7 price
     document.getElementById('pz_gross').textContent=money(m.gross);
     document.getElementById('pz_nyserda').textContent='−'+money(m.nyserda);
-    document.getElementById('pz_fed').textContent='−'+money(m.fed);
     var net=m.net + (addons.emp?2000:0);
     document.getElementById('pz_net').textContent=money(net);
     document.getElementById('pz_addonMaint').style.display=addons.maint?'flex':'none';
@@ -462,18 +466,45 @@
   // addons
   window.toggleAddon=function(k){ addons[k]=!addons[k]; paint(); };
 
-  // stress
+  // stress — real, per-plan outcomes computed from this client's numbers
   var stressState=[false,false,false,false];
+  function fmtHrs(h){ h=Math.round(h); return h>=24?(Math.floor(h/24)+'d '+(h%24)+'h'):(h+' hrs'); }
+  function stressResult(i,m){
+    var b=Math.round(m.batt||0), daily=m.daily||0, yr1=Math.round(m.yr1||0);
+    if(i===0){
+      var peak=daily*0.66, hrs=peak>0?Math.min(16,Math.round(b/(peak/16))):0;
+      return b?('Your <b>'+b+' kWh</b> carries '+(hrs>=16?'the <b>full 16-hour peak</b>':'~<b>'+hrs+' hrs</b> of the peak')+' on the hottest day &mdash; you ride the priciest hours on stored power, not Con Ed&rsquo;s meter.'):'Add a battery to cover the peak.';
+    }
+    if(i===1){
+      var crit=b/0.5, whole=daily>0?b/(daily/24):0;
+      return b?('Critical loads &mdash; fridge, internet, lights, medical &mdash; run <b>~'+fmtHrs(crit)+'</b>; whole-home ~'+Math.round(whole)+' hrs. The block goes dark. Your house doesn&rsquo;t.'):'Add a battery for outage protection.';
+    }
+    if(i===2){
+      var wk=Math.round(yr1/52);
+      return 'Your savings come from the grid&rsquo;s day/night <b>price gap</b>, not the sun. ~<b>$'+wk+'/week</b> keeps landing &mdash; <b>0%</b> weather impact.';
+    }
+    var yr5=Math.round(yr1*Math.pow(1.03,4)/10)*10;
+    return 'Your ~$'+yr1.toLocaleString()+'/yr grows to <b>~$'+yr5.toLocaleString()+'/yr by year 5</b> as rates climb. Every Con Ed hike <b>widens</b> your spread &mdash; you win more, not less.';
+  }
+  function tallyStress(){
+    var n=stressState.filter(Boolean).length, msg=document.getElementById('stressMsg');
+    if(n===0){ msg.innerHTML='Tap &ldquo;Run the stress test,&rdquo; or flip each scenario yourself.'; return; }
+    if(n<4){ msg.innerHTML='<b style="color:var(--green)">'+n+' of 4 &mdash; holding.</b> Keep going.'; return; }
+    msg.innerHTML='<div style="font-size:22px;font-weight:800;color:var(--green);letter-spacing:-.01em">Resilience 4 / 4 &#10003;</div><div style="margin-top:6px;color:#CBD5E1">Heat wave, blackout, clouds, rising rates &mdash; your plan is built for every worst-case day.</div>';
+  }
+  function setStress(i,on){
+    stressState[i]=on;
+    var row=document.querySelector('.strow[data-i="'+i+'"]'); if(!row) return;
+    row.querySelector('.toggle').classList.toggle('on',on);
+    var res=document.getElementById('sres'+i);
+    if(on){ res.innerHTML=stressResult(i,model()); res.classList.add('on'); }
+    else { res.classList.remove('on'); }
+    tallyStress();
+  }
+  window.runStress=function(){ [0,1,2,3].forEach(function(i){ setTimeout(function(){ setStress(i,true); },240*i); }); };
   document.getElementById('stress').addEventListener('click',function(e){
     var t=e.target.closest('.toggle'); if(!t)return;
-    var i=+t.dataset.i; stressState[i]=!stressState[i];
-    t.classList.toggle('on',stressState[i]);
-    t.closest('.strow').querySelector('.badge').style.display=stressState[i]?'inline-block':'none';
-    var n=stressState.filter(Boolean).length;
-    var msg=document.getElementById('stressMsg');
-    if(n===0) msg.innerHTML='Flip the switches above to stress-test your plan.';
-    else if(n<4) msg.innerHTML='<b style="color:#22C55E">'+n+' of 4 scenarios — plan holds.</b> Keep going.';
-    else msg.innerHTML='<b style="color:#22C55E">All 4 scenarios pass. ✓</b> Heat wave, blackout, clouds, and rising rates — your plan is built for every one.';
+    var i=+t.dataset.i; setStress(i,!stressState[i]);
   });
 
   // commit

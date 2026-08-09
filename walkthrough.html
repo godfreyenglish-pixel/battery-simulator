@@ -515,17 +515,20 @@
   window.submitCommit=function(){
     document.getElementById('doneName').textContent=document.getElementById('nm').value.trim().split(' ')[0]||'there';
     // Capture the site-survey request into the CRM (fire-and-forget) when the tool
-    // passed its endpoint in via ?api=. PII goes in the POST body, never the URL.
+    // passed its endpoint in via ?api=. Uses the same GET/JSONP channel the CRM
+    // dashboard uses (browser POST bodies are not delivered to Apps Script here).
     try{
       var api=Q.get('api');
       if(api){
-        var body=new URLSearchParams();
-        body.set('action','surveyRequest');
-        body.set('name', document.getElementById('nm').value.trim());
-        body.set('email', document.getElementById('em').value.trim());
-        body.set('address', document.getElementById('ad').value.trim());
-        if(REAL){ body.set('batt',REAL.batt||''); body.set('save',REAL.yr1||''); body.set('net',REAL.net||''); }
-        fetch(api,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:body.toString()});
+        var d={
+          name: document.getElementById('nm').value.trim(),
+          email: document.getElementById('em').value.trim(),
+          address: document.getElementById('ad').value.trim()
+        };
+        if(REAL){ d.batt=REAL.batt||''; d.save=REAL.yr1||''; d.net=REAL.net||''; }
+        var url=api+'?action=surveyRequest&data='+encodeURIComponent(JSON.stringify(d));
+        try{ fetch(url,{method:'GET',mode:'no-cors',cache:'no-store'}).catch(function(){}); }
+        catch(e2){ var im=new Image(); im.src=url; }
       }
     }catch(e){}
     document.getElementById('commitForm').style.display='none';

@@ -8563,5 +8563,207 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[Client Walkthrough v17] ready.');
 })();
 </script>
+
+<script>
+// UTILITY AUTO-FLIP FROM BILL — v6.1 (SC-1 fix applied)
+// Sets STATE.utility from the parsed bill on a cold lead open. Con Ed default;
+// flips to O&R by provider name or address only (rate class can't tell them
+// apart — both use SC 1 residential). Gated to cold opens; never touches a share link.
+(function () {
+  'use strict';
+  function pickUtility(bill){
+    if(!bill || typeof bill!=='object') return null;
+    var raw = (bill.utility!=null ? bill.utility : (bill.util!=null ? bill.util : '')).toString().trim();
+    if(raw){
+      if(/^coned$/i.test(raw) || /con\s?ed|con\s?edison/i.test(raw)) return 'conEd';
+      if(/^oru$|^onr$/i.test(raw) || /orange|rockland|o\s?&\s?r/i.test(raw)) return 'oru';
+    }
+    var addr = (bill.serviceAddress || bill.address || '').toString();
+    if(addr){
+      var oruZip = /\b109(0[1-9]|[1-9]\d)\b/;
+      var oruTown = /(nanuet|nyack|pearl river|suffern|spring valley|monsey|new city|west nyack|valley cottage|congers|stony point|haverstraw|garnerville|thiells|tomkins cove|sloatsburg|tuxedo|blauvelt|orangeburg|palisades|piermont|sparkill|tappan|pomona|rockland)/i;
+      if(oruZip.test(addr) || oruTown.test(addr)) return 'oru';
+      if(/\b10[0-8]\d{2}\b/.test(addr)) return 'conEd';
+    }
+    var rc = (bill.rateClass || '').toString();
+    if(rc){
+      if(/\bel\s?1\b|\brate\s?(i{1,3})\b/i.test(rc)) return 'conEd';
+    }
+    return null;
+  }
+  var applied = false, iv = null;
+  function apply(){
+    if(applied) return true;
+    try{ if(new URLSearchParams(location.search).get('s')){ applied=true; return true; } }catch(e){}
+    var hasBillParam=false;
+    try{ hasBillParam=!!new URLSearchParams(location.search).get('bill'); }catch(e){}
+    if(!hasBillParam){ applied=true; return true; }
+    var bill=null; try{ bill=(typeof getBill==='function')?getBill():null; }catch(e){}
+    if(!bill) return false;
+    var target=pickUtility(bill);
+    if(!target){ applied=true; return true; }
+    if(typeof STATE==='undefined') return false;
+    if(STATE.utility===target){ applied=true; return true; }
+    if(typeof window.switchUtility!=='function') return false;
+    try{ window.switchUtility(target); }catch(e){ return false; }
+    var seg=document.querySelectorAll('#utilitySeg .seg-btn');
+    if(seg.length){
+      Array.prototype.forEach.call(seg, function(b){
+        var on=b.dataset.utility===target;
+        b.classList.toggle('active', on);
+        b.style.background = on ? 'var(--accent)' : 'var(--card)';
+        b.style.color = on ? 'var(--bg)' : 'var(--text-muted)';
+      });
+    }
+    var shRow=document.getElementById('shoulderRateRow');
+    if(shRow) shRow.style.display=(target==='oru')?'':'none';
+    applied=true;
+    console.log('[v6.1] utility auto-flip -> '+target);
+    return true;
+  }
+  function tick(){ if(apply() && iv){ clearInterval(iv); iv=null; } }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', tick); else tick();
+  iv=setInterval(tick, 400);
+  setTimeout(function(){ if(iv){ clearInterval(iv); iv=null; } }, 12000);
+})();
+  </script>
+
+  <script>
+// PROPOSAL UTILITY-NAME STAMP — v5.2
+// Adds the utility label to the proposal payload so client-facing pages show the
+// real provider. Load AFTER the battery-only wrapper. Adds one field, nothing else.
+(function () {
+  'use strict';
+  function b64urlEncode(str){ return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+  function b64urlDecode(raw){ var s=raw.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; try{return decodeURIComponent(escape(atob(s)));}catch(e){return atob(s);} }
+  function utilLabel(){
+    try{
+      if (typeof UTILITY_PRESETS!=='undefined' && typeof STATE!=='undefined' && STATE.utility && UTILITY_PRESETS[STATE.utility])
+        return UTILITY_PRESETS[STATE.utility].label || '';
+    }catch(e){}
+    return '';
+  }
+  function wrap(){
+    if (typeof window.buildProposalUrl!=='function' || window.buildProposalUrl.__utilStamped) return;
+    var prev = window.buildProposalUrl;
+    var wrapped = function(){
+      var url = prev();
+      var lbl = utilLabel();
+      if (!lbl) return url;
+      var i = url.indexOf('?p='); if (i===-1) return url;
+      var payload;
+      try{ payload = JSON.parse(b64urlDecode(url.slice(i+3))); }catch(e){ return url; }
+      payload.util = lbl;
+      if (payload.bill && typeof payload.bill === 'object') payload.bill.util = lbl;
+      return url.slice(0, i+3) + b64urlEncode(JSON.stringify(payload));
+    };
+    wrapped.__utilStamped = true;
+    window.buildProposalUrl = wrapped;
+  }
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(wrap,1100); });
+  else setTimeout(wrap,1100);
+  setInterval(wrap,1300);
+  console.log('[v5.2] Proposal utility-name stamp ready');
+})();
+  </script>
+
+  <script>
+// CLIENT WALKTHROUGH ROUTER — v7.0
+// Generate-time intent pick -> the matching client walkthrough link.
+(function(){
+  'use strict';
+  var FUNNEL = {
+    battery: 'https://myarbitragetool.com/solar-walkthrough.html',
+    solar:   'https://myarbitragetool.com/solar-only-walkthrough.html',
+    solbat:  'https://myarbitragetool.com/solar-walkthrough.html',
+    choose:  'https://myarbitragetool.com/solar-walkthrough.html'
+  };
+  var LABEL = { battery:'Battery', solar:'Solar', solbat:'Solar + Battery', choose:'Let them choose' };
+  var ORDER = ['battery','solar','solbat','choose'];
+  function isClient(){ return document.body.classList.contains('v7-client'); }
+  function getIntent(){
+    var v; try{ v=localStorage.getItem('rt-proposal-intent'); }catch(e){}
+    return (v && FUNNEL[v]) ? v : 'choose';
+  }
+  function setIntent(v){
+    try{ localStorage.setItem('rt-proposal-intent', v); }catch(e){}
+    if(typeof STATE!=='undefined'){
+      STATE.proposalBatteryOnly = (v==='battery');
+      try{ localStorage.setItem('rt-proposal-battery-only', STATE.proposalBatteryOnly?'1':'0'); }catch(e){}
+    }
+    var cb=document.getElementById('battOnlyProposalToggle'); if(cb) cb.checked=(v==='battery');
+    paint();
+  }
+  function buildWalkUrl(intent){
+    if(typeof window.buildProposalUrl!=='function') return '';
+    var prevBO = (typeof STATE!=='undefined') ? STATE.proposalBatteryOnly : undefined;
+    if(typeof STATE!=='undefined') STATE.proposalBatteryOnly = (intent==='battery');
+    var proposalUrl='';
+    try{ proposalUrl = window.buildProposalUrl(); }
+    finally{ if(typeof STATE!=='undefined') STATE.proposalBatteryOnly = prevBO; }
+    var i = proposalUrl.indexOf('?p=');
+    if(i===-1) return '';
+    var payload = proposalUrl.slice(i+3);
+    var url = (FUNNEL[intent]||FUNNEL.choose) + '?p=' + payload;
+    try{ if(typeof TRACKING_ENDPOINT!=='undefined' && TRACKING_ENDPOINT) url += '&api=' + encodeURIComponent(TRACKING_ENDPOINT); }catch(e){}
+    return url;
+  }
+  function openWalk(){ var u=buildWalkUrl(getIntent()); if(u) window.open(u,'_blank'); }
+  function flash(btn,msg){ var t=btn.textContent; btn.textContent=msg; setTimeout(function(){ btn.textContent=t; },1400); }
+  function copyWalk(btn){
+    var u=buildWalkUrl(getIntent()); if(!u) return;
+    try{ navigator.clipboard.writeText(u).then(function(){ flash(btn,'Copied ✓'); }, function(){ prompt('Copy client link:', u); }); }
+    catch(e){ prompt('Copy client link:', u); }
+  }
+  function paint(){
+    var seg=document.getElementById('rtIntentSeg'); if(!seg) return;
+    var cur=getIntent();
+    Array.prototype.forEach.call(seg.children, function(b){
+      var on=b.getAttribute('data-intent')===cur;
+      b.style.background = on ? 'linear-gradient(135deg,#FBBF24,#F59E0B)' : '#111827';
+      b.style.color = on ? '#3a2c00' : '#9CA3AF';
+      b.style.borderColor = on ? '#F59E0B' : '#334155';
+    });
+  }
+  function hideOldCheckbox(){
+    var cb=document.getElementById('battOnlyProposalToggle');
+    if(cb){ var lab=cb.closest('label'); if(lab) lab.style.display='none'; }
+  }
+  function inject(){
+    if(isClient()) return;
+    var wrap=document.getElementById('genProposalWrap');
+    if(!wrap){ return; }
+    hideOldCheckbox();
+    if(document.getElementById('rtIntentRow')) return;
+    var box=document.createElement('div');
+    box.id='rtIntentRow';
+    box.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:8px';
+    box.innerHTML=
+      '<div style="font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:.4px">CLIENT WALKTHROUGH · pick intent</div>'
+      +'<div id="rtIntentSeg" style="display:flex;gap:6px;flex-wrap:wrap"></div>'
+      +'<div style="display:flex;gap:8px">'
+      +'<button id="rtWalkOpen" style="flex:1;background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:800;cursor:pointer">Open client walkthrough →</button>'
+      +'<button id="rtWalkCopy" style="background:#1c2635;color:#e5e7eb;border:1px solid #334155;border-radius:10px;padding:11px 14px;font-size:13px;font-weight:700;cursor:pointer">Copy link</button>'
+      +'</div>';
+    wrap.appendChild(box);
+    var seg=document.getElementById('rtIntentSeg');
+    ORDER.forEach(function(k){
+      var b=document.createElement('button');
+      b.setAttribute('data-intent',k); b.textContent=LABEL[k];
+      b.style.cssText='flex:1;min-width:72px;background:#111827;color:#9CA3AF;border:1px solid #334155;border-radius:9px;padding:9px 6px;font-size:12px;font-weight:700;cursor:pointer';
+      b.addEventListener('click',function(){ setIntent(k); });
+      seg.appendChild(b);
+    });
+    document.getElementById('rtWalkOpen').addEventListener('click',openWalk);
+    document.getElementById('rtWalkCopy').addEventListener('click',function(){ copyWalk(this); });
+    paint();
+  }
+  function tick(){ inject(); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(tick,1000); });
+  else setTimeout(tick,1000);
+  setInterval(tick,1300);
+  console.log('[Walk Router v7.0] generate-time intent picker ready');
+})();
+  </script>
 </body>
 </html>

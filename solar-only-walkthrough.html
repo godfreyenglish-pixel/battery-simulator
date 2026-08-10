@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Your Rivertown Solar Plan</title>
+<style>
+  :root{
+    --bg0:#0b1017; --bg1:#0f1723; --panel:#141d2b; --panel2:#1a2534; --line:#26344a;
+    --ink:#eaf1f8; --sub:#9fb0c4; --gold:#E9B84C; --gold2:#c9992f;
+    --teal:#37c9a6; --red:#ff6b6b; --shadow:0 18px 50px rgba(0,0,0,.5);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{background:radial-gradient(1200px 700px at 50% -10%, #16233a 0%, var(--bg0) 60%);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Arial,sans-serif;line-height:1.5;min-height:100%;}
+  body{min-height:100vh;}
+  .app{max-width:720px;margin:0 auto;padding:22px 20px 40px;min-height:100vh;display:flex;flex-direction:column;}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+  .brand{font-weight:800;letter-spacing:.3px;font-size:16px;} .brand span{color:var(--gold);}
+  .prog{display:flex;gap:5px;margin:6px 0 20px;}
+  .seg{height:5px;border-radius:3px;background:#22303f;flex:1;overflow:hidden;position:relative;}
+  .seg i{position:absolute;inset:0;width:0;background:linear-gradient(90deg,var(--gold),var(--gold2));transition:width .5s ease;}
+  .seg.done i{width:100%;} .seg.cur i{width:100%;}
+  .count{font-size:12px;color:var(--sub);}
+  .back{background:none;border:1px solid var(--line);color:var(--sub);border-radius:10px;width:40px;height:40px;font-size:18px;cursor:pointer;display:none;}
+  .back.show{display:block;}
+  .stage{flex:1;position:relative;}
+  .screen{position:absolute;inset:0;opacity:0;transform:translateY(14px);pointer-events:none;transition:opacity .5s ease,transform .5s ease;}
+  .screen.on{opacity:1;transform:none;pointer-events:auto;position:relative;}
+  .kick{font-size:12.5px;letter-spacing:2.5px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:10px;}
+  h1{font-size:34px;line-height:1.12;font-weight:800;letter-spacing:-.5px;margin-bottom:12px;}
+  .lede{color:var(--sub);font-size:17px;max-width:560px;margin-bottom:22px;}
+  .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:18px;padding:22px 24px;box-shadow:var(--shadow);}
+  .big{font-size:52px;font-weight:800;letter-spacing:-1px;line-height:1;}
+  .big.gold{color:var(--gold);} .big.teal{color:var(--teal);} .big.red{color:var(--red);}
+  .lbl{font-size:12.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--sub);margin-bottom:8px;}
+  .sub2{color:var(--sub);font-size:14px;margin-top:8px;}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;}
+  .mini{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;}
+  .mini .big{font-size:30px;}
+  .cta{display:block;width:100%;margin-top:24px;background:linear-gradient(90deg,var(--gold),var(--gold2));color:#20180a;border:none;border-radius:14px;padding:17px;font-size:17px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(233,184,76,.28);transition:transform .12s;}
+  .cta:active{transform:scale(.98);}
+  .riser{height:150px;display:flex;align-items:flex-end;gap:7px;margin-top:8px;}
+  .riser b{flex:1;background:linear-gradient(180deg,#3a2a1a,#2a1f14);border-radius:5px 5px 0 0;height:6%;transition:height .9s cubic-bezier(.4,.1,.2,1);}
+  .riser b.hot{background:linear-gradient(180deg,var(--red),#a03a3a);}
+  .flow{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:8px;flex-wrap:wrap;}
+  .fnode{flex:1;min-width:110px;text-align:center;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 10px;}
+  .fnode .ic{font-size:30px;} .fnode .t{font-size:13px;color:var(--sub);margin-top:6px;}
+  .farrow{color:var(--gold);font-size:22px;}
+  /* rate-lock beat */
+  .ratewrap{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px;}
+  .ratebox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center;}
+  .ratebox.you{border-color:var(--teal);}
+  .ratebox .big{font-size:34px;}
+  .lockchip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--teal);margin-top:8px;}
+  .chartwrap{margin-top:14px;} svg{display:block;width:100%;height:auto;}
+  .badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;}
+  .badge{font-size:13px;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:8px 13px;}
+  .badge b{color:var(--gold);}
+  .anchor{margin-top:14px;color:var(--sub);font-size:14.5px;} .anchor b{color:var(--ink);}
+  .field{margin-top:12px;} .field label{display:block;font-size:12.5px;color:var(--sub);margin-bottom:6px;}
+  .field input{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;color:var(--ink);font-size:16px;}
+  .field input::placeholder{color:#5f7088;}
+  .trust{display:flex;gap:8px;align-items:center;color:var(--sub);font-size:13px;margin-top:14px;justify-content:center;}
+  .done{text-align:center;padding:24px 0;} .done .ic{font-size:56px;}
+  .footnote{color:#6f7f94;font-size:12px;margin-top:22px;text-align:center;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <button class="back" id="back">←</button>
+    <div class="brand">Rivertown <span>Solar</span></div>
+    <div class="count" id="count">1 / 7</div>
+  </div>
+  <div class="prog" id="prog"></div>
+
+  <div class="stage" id="stage">
+
+    <!-- 1 -->
+    <section class="screen on" data-s="0">
+      <div class="kick">Step 1 · Your home</div>
+      <h1>Let's start with <span id="hi">your home</span>.</h1>
+      <p class="lede">These are your real numbers, straight from your <span id="util1">utility</span> bill. Tap through to see the solar plan built for your roof, and exactly why it pays.</p>
+      <div class="card">
+        <div class="lbl">Your electric bill</div>
+        <div class="big gold"><span id="bill1">$225</span><span style="font-size:22px;color:var(--sub);font-weight:600">/mo</span></div>
+        <div class="two">
+          <div class="mini"><div class="lbl">Yearly usage</div><div class="big teal" id="kwh1">9,000</div><div class="sub2">kWh / year</div></div>
+          <div class="mini"><div class="lbl">Yearly cost</div><div class="big" id="yc1">$2,700</div><div class="sub2" id="rate1">~30¢/kWh today</div></div>
+        </div>
+      </div>
+      <button class="cta" data-go="1">Show me what's possible →</button>
+    </section>
+
+    <!-- 2 -->
+    <section class="screen" data-s="1">
+      <div class="kick">Step 2 · The rental trap</div>
+      <h1>You don't own a single kilowatt.</h1>
+      <p class="lede">Right now you rent all of it from <span id="util2">the utility</span>, at a price that climbs about <b id="esc2">3.3%</b> a year and never stops. Here's the 25-year rent.</p>
+      <div class="card">
+        <div class="lbl">You'll hand the utility</div>
+        <div class="big red" id="donothing">$0</div>
+        <div class="sub2">over the next 25 years, renting power you never keep.</div>
+        <div class="riser" id="riser"></div>
+        <div class="sub2" style="margin-top:12px">Every year you wait locks in about <b id="waitcost" style="color:var(--red)">$0</b> more.</div>
+      </div>
+      <button class="cta" data-go="2">There's a better way →</button>
+    </section>
+
+    <!-- 3 -->
+    <section class="screen" data-s="2">
+      <div class="kick">Step 3 · Make it. Own it.</div>
+      <h1>Turn your roof into your power plant.</h1>
+      <p class="lede">Daylight hits your panels, your panels feed your home. Every kilowatt your roof makes is one you stop renting from <span id="util3">the utility</span>.</p>
+      <div class="card">
+        <div class="flow">
+          <div class="fnode"><div class="ic">☀️</div><div class="t">Sun</div></div>
+          <div class="farrow">→</div>
+          <div class="fnode"><div class="ic">🔆</div><div class="t">Your panels</div></div>
+          <div class="farrow">→</div>
+          <div class="fnode"><div class="ic">🏠</div><div class="t">Your home</div></div>
+        </div>
+        <div class="sub2" style="margin-top:14px">Your system covers about <b id="offset3" style="color:var(--teal)">92%</b> of what you use today, from power you own outright.</div>
+      </div>
+      <button class="cta" data-go="3">Show me the catch →</button>
+    </section>
+
+    <!-- 4 · RATE LOCK (centerpiece) -->
+    <section class="screen" data-s="3">
+      <div class="kick">Step 4 · The rate lock</div>
+      <h1>Lock your rate for 25 years.</h1>
+      <p class="lede">The utility rate only goes one way: up. The day you own your system, your cost per kilowatt is fixed. That gap is the whole game.</p>
+      <div class="card">
+        <div class="ratewrap">
+          <div class="ratebox">
+            <div class="lbl"><span id="util4">Utility</span> today</div>
+            <div class="big red" id="utilrate">30¢</div>
+            <div class="sub2">per kWh, and climbing</div>
+          </div>
+          <div class="ratebox you">
+            <div class="lbl">Your solar</div>
+            <div class="big teal" id="solarrate">10¢</div>
+            <div class="lockchip">🔒 locked for 25 years</div>
+          </div>
+        </div>
+        <div class="chartwrap" id="ratechart"></div>
+        <div class="sub2" style="margin-top:12px">In year 25 the utility is near <b id="util25rate" style="color:var(--red)">0¢</b> a kWh. Your solar is still <b id="solarrate2" style="color:var(--teal)">10¢</b>.</div>
+      </div>
+      <button class="cta" data-go="4">What this saves me →</button>
+    </section>
+
+    <!-- 5 -->
+    <section class="screen" data-s="4">
+      <div class="kick">Step 5 · The proof</div>
+      <h1>25 years, side by side.</h1>
+      <p class="lede">The gap between renting from <span id="util5">the utility</span> forever and owning your own production.</p>
+      <div class="card">
+        <div class="chartwrap" id="chartwrap"></div>
+        <div class="two" style="margin-top:8px">
+          <div class="mini"><div class="lbl">You keep</div><div class="big gold" id="save25">$0</div><div class="sub2">over 25 years</div></div>
+          <div class="mini"><div class="lbl">Usage covered</div><div class="big teal" id="offset5">92%</div><div class="sub2">by power you own</div></div>
+        </div>
+        <div class="badges" id="badges"></div>
+        <div class="sub2" style="margin-top:14px">A free site survey confirms these exact numbers on your roof. No guesswork.</div>
+      </div>
+      <button class="cta" data-go="5">See my investment →</button>
+    </section>
+
+    <!-- 6 -->
+    <section class="screen" data-s="5">
+      <div class="kick">Step 6 · Your investment</div>
+      <h1>Here's the number.</h1>
+      <p class="lede">After incentives, this is what your complete solar system comes to.</p>
+      <div class="card">
+        <div class="lbl">Your solar system, after incentives</div>
+        <div class="big gold" id="net6">$19,000</div>
+        <div class="anchor">Compared to <b id="donothing6">$0</b> in rent handed to <span id="util6">the utility</span> over the same 25 years for nothing you keep.</div>
+        <div class="sub2" id="paybackline" style="margin-top:14px"></div>
+        <div class="sub2" style="margin-top:10px">You already pay for a system like this every year. You just hand it to the utility. The site survey locks exact financing so your monthly can beat what you pay today.</div>
+      </div>
+      <button class="cta" data-go="6">Lock in my custom plan →</button>
+    </section>
+
+    <!-- 7 -->
+    <section class="screen" data-s="6">
+      <div class="kick">Step 7 · Start here</div>
+      <div id="formwrap">
+        <h1>Ready for the real breakdown?</h1>
+        <p class="lede">Everything so far is modeled from your bill. A <b>free site survey</b> confirms your exact system, price, and savings on your actual home. No payment, no obligation.</p>
+        <div class="card">
+          <div class="field"><label>Your name</label><input id="nm" placeholder="First and last name"></div>
+          <div class="field"><label>Email</label><input id="em" type="email" placeholder="you@email.com"></div>
+          <div class="field"><label>Property address</label><input id="ad" placeholder="Street, city"></div>
+          <button class="cta" id="authorize" style="margin-top:18px">Authorize my free site survey</button>
+          <div class="trust">🔒 No payment. No obligation. Cancel anytime.</div>
+        </div>
+      </div>
+      <div id="donewrap" style="display:none">
+        <div class="card done">
+          <div class="ic">✅</div>
+          <h1 style="font-size:26px;margin-top:8px">You're set, <span id="doneName">there</span>.</h1>
+          <p class="lede" style="margin:10px auto 0">Your survey request is in. Godfrey will reach out to lock the time. Talk soon.</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+  <div class="footnote">Estimates modeled from your utility bill. Final numbers confirmed at your free site survey.</div>
+</div>
+
+<script>
+/* ---- inlined shared reader (walkthrough-payload-reader.js) ---- */
+function readWalkPayload(){
+  var Q = new URLSearchParams(location.search);
+  function b64urlDecode(s){ s=String(s).replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; var bin; try{bin=atob(s);}catch(e){return null;} try{return decodeURIComponent(escape(bin));}catch(e){return bin;} }
+  function optClean(o){ if(!o) return null; var present=(+o.kw||0)||(+o.batt||0)||(+o.net||0)||(+o.year1||0); if(!present) return null;
+    return { kw:+o.kw||0, batt:+o.batt||0, net:Math.round(+o.net||0), year1:Math.round(+o.year1||0), payback:+o.payback||0, offset:Math.round(+o.offset||0), life25:Math.round(+o.life25||0), backup:Math.round(+o.backup||0) }; }
+  var raw=Q.get('p'), pay=null;
+  if(raw){ var dec=b64urlDecode(raw); if(dec){ try{ pay=JSON.parse(dec); }catch(e){ pay=null; } } }
+  if(pay && pay.options){
+    var b=pay.bill||{}; var monthly=+b.monthly||0, annualKwh=+b.annualKwh||0, rate=+b.rate||0;
+    var annualCost=monthly?monthly*12:Math.round(annualKwh*rate); if(!monthly && annualCost) monthly=Math.round(annualCost/12);
+    var o=pay.options||{};
+    return { source:'payload', name:(pay.client||'').trim(), util:(b.util||pay.util||Q.get('util')||'your utility').trim(),
+      esc:(parseFloat(Q.get('esc'))||3.3)/100, bill:{ monthly:monthly, annualKwh:annualKwh, annualCost:annualCost, rate:rate },
+      options:{ solar:optClean(o.solar), solbat:optClean(o.solbat), battery:optClean(o.battery) }, recommended:pay.recommended||'solbat', api:Q.get('api')||'' };
+  }
+  function num(k,d){ var v=parseFloat(Q.get(k)); return isNaN(v)?d:v; }
+  var m=num('bill',225), akwh=num('kwh',9000);
+  var solar={ kw:num('pv',7.6), batt:0, net:num('net',19000), year1:num('save',2100), payback:num('payback',9), offset:num('offset',92), life25:num('life25',0), backup:0 };
+  return { source:'params', name:(Q.get('name')||'').trim(), util:(Q.get('util')||'Con Edison').trim(), esc:num('esc',3.3)/100,
+    bill:{ monthly:m, annualKwh:akwh, annualCost:m*12, rate:m*12/Math.max(1,akwh) },
+    options:{ solar:solar, solbat:null, battery:null }, recommended:'solar', api:Q.get('api')||'' };
+}
+/* --------------------------------------------------------------- */
+
+(function(){
+  var P = readWalkPayload();
+  var o = P.options.solar || P.options.solbat || P.options.battery || {kw:0,net:0,year1:0,payback:0,offset:0,life25:0};
+
+  function money(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
+  function moneyK(n){ n=Math.round(n); return n>=1000? '$'+(n/1000).toFixed(n%1000?1:0)+'k' : '$'+n; }
+  function cents(n){ return Math.round(n*100)+'¢'; }
+  function T(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; }
+
+  var annual = P.bill.annualCost || P.bill.monthly*12;
+  var rate = P.bill.rate || (P.bill.annualKwh>0 ? annual/P.bill.annualKwh : .30);
+
+  // do-nothing 25yr rent
+  var dn=0, yr=annual, series=[];
+  for(var y=0;y<25;y++){ dn+=yr; series.push(dn); yr*=(1+P.esc); }
+  var waitcost=annual;
+
+  // locked solar rate: net cost / lifetime kWh produced (guarded to a sane band)
+  var producedYr1 = P.bill.annualKwh * (o.offset/100);
+  var lifeProduced = 0, deg=0.995;
+  for(var i=0;i<25;i++){ lifeProduced += producedYr1*Math.pow(deg,i); }
+  var solarRate = (lifeProduced>0 && o.net>0) ? (o.net/lifeProduced) : rate*0.35;
+  if(!(solarRate>0) || solarRate>rate) solarRate = rate*0.35; // never claim a locked rate above today's utility rate
+  var utilRate25 = rate*Math.pow(1+P.esc,24);
+
+  // savings series (prefer real life25)
+  function saveSeries(){ var s=0, sv=(o.year1>0?o.year1:annual*0.6), arr=[]; for(var i=0;i<25;i++){ s+=sv; sv*=(1+P.esc); arr.push(s);} if(o.life25>0){ var f=o.life25/arr[24]; arr=arr.map(function(v){return v*f;});} return arr; }
+  var save25 = o.life25>0 ? o.life25 : saveSeries()[24];
+
+  // static
+  T('hi', P.name? ('your home, '+P.name) : 'your home');
+  ['util1','util2','util3','util4','util5','util6'].forEach(function(id){ T(id, P.util); });
+  T('bill1', money(P.bill.monthly)); T('kwh1', Math.round(P.bill.annualKwh).toLocaleString());
+  T('yc1', money(annual)); T('rate1','~'+Math.round(rate*100)+'¢/kWh today');
+  T('esc2',(P.esc*100).toFixed(1)+'%');
+  T('offset3', Math.round(o.offset)+'%'); T('offset5', Math.round(o.offset)+'%');
+  T('donothing6', money(dn));
+  T('utilrate', cents(rate)); T('solarrate', cents(solarRate)); T('solarrate2', cents(solarRate));
+  T('util25rate', cents(utilRate25));
+
+  // steps
+  var screens=[].slice.call(document.querySelectorAll('.screen'));
+  var N=screens.length, cur=0;
+  var prog=document.getElementById('prog');
+  for(var k=0;k<N;k++){ var s=document.createElement('div'); s.className='seg'; s.innerHTML='<i></i>'; prog.appendChild(s); }
+  var segs=[].slice.call(document.querySelectorAll('.seg'));
+  var did={};
+
+  function show(n){ if(n<0||n>=N) return; screens[cur].classList.remove('on'); cur=n; screens[cur].classList.add('on');
+    segs.forEach(function(sg,j){ sg.classList.toggle('done',j<cur); sg.classList.toggle('cur',j===cur); });
+    T('count',(cur+1)+' / '+N); document.getElementById('back').classList.toggle('show',cur>0);
+    window.scrollTo({top:0,behavior:'smooth'}); enter(cur); }
+  function enter(n){ if(n===1 && !did[1]){ did[1]=true; beat2(); } if(n===3 && !did[3]){ did[3]=true; beat4(); } if(n===4){ beat5(); } if(n===5){ beat6(); } }
+
+  function countUp(id,to,fmt,dur){ var el=document.getElementById(id); if(!el) return; dur=dur||1100; var st=null;
+    function step(ts){ if(!st) st=ts; var p=Math.min(1,(ts-st)/dur); var e=1-Math.pow(1-p,3); el.textContent=fmt(to*e); if(p<1) requestAnimationFrame(step);} requestAnimationFrame(step); }
+
+  function beat2(){
+    countUp('donothing', dn, money, 1400); countUp('waitcost', waitcost, money, 1200);
+    var r=document.getElementById('riser'); r.innerHTML=''; var bars=16;
+    for(var i=0;i<bars;i++){ var b=document.createElement('b'); if(i>bars-5) b.className='hot'; r.appendChild(b); }
+    var bb=[].slice.call(r.children);
+    setTimeout(function(){ bb.forEach(function(b,i){ setTimeout(function(){ b.style.height=(8+Math.pow(i/(bars-1),1.7)*92)+'%'; }, i*55); }); },150);
+  }
+
+  // rate-lock chart: utility rising line vs your flat locked line
+  function beat4(){
+    var w=560,h=170,pad=8;
+    var uSeries=[]; for(var i=0;i<25;i++){ uSeries.push(rate*Math.pow(1+P.esc,i)); }
+    var max=Math.max(uSeries[24], solarRate)*1.05;
+    function pts(arr){ return arr.map(function(v,i){ var x=pad+(i/(arr.length-1))*(w-2*pad); var y=h-pad-(v/max)*(h-2*pad); return x+','+y; }).join(' '); }
+    var flat=[]; for(var j=0;j<25;j++){ flat.push(solarRate); }
+    var svg='<svg viewBox="0 0 '+w+' '+(h+22)+'" preserveAspectRatio="xMidYMid meet">'
+      +'<defs><linearGradient id="ru" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(255,107,107,.30)"/><stop offset="1" stop-color="rgba(255,107,107,0)"/></linearGradient></defs>'
+      +'<polygon points="'+pad+','+(h-pad)+' '+pts(uSeries)+' '+(w-pad)+','+(h-pad)+'" fill="url(#ru)"/>'
+      +'<polyline points="'+pts(uSeries)+'" fill="none" stroke="#ff6b6b" stroke-width="3"/>'
+      +'<polyline points="'+pts(flat)+'" fill="none" stroke="#37c9a6" stroke-width="3" stroke-dasharray="2 0"/>'
+      +'<text x="'+pad+'" y="'+(h+16)+'" fill="#9fb0c4" font-size="12">Today</text>'
+      +'<text x="'+(w-pad)+'" y="'+(h+16)+'" fill="#9fb0c4" font-size="12" text-anchor="end">Year 25</text>'
+      +'</svg>'
+      +'<div style="display:flex;gap:16px;margin-top:6px;font-size:13px"><span style="color:#ff6b6b">● Utility rate</span><span style="color:#37c9a6">● Your locked rate</span></div>';
+    document.getElementById('ratechart').innerHTML=svg;
+  }
+
+  function beat5(){
+    countUp('save25', save25, moneyK, 1200);
+    var badges=document.getElementById('badges'); badges.innerHTML='';
+    var chips=['🔆 <b>'+(o.kw||0)+' kW</b> · 25-yr panel output','🛡️ <b>Talesun / Enphase</b> · 25-yr warranty','✅ Licensed &amp; local'];
+    chips.forEach(function(c){ var e=document.createElement('span'); e.className='badge'; e.innerHTML=c; badges.appendChild(e); });
+    var w=560,h=200,pad=8; var sv=saveSeries(); var max=Math.max(dn, save25*1.05);
+    function pts(arr){ return arr.map(function(v,i){ var x=pad+(i/(arr.length-1))*(w-2*pad); var y=h-pad-(v/max)*(h-2*pad); return x+','+y; }).join(' '); }
+    var svg='<svg viewBox="0 0 '+w+' '+(h+22)+'" preserveAspectRatio="xMidYMid meet">'
+      +'<defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(255,107,107,.35)"/><stop offset="1" stop-color="rgba(255,107,107,0)"/></linearGradient>'
+      +'<linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(55,201,166,.35)"/><stop offset="1" stop-color="rgba(55,201,166,0)"/></linearGradient></defs>'
+      +'<polygon points="'+pad+','+(h-pad)+' '+pts(series)+' '+(w-pad)+','+(h-pad)+'" fill="url(#g1)"/>'
+      +'<polyline points="'+pts(series)+'" fill="none" stroke="#ff6b6b" stroke-width="3"/>'
+      +'<polygon points="'+pad+','+(h-pad)+' '+pts(sv)+' '+(w-pad)+','+(h-pad)+'" fill="url(#g2)"/>'
+      +'<polyline points="'+pts(sv)+'" fill="none" stroke="#37c9a6" stroke-width="3"/>'
+      +'<text x="'+pad+'" y="'+(h+16)+'" fill="#9fb0c4" font-size="12">Today</text>'
+      +'<text x="'+(w-pad)+'" y="'+(h+16)+'" fill="#9fb0c4" font-size="12" text-anchor="end">Year 25</text>'
+      +'</svg>'
+      +'<div style="display:flex;gap:16px;margin-top:6px;font-size:13px"><span style="color:#ff6b6b">● Rent the utility</span><span style="color:#37c9a6">● Own your system</span></div>';
+    document.getElementById('chartwrap').innerHTML=svg;
+  }
+
+  function beat6(){
+    document.getElementById('net6').textContent='$0';
+    countUp('net6', o.net, money, 1100);
+    T('donothing6', money(dn));
+    T('paybackline', o.payback>0 ? ('Pays for itself in about '+o.payback+' years, then it’s pure savings for the life of the system.') : '');
+  }
+
+  document.querySelectorAll('[data-go]').forEach(function(b){ b.addEventListener('click',function(){ show(parseInt(b.getAttribute('data-go'),10)); }); });
+  document.getElementById('back').addEventListener('click',function(){ show(cur-1); });
+
+  document.getElementById('authorize').addEventListener('click',function(){
+    var nm=document.getElementById('nm').value.trim();
+    document.getElementById('doneName').textContent=(nm.split(' ')[0]||'there');
+    try{ if(P.api){
+      var d={ name:nm, email:document.getElementById('em').value.trim(), address:document.getElementById('ad').value.trim(), batt:0, save:o.year1, net:o.net, kind:'Solar only' };
+      var url=P.api+'?action=surveyRequest&data='+encodeURIComponent(JSON.stringify(d));
+      try{ fetch(url,{method:'GET',mode:'no-cors',cache:'no-store'}).catch(function(){}); }catch(e){ var im=new Image(); im.src=url; }
+    } }catch(e){}
+    document.getElementById('formwrap').style.display='none';
+    document.getElementById('donewrap').style.display='block';
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+})();
+</script>
+</body>
+</html>

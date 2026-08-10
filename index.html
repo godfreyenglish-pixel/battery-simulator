@@ -8766,5 +8766,26 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[Walk Router v7.1] generate-time intent picker ready + Emporia gift');
 })();
   </script>
+
+<script>
+// STRIP OLD PROPOSAL CONTROLS — v7.2
+// The client walkthrough (router v7.1) replaced the old proposal.html flow. Remove
+// the "Proposal button" checkbox and the "Generate Proposal" button that opened the
+// old proposal, but KEEP #genProposalWrap so the intent picker still has its home.
+// buildProposalUrl stays (the router uses it).
+(function(){
+  'use strict';
+  function strip(){
+    var cb = document.getElementById('genProposalToggle');
+    if(cb){ var lab = cb.closest('label'); if(lab && lab.parentNode) lab.parentNode.removeChild(lab); }
+    var btn = document.getElementById('genProposalBtn');
+    if(btn && btn.parentNode) btn.parentNode.removeChild(btn);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(strip,1100); });
+  else setTimeout(strip,1100);
+  setInterval(strip,1300);
+  console.log('[v7.2] old proposal button/checkbox removed');
+})();
+</script>
 </body>
 </html>

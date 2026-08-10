@@ -8787,5 +8787,39 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[v7.2] old proposal button/checkbox removed');
 })();
 </script>
+
+<script>
+// COLLAPSIBLE WALKTHROUGH PICKER — v7.3
+// Click the "CLIENT WALKTHROUGH · pick intent" header to show/hide the chips and
+// buttons. State persists. Leaves the separate Inquiry-link checkbox alone.
+(function(){
+  'use strict';
+  var KEY='rt-walk-collapsed';
+  function isCollapsed(){ try{ return localStorage.getItem(KEY)==='1'; }catch(e){ return false; } }
+  function setCollapsed(v){ try{ localStorage.setItem(KEY, v?'1':'0'); }catch(e){} }
+  function paint(row){
+    var kids=[].slice.call(row.children).slice(1);
+    var c=isCollapsed();
+    kids.forEach(function(el){ el.style.display = c ? 'none' : ''; });
+    if(row.__caret) row.__caret.textContent = c ? '\u25B8' : '\u25BE';
+  }
+  function enhance(){
+    var row=document.getElementById('rtIntentRow');
+    if(!row || row.__collapsible) return;
+    if(!document.getElementById('rtIntentSeg')) return;
+    var header=row.firstElementChild; if(!header) return;
+    row.__collapsible=true;
+    header.style.cursor='pointer'; header.style.userSelect='none'; header.title='Show / hide';
+    var caret=document.createElement('span');
+    caret.style.cssText='display:inline-block;margin-right:6px;font-size:10px;color:#9CA3AF';
+    header.insertBefore(caret, header.firstChild);
+    row.__caret=caret;
+    header.addEventListener('click', function(){ setCollapsed(!isCollapsed()); paint(row); });
+    paint(row);
+  }
+  setInterval(enhance, 500);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', enhance); else enhance();
+})();
+</script>
 </body>
 </html>

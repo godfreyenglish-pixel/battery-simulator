@@ -8676,10 +8676,11 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     battery: 'https://myarbitragetool.com/solar-walkthrough.html',
     solar:   'https://myarbitragetool.com/solar-only-walkthrough.html',
     solbat:  'https://myarbitragetool.com/solar-walkthrough.html',
-    choose:  'https://myarbitragetool.com/solar-walkthrough.html'
+    choose:  'https://myarbitragetool.com/solar-walkthrough.html',
+    gift:    'https://myarbitragetool.com/proposal-walkthrough.html'
   };
-  var LABEL = { battery:'Battery', solar:'Solar', solbat:'Solar + Battery', choose:'Let them choose' };
-  var ORDER = ['battery','solar','solbat','choose'];
+  var LABEL = { battery:'Battery', solar:'Solar', solbat:'Solar + Battery', choose:'Let them choose', gift:'With Emporia gift' };
+  var ORDER = ['battery','solar','solbat','choose','gift'];
   function isClient(){ return document.body.classList.contains('v7-client'); }
   function getIntent(){
     var v; try{ v=localStorage.getItem('rt-proposal-intent'); }catch(e){}
@@ -8762,7 +8763,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(tick,1000); });
   else setTimeout(tick,1000);
   setInterval(tick,1300);
-  console.log('[Walk Router v7.0] generate-time intent picker ready');
+  console.log('[Walk Router v7.1] generate-time intent picker ready + Emporia gift');
 })();
   </script>
 </body>

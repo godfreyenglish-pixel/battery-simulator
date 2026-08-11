@@ -320,6 +320,13 @@
 
   // ---- real quote data (passed from the tool's client / share view) ----
   var Q=new URLSearchParams(location.search);
+  // No-TOU mode: the simulator passes tou=0 when the client's utility has no
+  // residential time-of-use rate (or they're staying flat). There's no rate
+  // arbitrage to model, so this whole page switches from a savings story to a
+  // backup + resilience story. Defaults to TOU when the param is absent, so every
+  // existing link and share keeps its current behavior.
+  var NOTOU=(Q.get('tou')==='0');
+  var UTIL=(Q.get('util')||'your utility').trim();
   var REAL=null;
   if(Q.get('batt')||Q.get('net')||Q.get('gross')){
     var g=+Q.get('gross')||0, inc=+Q.get('inc')||0;
@@ -368,6 +375,7 @@
 
   function paint(){
     var m=model();
+    if(NOTOU) m.yr1=0;  // no arbitrage savings under a flat / no-TOU rate
     // step1
     document.getElementById('billLbl').textContent=m.bill;
     document.getElementById('d_kwh').textContent=m.annualKwh.toLocaleString();
@@ -381,11 +389,13 @@
     document.getElementById('pl_daily').textContent=Math.round(m.daily);
     document.getElementById('pl_batt').textContent=m.batt;
     document.getElementById('pl_batt2').textContent=m.batt+' kWh';
-    document.getElementById('pl_save').textContent=money(m.yr1);
-    document.getElementById('pl_save2').textContent=money(m.yr1);
+    if(!NOTOU){
+      document.getElementById('pl_save').textContent=money(m.yr1);
+      document.getElementById('pl_save2').textContent=money(m.yr1);
+    }
     // step5 future bars + 10yr
     var ten=buildFutBars(m);
-    document.getElementById('f_ten').textContent=money(ten);
+    if(!NOTOU) document.getElementById('f_ten').textContent=money(ten);
     // step7 price
     document.getElementById('pz_gross').textContent=money(m.gross);
     document.getElementById('pz_nyserda').textContent='−'+money(m.nyserda);
@@ -411,6 +421,7 @@
   }
   function buildFutBars(m){
     var el=document.getElementById('futBars'); el.innerHTML='';
+    if(NOTOU) return 0;  // no arbitrage growth curve to draw under a flat rate
     var years=[1,3,5,7,10], esc=0.03, total=0, maxv=0, vals=[];
     for(var i=0;i<years.length;i++){ var v=m.yr1*Math.pow(1+esc,years[i]-1); vals.push(v); if(v>maxv)maxv=v; }
     // cumulative 10yr
@@ -480,9 +491,11 @@
       return b?('Critical loads &mdash; fridge, internet, lights, medical &mdash; run <b>~'+fmtHrs(crit)+'</b>; whole-home ~'+Math.round(whole)+' hrs. The block goes dark. Your house doesn&rsquo;t.'):'Add a battery for outage protection.';
     }
     if(i===2){
+      if(NOTOU) return 'This battery is <b>backup, not a solar bet</b>. A cloudy week doesn&rsquo;t touch it &mdash; your stored power carries the house through any outage, rain or shine.';
       var wk=Math.round(yr1/52);
       return 'Your savings come from the grid&rsquo;s day/night <b>price gap</b>, not the sun. ~<b>$'+wk+'/week</b> keeps landing &mdash; <b>0%</b> weather impact.';
     }
+    if(NOTOU) return 'You&rsquo;re staying on your <b>flat rate</b>, so a rate change hits your bill like any home&rsquo;s. The battery&rsquo;s job here is <b>backup and protection</b> if net metering is cut, and that value holds no matter what rates do.';
     var yr5=Math.round(yr1*Math.pow(1.03,4)/10)*10;
     return 'Your ~$'+yr1.toLocaleString()+'/yr grows to <b>~$'+yr5.toLocaleString()+'/yr by year 5</b> as rates climb. Every Con Ed hike <b>widens</b> your spread &mdash; you win more, not less.';
   }
@@ -535,6 +548,45 @@
     document.getElementById('commitDone').classList.add('on');
   };
 
+  // ---- no-TOU rewrite: swap the arbitrage/savings story for backup + resilience ----
+  function noTouPatch(){
+    if(!NOTOU || document.body.dataset.notou==='1') return;
+    document.body.dataset.notou='1';
+    function set(sel,html){ var el=document.querySelector(sel); if(el) el.innerHTML=html; }
+    function hide(sel){ var el=document.querySelector(sel); if(el) el.style.display='none'; }
+
+    // Step 1 lead (only when there's no shared quote; initReal owns the REAL copy)
+    if(!REAL) set('.screen[data-step="0"] p.lead','Slide to your typical monthly electric bill. Everything after this is built from your real numbers, no guessing.');
+
+    // Step 2 — usage, reframed: no peak window to dodge, the point is readiness
+    set('.screen[data-step="1"] p.body','This is how your home uses power across the day. Without a time-of-use rate on '+UTIL+', the win isn&rsquo;t shifting hours to dodge a peak price. It&rsquo;s having stored power ready the moment the grid goes down.');
+    hide('.screen[data-step="1"] .grid');
+
+    // Step 3 — recommendation logic, reframed to backup + self-supply
+    set('.screen[data-step="2"] p.body','We don&rsquo;t sell the biggest box. We size the one that covers your critical loads and gives you real backup. Here&rsquo;s the logic behind your recommendation:');
+    var r=document.querySelectorAll('.screen[data-step="2"] .reason .t');
+    if(r[0]) r[0].innerHTML='Your home runs about <b id="pl_daily">&mdash;</b> kWh a day, and it needs to keep running when the grid doesn&rsquo;t.';
+    if(r[1]) r[1].innerHTML='So we size a battery that carries your critical loads through an outage: <b id="pl_batt">&mdash;</b> kWh usable.';
+    if(r[2]) r[2].innerHTML='It stores your own power and holds it in reserve, charged and ready, so an outage doesn&rsquo;t leave you in the dark.';
+    if(r[3]) r[3].innerHTML='The value here is <b>whole-home backup and resilience</b>, plus protection if net metering is reduced or ends down the road.';
+    var g3=document.querySelectorAll('.screen[data-step="2"] .grid .tile');
+    if(g3[1]) g3[1].innerHTML='<div class="k">What it delivers</div><div class="v teal">Backup + resilience</div><div class="s">plus net-metering protection</div>';
+
+    // Step 5 — the long view, reframed away from a savings curve
+    set('.screen[data-step="4"] h2','Backup you can count on for years.');
+    set('.screen[data-step="4"] p.body','You&rsquo;re staying on your flat rate, so this isn&rsquo;t a rate-arbitrage play. It&rsquo;s resilience. Your battery stays charged and ready, and if net metering changes, the stored power you already own is what protects you.');
+    var fut=document.getElementById('futBars'); if(fut){ var fc=fut.closest('.card'); if(fc) fc.style.display='none'; }
+    var g5=document.querySelectorAll('.screen[data-step="4"] .grid .tile');
+    if(g5[0]) g5[0].style.display='none';  // hide the 10-yr savings tile, keep Backup value
+
+    // Stress test — relabel the arbitrage scenario
+    var lab3=document.querySelector('.strow[data-i="3"] .lab');
+    if(lab3) lab3.firstChild && (lab3.firstChild.nodeValue='Your utility raises rates');
+
+    // Disclaimer — drop the time-of-use framing
+    set('#globalDisc','All figures are preliminary illustrations generated from the bill you entered. This is a backup and resilience plan, not a rate-arbitrage estimate, because there&rsquo;s no time-of-use rate in play. Figures vary by account and are not a quote. Final numbers are confirmed at the free site survey.');
+  }
+
   function initReal(){
     if(!REAL) return;
     var sl=document.querySelector('.slwrap');
@@ -546,7 +598,7 @@
     var lead=document.querySelector('.screen[data-step="0"] p.lead');
     if(lead) lead.textContent='These are your real numbers, built from the usage you shared. Tap through to see the plan we recommend for your home — and exactly why.';
   }
-  initReal(); paint(); render();
+  initReal(); noTouPatch(); paint(); render();
 })();
 </script>
 </body>

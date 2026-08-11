@@ -8536,9 +8536,20 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   function openWalk(){
     var q=quote();
     if(!q || !q.batt){ window.open(WALK,'_blank'); return; }
+    // Read the live no-TOU state from the v14 utility picker. A no-TOU utility has
+    // no rate arbitrage, so the walkthrough must NOT carry the (stale, hidden) Con
+    // Ed savings figure — we pass tou=0 and zero the savings so the walkthrough
+    // shows its backup + resilience story instead of a savings pitch.
+    var uMeta=(window.__utilMeta&&window.__utility)?window.__utilMeta[window.__utility]:null;
+    var noTou=!!(uMeta && uMeta.tou===false);
     var p=new URLSearchParams();
     p.set('batt',q.batt); p.set('gross',q.gross); p.set('inc',q.inc);
-    p.set('save',q.save); p.set('kwh',q.kwh);
+    p.set('save', noTou?0:q.save); p.set('kwh',q.kwh);
+    if(noTou){
+      p.set('tou','0');
+      var uname=(uMeta.label||'').replace(/\s*\(.*\)/,'').trim();
+      if(uname) p.set('util', uname);
+    }
     // pass the CRM endpoint through so the walkthrough's "Authorize site survey"
     // can post the request straight into the lead tracker
     try{ if(typeof TRACKING_ENDPOINT!=='undefined' && TRACKING_ENDPOINT) p.set('api', TRACKING_ENDPOINT); }catch(e){}
@@ -8549,11 +8560,17 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     if(!isClient()) return;
     if(document.getElementById('v17walkBtn')) return;
     var arb=document.getElementById('arbResults'); if(!arb) return;
+    var host=arb.parentNode; if(!host) return;
     var wrap=document.createElement('div'); wrap.id='v17walkWrap';
     wrap.style.cssText='margin-top:20px;text-align:center';
     wrap.innerHTML='<button id="v17walkBtn" style="background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:12px;padding:15px 28px;font-size:15px;font-weight:800;cursor:pointer;box-shadow:0 3px 14px rgba(251,191,36,.28);width:100%;max-width:440px">See your full proposal →</button>'
       +'<div style="color:#8A94A6;font-size:12px;margin-top:8px">Walk through your plan, savings, and investment step by step.</div>';
-    arb.appendChild(wrap);
+    // Sit OUTSIDE #arbResults so the button stays visible under a no-TOU utility
+    // (where the arbitrage panel is hidden and the self-supply card shows instead).
+    // Place it after the self-supply card if present, else right after arbResults.
+    var ss=document.getElementById('selfSupplyCard');
+    var ref=(ss && ss.parentNode===host)?ss:arb;
+    host.insertBefore(wrap, ref.nextSibling);
     document.getElementById('v17walkBtn').addEventListener('click', openWalk);
   }
 

@@ -560,6 +560,7 @@
 
     // Step 2 — usage, reframed: no peak window to dodge, the point is readiness
     set('.screen[data-step="1"] p.body','This is how your home uses power across the day. Without a time-of-use rate on '+UTIL+', the win isn&rsquo;t shifting hours to dodge a peak price. It&rsquo;s having stored power ready the moment the grid goes down.');
+    set('.screen[data-step="1"] .card .k','Your usage across the day');
     hide('.screen[data-step="1"] .grid');
 
     // Step 3 — recommendation logic, reframed to backup + self-supply
@@ -594,7 +595,7 @@
     var seg=document.getElementById('homeSeg');
     if(seg){ seg.style.display='none'; if(seg.previousElementSibling) seg.previousElementSibling.style.display='none'; }
     var bv=document.querySelector('.billval');
-    if(bv){ var c=document.createElement('div'); c.style.cssText='font-size:13px;color:var(--muted);margin-top:8px'; c.textContent='From the Con Edison usage you shared with us.'; bv.insertAdjacentElement('afterend',c); }
+    if(bv){ var c=document.createElement('div'); c.style.cssText='font-size:13px;color:var(--muted);margin-top:8px'; c.textContent=(NOTOU?'From the usage you shared with us.':'From the Con Edison usage you shared with us.'); bv.insertAdjacentElement('afterend',c); }
     var lead=document.querySelector('.screen[data-step="0"] p.lead');
     if(lead) lead.textContent='These are your real numbers, built from the usage you shared. Tap through to see the plan we recommend for your home — and exactly why.';
   }

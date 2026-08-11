@@ -244,7 +244,7 @@ function readWalkPayload(){
     if(!o) return null;
     var present = (+o.kw||0) || (+o.batt||0) || (+o.net||0) || (+o.year1||0);
     if(!present) return null;
-    return { kw:+o.kw||0, batt:+o.batt||0, net:Math.round(+o.net||0), year1:Math.round(+o.year1||0),
+    return { kw:+o.kw||0, batt:+o.batt||0, net:Math.round(+o.net||0), gross:Math.round(+o.gross||0), year1:Math.round(+o.year1||0),
       payback:+o.payback||0, offset:Math.round(+o.offset||0), life25:Math.round(+o.life25||0), backup:Math.round(+o.backup||0) };
   }
   var raw = Q.get('p'), pay = null;
@@ -524,7 +524,7 @@ function routeIntent(P){
       if(P.api){
         var o=opt();
         var d={ name:nm, email:document.getElementById('em').value.trim(), address:document.getElementById('ad').value.trim(),
-                batt:o.batt, save:(NOTOU?0:o.year1), net:o.net, kind:LABEL[sel] };
+                batt:o.batt, save:(NOTOU?0:o.year1), net:o.net, gross:o.gross||'', inc:((o.gross&&o.net)?(o.gross-o.net):''), backup:o.backup||'', kw:o.kw||'', offset:o.offset||'', kind:LABEL[sel] };
         var url=P.api+'?action=surveyRequest&data='+encodeURIComponent(JSON.stringify(d));
         try{ fetch(url,{method:'GET',mode:'no-cors',cache:'no-store'}).catch(function(){}); }catch(e){ var im=new Image(); im.src=url; }
       }

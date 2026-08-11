@@ -538,7 +538,7 @@
           email: document.getElementById('em').value.trim(),
           address: document.getElementById('ad').value.trim()
         };
-        if(REAL){ d.batt=REAL.batt||''; d.save=REAL.yr1||''; d.net=REAL.net||''; }
+        if(REAL){ d.batt=REAL.batt||''; d.save=REAL.yr1||''; d.net=REAL.net||''; d.gross=REAL.gross||''; d.inc=REAL.nyserda||''; }
         var url=api+'?action=surveyRequest&data='+encodeURIComponent(JSON.stringify(d));
         try{ fetch(url,{method:'GET',mode:'no-cors',cache:'no-store'}).catch(function(){}); }
         catch(e2){ var im=new Image(); im.src=url; }

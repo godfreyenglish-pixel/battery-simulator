@@ -8574,7 +8574,20 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     document.getElementById('v17walkBtn').addEventListener('click', openWalk);
   }
 
-  function run(){ ensureCss(); hidePrice(); injectBtn(); }
+  function isNoTou(){
+    try{ var m=(window.__utilMeta&&window.__utility)?window.__utilMeta[window.__utility]:null; return !!(m && m.tou===false); }catch(e){ return false; }
+  }
+  function updateWalkVis(){
+    var wrap=document.getElementById('v17walkWrap'); if(!wrap) return;
+    // Hide the "See your full proposal" CTA on a backup-only inquiry link:
+    // client view + inquiry share + a no-TOU utility. There's no savings story to
+    // walk into, and the inquiry link is a soft cold-lead touch, so pushing the
+    // full proposal is premature. Any TOU utility, or a full (non-inquiry) share,
+    // still shows it.
+    var hide = isClient() && !!window.__inquiryView && isNoTou();
+    wrap.style.display = hide ? 'none' : '';
+  }
+  function run(){ ensureCss(); hidePrice(); injectBtn(); updateWalkVis(); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', run); else run();
   setInterval(run,1400);
   console.log('[Client Walkthrough v17] ready.');

@@ -8724,6 +8724,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var payload = proposalUrl.slice(i+3);
     var url = (FUNNEL[intent]||FUNNEL.choose) + '?p=' + payload;
     try{ if(typeof TRACKING_ENDPOINT!=='undefined' && TRACKING_ENDPOINT) url += '&api=' + encodeURIComponent(TRACKING_ENDPOINT); }catch(e){}
+    // No-TOU utilities have no rate arbitrage, so tell the client walkthrough to
+    // drop the (Con Ed-derived) savings/payback figures and show its backup story.
+    try{ var uM=(window.__utilMeta&&window.__utility)?window.__utilMeta[window.__utility]:null; if(uM && uM.tou===false) url += '&tou=0'; }catch(e){}
     return url;
   }
   function openWalk(){ var u=buildWalkUrl(getIntent()); if(u) window.open(u,'_blank'); }

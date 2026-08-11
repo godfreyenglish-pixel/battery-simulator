@@ -284,6 +284,12 @@ function routeIntent(P){
   var route = routeIntent(P);
   var CH = route.choices;                 // selectable option keys
   var BATT_ONLY = route.path === 'battery';
+  // No-TOU: the router passes tou=0 when the client's utility has no residential
+  // time-of-use rate. There's no rate arbitrage, so the payload's year1/life25/
+  // payback (computed off the Con Ed arbitrage model) don't apply. This flag
+  // switches the savings screens to a backup + resilience story. Absent param =
+  // TOU, so every existing link keeps its behavior.
+  var NOTOU = (new URLSearchParams(location.search).get('tou') === '0');
 
   var LABEL = { solar:'Solar only', solbat:'Solar + Battery', battery:'Battery' };
   var HASBATT = { solar:false, solbat:true, battery:true };
@@ -338,6 +344,11 @@ function routeIntent(P){
       T('lede3','Your roof turns daylight into electricity you own, instead of renting every kilowatt from the utility.');
       T('shiftnote','Every kilowatt your roof makes is one you don’t buy at retail. That gap is your savings.');
     }
+    if(NOTOU){
+      T('h3','Power you own. Backup you control.');
+      T('lede3','Your battery stores power and holds it in reserve, so when the grid goes down your home keeps running. On a flat rate there’s no peak to shave, so the win is resilience.');
+      T('shiftnote','It’s backup you control, plus protection if net metering is reduced or ends.');
+    }
     var html='';
     nodes.forEach(function(nd,i){
       html+='<div class="fnode"><div class="ic">'+nd[0]+'</div><div class="t">'+nd[1]+'</div></div>';
@@ -354,6 +365,7 @@ function routeIntent(P){
       T('h4','Your battery plan.');
       T('lede4','Sized to your usage to cover the peak window and back up your home.');
     }
+    if(NOTOU) T('lede4', BATT_ONLY ? 'Sized to your usage to back up your home when the grid goes down.' : 'Sized to your usage, for backup and resilience on a flat rate.');
     picker.innerHTML='';
     CH.forEach(function(k){
       var o=P.options[k];
@@ -364,7 +376,7 @@ function routeIntent(P){
       var recTag = (k===P.recommended && CH.length>1) ? '<span class="rec">Best payback</span>' : '';
       el.innerHTML =
         '<div class="ph"><div><div class="pname">'+LABEL[k]+'</div>'+
-        (o.year1?'<div class="psave">Saves ~'+money(o.year1)+'/yr</div>':'')+
+        ((!NOTOU && o.year1)?'<div class="psave">Saves ~'+money(o.year1)+'/yr</div>':'')+
         '</div><div style="display:flex;align-items:center;gap:8px">'+recTag+'<div class="tick">'+(k===sel?'✓':'')+'</div></div></div>'+
         (meta?'<div class="pmeta">'+meta+'</div>':'');
       el.addEventListener('click',function(){ setSel(k); });
@@ -439,6 +451,18 @@ function routeIntent(P){
   // beat 5: proof chart, driven by the SELECTED option
   function beat5(){
     var o=opt();
+    if(NOTOU){
+      var sec=document.querySelector('.screen[data-s="4"]');
+      if(sec){ var _h=sec.querySelector('h1'); if(_h) _h.textContent='Backup you can count on.';
+        var _l=sec.querySelector('.lede'); if(_l) _l.textContent="You're on a flat rate, so this isn't a savings play. It's resilience you own, plus protection if net metering is reduced or ends."; }
+      T('plan5', LABEL[sel].toLowerCase());
+      T('offlbl','Backup runtime'); T('offset5', o.backup?o.backup+'h':'—');
+      var s25t=document.getElementById('save25'); if(s25t){ var mini=s25t.closest('.mini'); if(mini) mini.style.display='none'; }
+      var cw=document.getElementById('chartwrap');
+      if(cw) cw.innerHTML='<div class="sub2">Your battery carries critical loads about <b style="color:var(--gold)">'+(o.backup||0)+' hours</b> when the grid goes down. On a flat rate there’s no arbitrage to bank, so the value is resilience and protection if net metering changes, not a monthly saving.</div>';
+      var bdg=document.getElementById('badges'); if(bdg){ bdg.innerHTML=''; var chips=[]; if(HASBATT[sel]) chips.push('🔋 <b>'+(o.batt||0)+' kWh</b> · '+(o.backup||0)+'h backup'); chips.push('🛡️ Net-metering protection'); chips.push('✅ Licensed &amp; local'); chips.forEach(function(c){ var e=document.createElement('span'); e.className='badge'; e.innerHTML=c; bdg.appendChild(e); }); }
+      return;
+    }
     T('plan5', LABEL[sel].toLowerCase());
     T('offset5', BATT_ONLY ? (o.backup?o.backup+'h':'—') : Math.round(o.offset)+'%');
     T('offlbl', BATT_ONLY ? 'Backup runtime' : 'Usage covered');
@@ -479,7 +503,13 @@ function routeIntent(P){
     document.getElementById('net6').textContent='$0';
     countUp('net6', o.net, money, 1100);
     T('donothing6', money(dn));
-    T('paybackline', o.payback>0 ? ('Pays for itself in about '+o.payback+' years, then it’s pure savings.') : '');
+    if(NOTOU){
+      T('paybackline','On a flat rate this is a backup and resilience investment, not a payback play. The return is keeping your home powered and protecting your net metering.');
+      var an=document.querySelector('.screen[data-s="5"] .anchor'); if(an) an.textContent='This is your system price after incentives. On a flat rate the value here is backup, resilience, and protecting your net metering, not rate arbitrage.';
+      var subs=document.querySelectorAll('.screen[data-s="5"] .card .sub2'); var last=subs[subs.length-1]; if(last && last.id!=='paybackline') last.textContent='The free site survey locks in your exact system, financing, and backup runtime.';
+    } else {
+      T('paybackline', o.payback>0 ? ('Pays for itself in about '+o.payback+' years, then it’s pure savings.') : '');
+    }
   }
 
   // nav wiring
@@ -494,7 +524,7 @@ function routeIntent(P){
       if(P.api){
         var o=opt();
         var d={ name:nm, email:document.getElementById('em').value.trim(), address:document.getElementById('ad').value.trim(),
-                batt:o.batt, save:o.year1, net:o.net, kind:LABEL[sel] };
+                batt:o.batt, save:(NOTOU?0:o.year1), net:o.net, kind:LABEL[sel] };
         var url=P.api+'?action=surveyRequest&data='+encodeURIComponent(JSON.stringify(d));
         try{ fetch(url,{method:'GET',mode:'no-cors',cache:'no-store'}).catch(function(){}); }catch(e){ var im=new Image(); im.src=url; }
       }

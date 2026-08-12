@@ -4,100 +4,135 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>Sign in · Rivertown Battery Load Simulator</title>
+<title>Battery Load Simulator · Rivertown Solar</title>
 <style>
   :root{
-    --bg:#0a0e16;
-    --panel:#111725;
-    --panel2:#0e1420;
-    --line:#1e2637;
-    --text:#eef2f8;
-    --muted:#8a97ad;
-    --gold:#eab543;
-    --gold2:#f5c451;
+    --bg:#05070c;
+    --panel:rgba(20,26,38,.72);
+    --text:#f4f7fb;
+    --muted:#96a2b8;
+    --faint:#5d6b83;
+    --gold:#f2b944;
+    --gold-hi:#ffd77a;
+    --green:#4fd6a0;
+    --line:rgba(255,255,255,.09);
   }
-  *{box-sizing:border-box}
+  *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{
-    margin:0;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-    background:
-      radial-gradient(1100px 600px at 50% -10%, rgba(234,181,67,.10), transparent 60%),
-      var(--bg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
     color:var(--text);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    padding:24px;
+    background:var(--bg);
+    -webkit-font-smoothing:antialiased;
+    display:flex;align-items:center;justify-content:center;
+    min-height:100dvh;padding:28px;position:relative;overflow:hidden;
   }
+  /* ambient light */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(680px 420px at 50% -6%, rgba(242,185,68,.16), transparent 62%),
+      radial-gradient(900px 700px at 82% 118%, rgba(79,214,160,.08), transparent 60%),
+      linear-gradient(180deg,#070a12 0%,#05070c 60%);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size:22px 22px;
+    mask-image:radial-gradient(560px 560px at 50% 30%, #000 0%, transparent 75%);
+    -webkit-mask-image:radial-gradient(560px 560px at 50% 30%, #000 0%, transparent 75%);
+  }
+
   .card{
-    width:100%;
-    max-width:420px;
-    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    position:relative;z-index:1;width:100%;max-width:460px;
+    background:var(--panel);
     border:1px solid var(--line);
-    border-radius:18px;
-    padding:34px 30px 28px;
-    box-shadow:0 24px 60px rgba(0,0,0,.45);
+    border-radius:22px;
+    padding:40px 38px 30px;
+    backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+    box-shadow:0 30px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
     text-align:center;
   }
-  .brand{
-    display:flex;align-items:center;justify-content:center;gap:10px;
-    font-weight:700;font-size:15px;letter-spacing:.3px;margin-bottom:26px;
-  }
-  .brand .bolt{
-    width:30px;height:30px;border-radius:8px;
-    background:linear-gradient(160deg,var(--gold2),#d99a1f);
+
+  .brand{display:inline-flex;align-items:center;gap:11px;margin-bottom:34px}
+  .mark{
+    width:38px;height:38px;border-radius:11px;flex:none;
+    background:linear-gradient(155deg,#ffd77a,#e0a12a);
     display:flex;align-items:center;justify-content:center;
-    color:#1a1204;font-size:17px;font-weight:900;
+    box-shadow:0 6px 18px rgba(224,161,42,.4), inset 0 1px 0 rgba(255,255,255,.5);
   }
-  .brand .sub{color:var(--gold)}
-  .lock{
-    width:56px;height:56px;border-radius:50%;
-    background:rgba(234,181,67,.12);
-    border:1px solid rgba(234,181,67,.35);
-    display:flex;align-items:center;justify-content:center;
-    margin:0 auto 18px;font-size:24px;
+  .brand .name{font-size:15px;font-weight:600;letter-spacing:.2px}
+  .brand .name b{color:var(--gold);font-weight:700}
+  .brand .name small{display:block;font-size:9.5px;letter-spacing:1.6px;color:var(--faint);text-transform:uppercase;margin-top:2px;font-weight:600}
+
+  h1{
+    font-size:30px;line-height:1.12;letter-spacing:-.4px;font-weight:700;
+    margin-bottom:14px;
   }
-  h1{font-size:22px;margin:0 0 8px;letter-spacing:.2px}
-  p.lede{color:var(--muted);font-size:14px;line-height:1.55;margin:0 auto 24px;max-width:320px}
+  h1 .hl{color:var(--gold)}
+  p.lede{color:var(--muted);font-size:15px;line-height:1.6;max-width:340px;margin:0 auto 26px}
+
+  .feats{
+    display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:30px;
+  }
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;
+    font-size:12px;color:#c4cddd;font-weight:500;
+    background:rgba(255,255,255,.04);
+    border:1px solid var(--line);
+    padding:7px 12px;border-radius:999px;
+  }
+  .chip .dot{width:6px;height:6px;border-radius:50%}
+  .dot.g{background:var(--gold)}
+  .dot.e{background:var(--green)}
+  .dot.b{background:#6aa8ff}
+
   .btn{
     display:block;width:100%;
-    background:linear-gradient(160deg,var(--gold2),#e0a52c);
-    color:#1a1204;text-decoration:none;
-    font-weight:800;font-size:15px;
-    padding:14px 18px;border-radius:12px;
-    border:none;cursor:pointer;
-    transition:transform .06s ease, filter .15s ease;
+    background:linear-gradient(160deg,#ffd77a 0%, #f2b944 45%, #e59f24 100%);
+    color:#231704;text-decoration:none;
+    font-size:15.5px;font-weight:800;letter-spacing:.2px;
+    padding:15px 20px;border-radius:13px;border:none;cursor:pointer;
+    box-shadow:0 10px 26px rgba(242,185,68,.28), inset 0 1px 0 rgba(255,255,255,.55);
+    transition:transform .07s ease, box-shadow .2s ease, filter .2s ease;
   }
-  .btn:hover{filter:brightness(1.05)}
+  .btn:hover{filter:brightness(1.04);box-shadow:0 14px 32px rgba(242,185,68,.36), inset 0 1px 0 rgba(255,255,255,.55)}
   .btn:active{transform:translateY(1px)}
-  .note{
-    margin-top:18px;color:var(--muted);font-size:12px;line-height:1.5;
+  .sub{margin-top:14px;font-size:12.5px;color:var(--faint)}
+
+  .foot{
+    margin-top:26px;padding-top:18px;border-top:1px solid var(--line);
+    font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--faint);
   }
-  .divider{height:1px;background:var(--line);margin:24px 0 0}
-  .foot{margin-top:16px;color:#5f6b80;font-size:11px;letter-spacing:.4px;text-transform:uppercase}
-  .cf{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;margin-top:14px}
-  .cf b{color:#c7d0df;font-weight:600}
+
+  @media (max-width:480px){
+    .card{padding:34px 24px 26px;border-radius:20px}
+    h1{font-size:26px}
+  }
 </style>
 </head>
 <body>
-  <div class="card">
+  <main class="card">
     <div class="brand">
-      <span class="bolt">⚡</span>
-      <span>Rivertown <span class="sub">Solar</span></span>
+      <span class="mark" aria-hidden="true">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M13.2 2 4.5 13.4h6.1L9.9 22l9-11.9h-6.4L13.2 2z" fill="#231704"/></svg>
+      </span>
+      <span class="name">Rivertown <b>Solar</b><small>Battery Load Simulator</small></span>
     </div>
 
-    <div class="lock">🔒</div>
-    <h1>Battery Load Simulator</h1>
-    <p class="lede">Internal tool. Sign in with your Rivertown email to continue. You'll get a one-time code, no password needed.</p>
+    <h1>See what a battery<br>actually <span class="hl">saves you</span>.</h1>
+    <p class="lede">Model whole-house arbitrage savings, backup runtime, and solar dispatch in real time, all built from real numbers.</p>
 
-    <a class="btn" href="app.html">Sign in to the tool</a>
+    <div class="feats">
+      <span class="chip"><span class="dot g"></span>Arbitrage savings</span>
+      <span class="chip"><span class="dot e"></span>Backup runtime</span>
+      <span class="chip"><span class="dot b"></span>Solar dispatch</span>
+    </div>
 
-    <p class="note">Access is limited to the Rivertown Solar team. If your email isn't approved, contact the office.</p>
+    <a class="btn" href="app.html">Sign in</a>
+    <div class="sub">Rivertown team access</div>
 
-    <div class="divider"></div>
-    <div class="cf">Secured by <b>Cloudflare Access</b></div>
     <div class="foot">Rivertown Solar · Westchester Home Energy</div>
-  </div>
+  </main>
 </body>
 </html>

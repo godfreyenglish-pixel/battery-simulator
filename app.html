@@ -2456,7 +2456,21 @@ function parseGreenButton(input) {
   if (hasExportCol) label += ` · solar export: ${Math.round(totalExportKwh).toLocaleString()} kWh`;
   if (hasNetMetered) label += ` · implicit solar: ~${Math.round(implicitSolarKwh).toLocaleString()} kWh/yr`;
 
+  // Client name lives in the CSV preamble on Con Ed billing-data exports
+  // ("Name,DOUGLAS VERMES"). Grab it so the proposal greeting carries even when
+  // the client was loaded by upload rather than a ?bill= link. Title-cased so an
+  // all-caps export doesn't shout at the customer.
+  let csvClientName = '';
+  for (const t of texts) {
+    const nm = String(t || '').match(/^\s*name\s*[,;\t|]\s*"?([^",;\t|\r\n]+)/im);
+    if (nm && nm[1] && nm[1].trim()) {
+      csvClientName = nm[1].trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+      break;
+    }
+  }
+
   const meta = {
+    clientName: csvClientName,
     range: `${firstDate.toISOString().slice(0, 10)} → ${lastDate.toISOString().slice(0, 10)}`,
     intervals: intervalLabel,
     total: totalKwh,
@@ -5485,15 +5499,23 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   }
 
   function billBlock(bill){
-    if(!bill) return { annualKwh:0, rate:0, monthly:0, supply:0, delivery:0, basic:0 };
-    var days = n(bill.daysInPeriod)||30;
-    var mh = Array.isArray(bill.monthlyHistory)?bill.monthlyHistory:[];
-    var annualKwh;
-    if(typeof window!=='undefined' && window.__annualUsage){ annualKwh = window.__annualUsage; }
+    // Usage reaches the tool three ways: a ?bill= payload (getBill), a CSV / Green
+    // Button upload, or the daily-usage slider. Only the first used to carry into
+    // the proposal — the other two live in tool state, so a client loaded by CSV
+    // came through with a blank energy profile. Fall back to live state (the CSV
+    // annual, then the slider) so the client's real numbers reach the walkthrough
+    // no matter how they were entered.
+    var days = (bill && n(bill.daysInPeriod)) || 30;
+    var mh = (bill && Array.isArray(bill.monthlyHistory)) ? bill.monthlyHistory : [];
+    var annualKwh = 0;
+    if(typeof window!=='undefined' && n(window.__annualUsage)){ annualKwh = n(window.__annualUsage); }
     else if(mh.length>=6){ var sum=mh.reduce(function(a,m){return a+n(m&&m.kwh);},0); annualKwh=sum*(12/mh.length); }
-    else annualKwh = n(bill.totalKwh)/days*365;
-    var rate=n(bill.allInRate), basic=n(bill.basicServiceCharge);
-    return { annualKwh:Math.round(annualKwh), rate:rate, monthly:Math.round(annualKwh*rate/12+basic), supply:Math.round(n(bill.supplyCharges)), delivery:Math.round(n(bill.deliveryCharges)), basic:Math.round(basic) };
+    else if(bill && n(bill.totalKwh)){ annualKwh = n(bill.totalKwh)/days*365; }
+    if(!annualKwh){ try{ var cs=(typeof STATE!=='undefined')?STATE.setupB:null; if(cs){ annualKwh = (cs.src==='csv' && cs.csvMeta && cs.csvMeta.annual) ? n(cs.csvMeta.annual) : n(cs.daily)*365; } }catch(e){} }
+    var rate = (bill && n(bill.allInRate)) || (function(){ try{ return n(STATE.el1Rate); }catch(e){ return 0; } })();
+    var basic = (bill && n(bill.basicServiceCharge)) || (function(){ try{ return n(STATE.basicCharge); }catch(e){ return 0; } })();
+    if(!annualKwh) return { annualKwh:0, rate:rate, monthly:0, supply:0, delivery:0, basic:Math.round(basic) };
+    return { annualKwh:Math.round(annualKwh), rate:rate, monthly:Math.round(annualKwh*rate/12+basic), supply:Math.round(bill?n(bill.supplyCharges):0), delivery:Math.round(bill?n(bill.deliveryCharges):0), basic:Math.round(basic) };
   }
 
   function warrantyBlock(){
@@ -5508,7 +5530,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var rec='solbat', best=-Infinity;
     ['solar','solbat','battery'].forEach(function(k){ if(opts[k].life25>best){best=opts[k].life25; rec=k;} });
     var gift=(typeof window.getLmProposal==='function')?window.getLmProposal():{total:0,rate:'flat',touUpside:0};
-    var first=bill&&bill.clientName?String(bill.clientName).split(' ')[0]:'';
+    var cname=(bill&&bill.clientName)?bill.clientName:(function(){ try{ var cs=STATE.setupB; return (cs&&cs.csvMeta&&cs.csvMeta.clientName)||''; }catch(e){ return ''; } })();
+    var first=cname?String(cname).split(' ')[0]:'';
     var today=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
     var payload={ client:first, date:today, bill:billBlock(bill), gift:{ total:Math.round(gift.total||0), rate:gift.rate||'flat', touUpside:Math.round(gift.touUpside||0) }, options:opts, recommended:rec, replyTo:'godfrey@rivertownsolar.com', warranties:warrantyBlock() };
     return PROPOSAL_URL + '?p=' + b64url(JSON.stringify(payload));

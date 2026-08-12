@@ -190,12 +190,30 @@
         </div>
         <div id="cfFoot" style="color:var(--sub);font-size:11.5px;margin-top:11px;opacity:.85;line-height:1.5"></div>
       </div>
-      <button class="cta" data-go="6">Lock in my custom plan →</button>
+      <button class="cta" data-go="6">See your full system →</button>
     </section>
 
-    <!-- 7 -->
+    <!-- 7 · EQUIPMENT + WARRANTIES -->
+    <section class="screen" data-s="eq">
+      <div class="kick">Step 7 · What you're getting</div>
+      <h1>Your system, spec by spec.</h1>
+      <p class="lede">Premium, name-brand equipment, installed and backed by Rivertown.</p>
+      <div class="card">
+        <div class="lbl">Equipment</div>
+        <div id="eqList"></div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="lbl">Warranties</div>
+        <div id="eqRt" style="background:rgba(55,201,166,.08);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px"></div>
+        <div id="wtyList" style="margin-top:12px"></div>
+        <div style="color:var(--sub);font-size:11.5px;margin-top:12px;opacity:.85">Manufacturer terms shown; exact coverage is confirmed in your written proposal.</div>
+      </div>
+      <button class="cta" data-go="7">Lock in my custom plan →</button>
+    </section>
+
+    <!-- 8 -->
     <section class="screen" data-s="6">
-      <div class="kick">Step 7 · Start here</div>
+      <div class="kick">Step 8 · Start here</div>
       <div id="formwrap">
         <h1>Ready for the real breakdown?</h1>
         <p class="lede">Everything so far is modeled from your bill. A <b>free site survey</b> confirms your exact system, price, and savings on your actual home. No payment, no obligation.</p>
@@ -224,6 +242,7 @@
 /* ---- inlined shared reader (walkthrough-payload-reader.js) ---- */
 function readWalkPayload(){
   var Q = new URLSearchParams(location.search);
+  var DEFAULT_WTY={ rivertown:{performance:'Lifetime',workmanship:'Lifetime',labor:'Lifetime'}, components:[ {name:'Solar Panels',mfr:'Axitec',term:'30 yr output'}, {name:'Microinverters',mfr:'Enphase IQ',term:'25 yr'}, {name:'Racking',mfr:'IronRidge',term:'25 yr'}, {name:'Monitoring',mfr:'Enphase',term:'Included'} ] };
   function b64urlDecode(s){ s=String(s).replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; var bin; try{bin=atob(s);}catch(e){return null;} try{return decodeURIComponent(escape(bin));}catch(e){return bin;} }
   function optClean(o){ if(!o) return null; var present=(+o.kw||0)||(+o.batt||0)||(+o.net||0)||(+o.year1||0); if(!present) return null;
     return { kw:+o.kw||0, batt:+o.batt||0, net:Math.round(+o.net||0), gross:Math.round(+o.gross||0), year1:Math.round(+o.year1||0), payback:+o.payback||0, offset:Math.round(+o.offset||0), life25:Math.round(+o.life25||0), backup:Math.round(+o.backup||0) }; }
@@ -235,14 +254,14 @@ function readWalkPayload(){
     var o=pay.options||{};
     return { source:'payload', name:(pay.client||'').trim(), util:(b.util||pay.util||Q.get('util')||'your utility').trim(),
       esc:(parseFloat(Q.get('esc'))||3.3)/100, bill:{ monthly:monthly, annualKwh:annualKwh, annualCost:annualCost, rate:rate },
-      options:{ solar:optClean(o.solar), solbat:optClean(o.solbat), battery:optClean(o.battery) }, recommended:pay.recommended||'solbat', api:Q.get('api')||'' };
+      options:{ solar:optClean(o.solar), solbat:optClean(o.solbat), battery:optClean(o.battery) }, warranties:pay.warranties||DEFAULT_WTY, recommended:pay.recommended||'solbat', api:Q.get('api')||'' };
   }
   function num(k,d){ var v=parseFloat(Q.get(k)); return isNaN(v)?d:v; }
   var m=num('bill',225), akwh=num('kwh',9000);
   var solar={ kw:num('pv',7.6), batt:0, net:num('net',19000), year1:num('save',2100), payback:num('payback',9), offset:num('offset',92), life25:num('life25',0), backup:0 };
   return { source:'params', name:(Q.get('name')||'').trim(), util:(Q.get('util')||'Con Edison').trim(), esc:num('esc',3.3)/100,
     bill:{ monthly:m, annualKwh:akwh, annualCost:m*12, rate:m*12/Math.max(1,akwh) },
-    options:{ solar:solar, solbat:null, battery:null }, recommended:'solar', api:Q.get('api')||'' };
+    options:{ solar:solar, solbat:null, battery:null }, warranties:DEFAULT_WTY, recommended:'solar', api:Q.get('api')||'' };
 }
 /* --------------------------------------------------------------- */
 
@@ -298,7 +317,7 @@ function readWalkPayload(){
     segs.forEach(function(sg,j){ sg.classList.toggle('done',j<cur); sg.classList.toggle('cur',j===cur); });
     T('count',(cur+1)+' / '+N); document.getElementById('back').classList.toggle('show',cur>0);
     window.scrollTo({top:0,behavior:'smooth'}); enter(cur); }
-  function enter(n){ if(n===1 && !did[1]){ did[1]=true; beat2(); } if(n===3 && !did[3]){ did[3]=true; beat4(); } if(n===4){ beat5(); } if(n===5){ beat6(); } }
+  function enter(n){ if(n===1 && !did[1]){ did[1]=true; beat2(); } if(n===3 && !did[3]){ did[3]=true; beat4(); } if(n===4){ beat5(); } if(n===5){ beat6(); } if(n===6){ beatEquip(); } }
 
   function countUp(id,to,fmt,dur){ var el=document.getElementById(id); if(!el) return; dur=dur||1100; var st=null;
     function step(ts){ if(!st) st=ts; var p=Math.min(1,(ts-st)/dur); var e=1-Math.pow(1-p,3); el.textContent=fmt(to*e); if(p<1) requestAnimationFrame(step);} requestAnimationFrame(step); }
@@ -380,7 +399,22 @@ function readWalkPayload(){
     renderFinance(o);
   }
 
-  document.querySelectorAll('[data-go]').forEach(function(b){ b.addEventListener('click',function(){ show(parseInt(b.getAttribute('data-go'),10)); }); });
+  function beatEquip(){
+    var W=(P&&P.warranties)||{}, comps=W.components||[], rt=W.rivertown||{};
+    var kw=+o.kw||0, batt=+o.batt||0, backup=+o.backup||0, hasSolar=kw>0, hasBatt=batt>0, el;
+    function eE(x){ return String(x==null?'':x).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];}); }
+    function ic(n){ if(/panel/i.test(n))return '\uD83D\uDD06'; if(/inverter/i.test(n))return '\u26A1'; if(/rack/i.test(n))return '\uD83D\uDD29'; if(/monitor/i.test(n))return '\uD83D\uDCC8'; if(/batter/i.test(n))return '\uD83D\uDD0B'; return '\u2705'; }
+    function hi(n){ if(/panel/i.test(n))return kw?(kw+' kW system, about '+Math.round(kw*1000/450)+' \u00D7 450W panels'):'High-efficiency modules'; if(/inverter/i.test(n))return 'Panel-level power conversion and monitoring'; if(/rack/i.test(n))return 'Engineered, flashed roof mounts'; if(/monitor/i.test(n))return 'Live production and system-health app'; if(/batter/i.test(n))return (batt?batt+' kWh usable':'Home battery')+(backup?', about '+backup+'h backup':''); return ''; }
+    function keep(c){ var n=c.name||''; if(/batter/i.test(n))return hasBatt; if(/panel|inverter|rack|monitor/i.test(n))return hasSolar; return true; }
+    var vis=comps.filter(keep);
+    var eq=vis.map(function(c){ return '<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line)"><div style="font-size:22px;line-height:1">'+ic(c.name)+'</div><div style="flex:1"><div style="font-weight:700;font-size:15px">'+eE(c.name)+' <span style="color:var(--sub);font-weight:600">\u00B7 '+eE(c.mfr)+'</span></div><div style="color:var(--sub);font-size:13px;margin-top:3px">'+eE(hi(c.name))+'</div></div></div>'; }).join('');
+    if(el=document.getElementById('eqList')) el.innerHTML=eq||'<div style="color:var(--sub);font-size:14px">Confirmed at your free site survey.</div>';
+    if(el=document.getElementById('eqRt')) el.innerHTML='Rivertown performance, workmanship and labor, all <b style="color:var(--teal)">'+eE(rt.workmanship||'Lifetime')+'</b>.';
+    var wty=vis.map(function(c){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px"><span>'+eE(c.name)+' <span style="color:var(--sub)">\u00B7 '+eE(c.mfr)+'</span></span><span style="color:var(--gold);font-weight:700;white-space:nowrap">'+eE(c.term||'\u2014')+'</span></div>'; }).join('');
+    if(el=document.getElementById('wtyList')) el.innerHTML=wty;
+  }
+
+    document.querySelectorAll('[data-go]').forEach(function(b){ b.addEventListener('click',function(){ show(parseInt(b.getAttribute('data-go'),10)); }); });
   document.getElementById('back').addEventListener('click',function(){ show(cur-1); });
 
   document.getElementById('authorize').addEventListener('click',function(){

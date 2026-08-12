@@ -5498,6 +5498,27 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     return { solar:solar, solbat:solbat, battery:battery };
   }
 
+  // Three price-appetite tiers the client questionnaire routes to. Same solar,
+  // different battery: Essential = 1x EG4, Balanced = 2x EG4, Future-proof = Enphase 10C.
+  function computeTiers(){
+    var base = baseSetup();
+    var PD = (typeof PANEL_DEGRADATION!=='undefined')?PANEL_DEGRADATION:0.005;
+    function T(brand, qty){
+      var s = Object.assign(cfg(base,true,true), { brand:brand, qty:qty });
+      var y1 = Math.max(0, annualSaveArb(s));
+      var bC = batterySystemCost(s), sC = solarSystemCost(s);
+      var net = bC.net + sC.net, gross = bC.gross + sC.gross, off = 0;
+      try{ off = simulateSolar(s).annualOffset; }catch(e){}
+      return { kw:r1(s.solarKw), batt:r1(batterySpecs(s).total), gross:Math.round(gross), net:Math.round(net),
+        year1:Math.round(y1), payback:r1(paybackYears(net,y1,{degradation:PD})), offset:Math.round(off),
+        life25:Math.round(lifetimeSavings(y1,{degradation:PD})), backup:backupHrs(s), credit:Math.round(sC.stateCredit) };
+    }
+    var essential = Object.assign(T('eg4',1),      { label:'Essential',    brand:'EG4',        warrantyTerm:'10 yr / 10,000 cycles', why:'Covers the bulk of your peak window at the lowest entry price. EG4 value battery, backed 10 years.' });
+    var balanced  = Object.assign(T('eg4',2),      { label:'Balanced',     brand:'EG4',        warrantyTerm:'10 yr / 10,000 cycles', why:'Full peak-window coverage at the best value per kWh. Two EG4 batteries, our most popular setup.' });
+    var future    = Object.assign(T('enphase10c',3),{ label:'Future-proof', brand:'Enphase 10C', warrantyTerm:'15 yr / 6,000 cycles',  why:'The premium build: Enphase 10C, 15-year warranty, app-managed and expandable, sized to carry the whole home.' });
+    return { essential:essential, balanced:balanced, futureproof:future };
+  }
+
   function billBlock(bill){
     // Usage reaches the tool three ways: a ?bill= payload (getBill), a CSV / Green
     // Button upload, or the daily-usage slider. Only the first used to carry into
@@ -5535,7 +5556,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var cname=(bill&&bill.clientName)?bill.clientName:(function(){ try{ var cs=STATE.setupB; return (cs&&cs.csvMeta&&cs.csvMeta.clientName)||''; }catch(e){ return ''; } })();
     var first=cname?String(cname).split(' ')[0]:'';
     var today=new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-    var payload={ client:first, date:today, bill:billBlock(bill), gift:{ total:Math.round(gift.total||0), rate:gift.rate||'flat', touUpside:Math.round(gift.touUpside||0) }, options:opts, recommended:rec, replyTo:'godfrey@rivertownsolar.com', warranties:warrantyBlock() };
+    var payload={ client:first, date:today, bill:billBlock(bill), gift:{ total:Math.round(gift.total||0), rate:gift.rate||'flat', touUpside:Math.round(gift.touUpside||0) }, options:opts, tiers:computeTiers(), recommended:rec, replyTo:'godfrey@rivertownsolar.com', warranties:warrantyBlock() };
     return PROPOSAL_URL + '?p=' + b64url(JSON.stringify(payload));
   }
   window.buildProposalUrl = buildProposalUrl;

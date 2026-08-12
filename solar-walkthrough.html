@@ -316,6 +316,7 @@ function readWalkPayload(){
       bill:{ monthly:monthly, annualKwh:annualKwh, annualCost:annualCost, rate:rate, supply:+b.supply||0, delivery:+b.delivery||0, basic:+b.basic||0, peakPct:+b.peakPct||0, history:(Array.isArray(b.history)?b.history:[]) },
       options:{ solar:optClean(o.solar), solbat:optClean(o.solbat), battery:optClean(o.battery) },
       warranties: pay.warranties||DEFAULT_WTY,
+      tiers: (pay.tiers&&pay.tiers.essential)?pay.tiers:null,
       recommended: pay.recommended||'solbat', api:Q.get('api')||'' };
   }
   function num(k,d){ var v=parseFloat(Q.get(k)); return isNaN(v)?d:v; }
@@ -324,7 +325,7 @@ function readWalkPayload(){
     payback:num('payback',9), offset:num('offset',96), life25:num('life25',0), backup:num('backup',16) };
   return { source:'params', name:(Q.get('name')||'').trim(), util:(Q.get('util')||'Con Edison').trim(),
     esc:num('esc',3.3)/100, bill:{ monthly:m, annualKwh:akwh, annualCost:m*12, rate:m*12/Math.max(1,akwh), supply:0, delivery:0, basic:0, peakPct:0, history:[] },
-    options:{ solar:null, solbat:solbat, battery:null }, warranties: DEFAULT_WTY, recommended:'solbat', api:Q.get('api')||'' };
+    options:{ solar:null, solbat:solbat, battery:null }, warranties: DEFAULT_WTY, tiers:null, recommended:'solbat', api:Q.get('api')||'' };
 }
 function routeIntent(P){
   var o=P.options; var hasSolar=!!o.solar, hasSolbat=!!o.solbat, hasBatt=!!o.battery;
@@ -340,6 +341,10 @@ function routeIntent(P){
   var PREVIEW = /[?&]preview=1/.test(location.search);
   if(PREVIEW){ try{ var _app=document.querySelector('.app'); if(_app){ var _pb=document.createElement('div'); _pb.textContent='PREVIEW · clients do not see this bar'; _pb.style.cssText='background:#F59E0B;color:#20180a;font-weight:700;font-size:12px;text-align:center;padding:6px 10px;border-radius:8px;margin-bottom:10px'; _app.insertBefore(_pb,_app.firstChild); } }catch(e){} }
   var route = routeIntent(P);
+  var TIERS = (P.tiers && P.tiers.essential && P.tiers.balanced && P.tiers.futureproof) ? ['essential','balanced','futureproof'] : null;
+  var TLABEL = {essential:'Essential', balanced:'Balanced', futureproof:'Future-proof'};
+  var tierSel = 'balanced';
+  var quiz = {};
   var CH = route.choices;                 // selectable option keys
   var BATT_ONLY = route.path === 'battery';
   // No-TOU: the router passes tou=0 when the client's utility has no residential
@@ -355,7 +360,8 @@ function routeIntent(P){
   // current selection: recommended if selectable, else first choice
   var sel = (CH.indexOf(P.recommended) >= 0) ? P.recommended : CH[0];
 
-  function opt(){ return P.options[sel] || P.options.solbat || P.options.solar || P.options.battery; }
+  function opt(){ if(TIERS) return P.tiers[tierSel]||P.tiers.balanced; return P.options[sel] || P.options.solbat || P.options.solar || P.options.battery; }
+  function curLabel(){ return TIERS ? (TLABEL[tierSel]||'Solar + Battery') : (LABEL[sel]||'Solar + Battery'); }
   function money(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
   function moneyK(n){ n=Math.round(n); return n>=1000? '$'+(n/1000).toFixed(n%1000?1:0)+'k' : '$'+n; }
   function T(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; }
@@ -418,6 +424,7 @@ function routeIntent(P){
   // ---- beat 4: the picker ----
   function newBillFor(o){ return Math.max(4, P.bill.monthly*(1-(o.offset||0)/100)); }
   function buildPicker(){
+    if(TIERS){ buildQuiz(); return; }
     var picker=document.getElementById('picker');
     if(BATT_ONLY){
       T('h4','Your battery plan.');
@@ -517,7 +524,7 @@ function routeIntent(P){
       var sec=document.querySelector('.screen[data-s="4"]');
       if(sec){ var _h=sec.querySelector('h1'); if(_h) _h.textContent='Backup you can count on.';
         var _l=sec.querySelector('.lede'); if(_l) _l.textContent="You're on a flat rate, so this isn't a savings play. It's resilience you own, plus protection if net metering is reduced or ends."; }
-      T('plan5', LABEL[sel].toLowerCase());
+      T('plan5', curLabel().toLowerCase());
       T('offlbl','Backup runtime'); T('offset5', o.backup?o.backup+'h':'—');
       var s25t=document.getElementById('save25'); if(s25t){ var mini=s25t.closest('.mini'); if(mini) mini.style.display='none'; }
       var cw=document.getElementById('chartwrap');
@@ -525,7 +532,7 @@ function routeIntent(P){
       var bdg=document.getElementById('badges'); if(bdg){ bdg.innerHTML=''; var chips=[]; if(HASBATT[sel]) chips.push('🔋 <b>'+(o.batt||0)+' kWh</b> · '+(o.backup||0)+'h backup'); chips.push('🛡️ Net-metering protection'); chips.push('✅ Licensed &amp; local'); chips.forEach(function(c){ var e=document.createElement('span'); e.className='badge'; e.innerHTML=c; bdg.appendChild(e); }); }
       return;
     }
-    T('plan5', LABEL[sel].toLowerCase());
+    T('plan5', curLabel().toLowerCase());
     T('offset5', BATT_ONLY ? (o.backup?o.backup+'h':'—') : Math.round(o.offset)+'%');
     T('offlbl', BATT_ONLY ? 'Backup runtime' : 'Usage covered');
     var s25=save25For(o);
@@ -584,8 +591,8 @@ function routeIntent(P){
   function beat6(){
     var o=opt();
     renderFinance(o);
-    T('net6lbl', 'Your '+LABEL[sel].toLowerCase()+' system, after incentives');
-    T('lede6', 'After incentives, this is what your complete '+LABEL[sel].toLowerCase()+' system comes to.');
+    T('net6lbl', 'Your '+curLabel().toLowerCase()+' system, after incentives');
+    T('lede6', 'After incentives, this is what your complete '+curLabel().toLowerCase()+' system comes to.');
     document.getElementById('net6').textContent='$0';
     countUp('net6', o.net, money, 1100);
     T('donothing6', money(dn));
@@ -608,6 +615,7 @@ function routeIntent(P){
     function hi(n){ if(/panel/i.test(n))return kw?(kw+' kW system, about '+Math.round(kw*1000/450)+' × 450W panels'):'High-efficiency modules'; if(/inverter/i.test(n))return 'Panel-level power conversion and monitoring'; if(/rack/i.test(n))return 'Engineered, flashed roof mounts'; if(/monitor/i.test(n))return 'Live production and system-health app'; if(/batter/i.test(n))return (batt?batt+' kWh usable':'Home battery')+(backup?', about '+backup+'h backup':''); return ''; }
     function keep(c){ var n=c.name||''; if(/batter/i.test(n))return hasBatt; if(/panel|inverter|rack|monitor/i.test(n))return hasSolar; return true; }
     var vis=comps.filter(keep);
+    if(TIERS){ var _t=P.tiers[tierSel]||{}; vis=vis.map(function(c){ return /batter/i.test(c.name)?{name:'Battery',mfr:(_t.brand||c.mfr),term:(_t.warrantyTerm||c.term)}:c; }); }
     var eq=vis.map(function(c){ return '<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line)"><div style="font-size:22px;line-height:1">'+ic(c.name)+'</div><div style="flex:1"><div style="font-weight:700;font-size:15px">'+eE(c.name)+' <span style="color:var(--sub);font-weight:600">· '+eE(c.mfr)+'</span></div><div style="color:var(--sub);font-size:13px;margin-top:3px">'+eE(hi(c.name))+'</div></div></div>'; }).join('');
     if(el=document.getElementById('eqList')) el.innerHTML=eq||'<div style="color:var(--sub);font-size:14px">Confirmed at your free site survey.</div>';
     if(el=document.getElementById('eqRt')) el.innerHTML='Rivertown performance, workmanship and labor, all <b style="color:var(--teal)">'+eE(rt.workmanship||'Lifetime')+'</b>.';
@@ -635,6 +643,46 @@ function routeIntent(P){
     else if(card){ card.style.display='none'; }
   }
 
+  var QZ=[
+    { key:'priority', q:'What matters most to you?', a:[["Lowest cost up front",'essential'],["Best long-term value",'balanced'],["The best system, built to last",'futureproof']] },
+    { key:'stay', q:'How long will you be in this home?', a:[["Under 5 years",'essential'],["5 to 15 years",'balanced'],["15+ years, our forever home",'futureproof']] },
+    { key:'backup', q:'How important is backup in an outage?', a:[["Nice to have",'essential'],["Important",'balanced'],["Must-have, whole home",'futureproof']] }
+  ];
+  function money0(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
+  function tierFromQuiz(){ var score={essential:1,balanced:2,futureproof:3}, sum=0,c=0; QZ.forEach(function(qq){ var v=quiz[qq.key]; if(v){ sum+=score[v]; c++; } }); if(!c) return 'balanced'; var avg=sum/c; return avg<1.67?'essential':(avg<2.34?'balanced':'futureproof'); }
+  function buildQuiz(){
+    var host=document.getElementById('picker'); if(!host) return;
+    var out=document.getElementById('outage'); if(out) out.style.display='none';
+    T('h4','A few quick questions.');
+    T('lede4',"Answer these and we'll point you to the plan that fits your home and your budget, and show you why.");
+    var answered=QZ.every(function(qq){ return quiz[qq.key]; });
+    if(answered){ renderReveal(); return; }
+    host.innerHTML=QZ.map(function(qq,qi){
+      return '<div style="margin-bottom:16px"><div style="font-weight:700;font-size:15px;margin-bottom:8px">'+(qi+1)+'. '+qq.q+'</div><div style="display:flex;flex-direction:column;gap:8px">'+
+        qq.a.map(function(op){ var on=quiz[qq.key]===op[1]; return '<button class="pick'+(on?' on':'')+'" data-q="'+qq.key+'" data-v="'+op[1]+'" style="padding:12px 14px"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px">'+op[0]+'</span><span class="tick">'+(on?'✓':'')+'</span></div></button>'; }).join('')+
+      '</div></div>';
+    }).join('')+'<button class="cta" id="quizGo" style="margin-top:4px">See my recommendation →</button>';
+    Array.prototype.forEach.call(host.querySelectorAll('button[data-q]'), function(b){ b.addEventListener('click',function(){ quiz[b.getAttribute('data-q')]=b.getAttribute('data-v'); buildQuiz(); }); });
+    var go=document.getElementById('quizGo'); if(go){ var ok=QZ.every(function(qq){return quiz[qq.key];}); go.disabled=!ok; go.style.opacity=ok?'1':'.5'; go.addEventListener('click',function(){ if(!QZ.every(function(qq){return quiz[qq.key];})) return; tierSel=tierFromQuiz(); renderReveal(); }); }
+  }
+  function renderReveal(){
+    var host=document.getElementById('picker'); if(!host) return;
+    tierSel=tierSel||tierFromQuiz();
+    T('h4',"Here's your match.");
+    T('lede4',"Based on your answers, this is the plan we'd put in front of you, and why. You can switch anytime.");
+    var rec=tierSel;
+    var cards=['essential','balanced','futureproof'].map(function(k){
+      var o=P.tiers[k]||{}; var on=k===tierSel;
+      var save=(!NOTOU&&o.year1)?'<div class="psave">Saves ~'+money0(o.year1)+'/yr</div>':'';
+      var meta=(o.batt?o.batt+' kWh · '+(o.brand||'')+(o.backup?' · '+o.backup+'h backup':''):'')+' · net '+money0(o.net);
+      var badge=on?'<span class="rec">Recommended</span>':'';
+      return '<button class="pick'+(on?' on':'')+'" data-tier="'+k+'" style="margin-bottom:10px"><div class="ph"><div><div class="pname">'+TLABEL[k]+'</div>'+save+'</div><div style="display:flex;align-items:center;gap:8px">'+badge+'<div class="tick">'+(on?'✓':'')+'</div></div></div><div class="pmeta">'+meta+'</div></button>';
+    }).join('');
+    var why=(P.tiers[rec]&&P.tiers[rec].why)||'';
+    host.innerHTML='<div style="background:rgba(233,184,76,.08);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:14px;font-size:14px"><b style="color:var(--gold)">'+TLABEL[rec]+'.</b> '+why+'</div>'+cards;
+    Array.prototype.forEach.call(host.querySelectorAll('button[data-tier]'), function(b){ b.addEventListener('click',function(){ tierSel=b.getAttribute('data-tier'); renderReveal(); }); });
+  }
+
   document.querySelectorAll('[data-go]').forEach(function(b){ b.addEventListener('click',function(){ show(cur+1); }); });
   document.getElementById('back').addEventListener('click',function(){ show(cur-1); });
 
@@ -646,7 +694,7 @@ function routeIntent(P){
       if(P.api && !PREVIEW){
         var o=opt();
         var d={ name:nm, email:document.getElementById('em').value.trim(), address:document.getElementById('ad').value.trim(),
-                batt:o.batt, save:(NOTOU?0:o.year1), net:o.net, gross:o.gross||'', inc:((o.gross&&o.net)?(o.gross-o.net):''), backup:o.backup||'', kw:o.kw||'', offset:o.offset||'', kind:LABEL[sel] };
+                batt:o.batt, save:(NOTOU?0:o.year1), net:o.net, gross:o.gross||'', inc:((o.gross&&o.net)?(o.gross-o.net):''), backup:o.backup||'', kw:o.kw||'', offset:o.offset||'', kind:curLabel() };
         var url=P.api+'?action=surveyRequest&data='+encodeURIComponent(JSON.stringify(d));
         try{ fetch(url,{method:'GET',mode:'no-cors',cache:'no-store'}).catch(function(){}); }catch(e){ var im=new Image(); im.src=url; }
       }

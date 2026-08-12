@@ -179,6 +179,17 @@
         <div class="sub2" id="paybackline" style="margin-top:14px"></div>
         <div class="sub2" style="margin-top:10px">You already pay for a system like this every year. You just hand it to the utility. The site survey locks exact financing so your monthly can beat what you pay today.</div>
       </div>
+      <div class="card" id="cfCard" style="margin-top:14px;display:none">
+        <div class="lbl">Monthly with financing</div>
+        <div class="big gold" id="cfMo">$0<span style="font-size:20px;font-weight:700;color:var(--sub)">/mo*</span></div>
+        <div id="cfChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:13px"></div>
+        <div id="cfCredit" style="color:var(--teal);font-size:14px;margin-top:14px;line-height:1.5"></div>
+        <div style="display:flex;align-items:center;gap:9px;margin-top:15px;padding-top:13px;border-top:1px solid var(--line)">
+          <span style="width:19px;height:19px;border-radius:50%;border:3px solid #2FA9E0;border-right-color:transparent;display:inline-block;transform:rotate(-45deg)"></span>
+          <span style="font-weight:800;letter-spacing:.5px;font-size:14px"><span style="color:#2FA9E0">CLIMATE FIRST</span> <span style="color:var(--sub)">BANK</span></span>
+        </div>
+        <div id="cfFoot" style="color:var(--sub);font-size:11.5px;margin-top:11px;opacity:.85;line-height:1.5"></div>
+      </div>
       <button class="cta" data-go="6">Lock in my custom plan →</button>
     </section>
 
@@ -215,7 +226,7 @@ function readWalkPayload(){
   var Q = new URLSearchParams(location.search);
   function b64urlDecode(s){ s=String(s).replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; var bin; try{bin=atob(s);}catch(e){return null;} try{return decodeURIComponent(escape(bin));}catch(e){return bin;} }
   function optClean(o){ if(!o) return null; var present=(+o.kw||0)||(+o.batt||0)||(+o.net||0)||(+o.year1||0); if(!present) return null;
-    return { kw:+o.kw||0, batt:+o.batt||0, net:Math.round(+o.net||0), year1:Math.round(+o.year1||0), payback:+o.payback||0, offset:Math.round(+o.offset||0), life25:Math.round(+o.life25||0), backup:Math.round(+o.backup||0) }; }
+    return { kw:+o.kw||0, batt:+o.batt||0, net:Math.round(+o.net||0), gross:Math.round(+o.gross||0), year1:Math.round(+o.year1||0), payback:+o.payback||0, offset:Math.round(+o.offset||0), life25:Math.round(+o.life25||0), backup:Math.round(+o.backup||0) }; }
   var raw=Q.get('p'), pay=null;
   if(raw){ var dec=b64urlDecode(raw); if(dec){ try{ pay=JSON.parse(dec); }catch(e){ pay=null; } } }
   if(pay && pay.options){
@@ -322,7 +333,7 @@ function readWalkPayload(){
   function beat5(){
     countUp('save25', save25, moneyK, 1200);
     var badges=document.getElementById('badges'); badges.innerHTML='';
-    var chips=['🔆 <b>'+(o.kw||0)+' kW</b> · 30-yr panel output','🛡️ <b>Axitec / Enphase</b> · 30 / 25-yr warranty','✅ Licensed &amp; local'];
+    var chips=['🔆 <b>'+(o.kw||0)+' kW</b> · 25-yr panel output','🛡️ <b>Talesun / Enphase</b> · 25-yr warranty','✅ Licensed &amp; local'];
     chips.forEach(function(c){ var e=document.createElement('span'); e.className='badge'; e.innerHTML=c; badges.appendChild(e); });
     var w=560,h=200,pad=8; var sv=saveSeries(); var max=Math.max(dn, save25*1.05);
     function pts(arr){ return arr.map(function(v,i){ var x=pad+(i/(arr.length-1))*(w-2*pad); var y=h-pad-(v/max)*(h-2*pad); return x+','+y; }).join(' '); }
@@ -340,11 +351,33 @@ function readWalkPayload(){
     document.getElementById('chartwrap').innerHTML=svg;
   }
 
+  // ---- Climate First Bank financing (30-yr) ----
+  // Solar-only: financed amount = gross; the ~$5k NY State tax credit is shown as a
+  // principal paydown down to the after-credit net. Monthly runs on the gross.
+  var CF={ rate:0.0725, months:360, creditCap:5000 };
+  function cfPmt(P){ if(!(P>0)) return 0; var r=CF.rate/12; return P*r/(1-Math.pow(1+r,-CF.months)); }
+  function renderFinance(o){
+    var card=document.getElementById('cfCard'); if(!card) return;
+    var gross=Math.round(+(o&&o.gross)||0), net=Math.round(+(o&&o.net)||0);
+    if(!(net>0)){ card.style.display='none'; return; }
+    var hasSolar=(+(o&&o.kw)||0)>0;
+    var credit=(hasSolar && gross>net) ? Math.min(CF.creditCap, gross-net) : 0;
+    var financed=net+credit, m0=cfPmt(financed), m1=cfPmt(net);
+    document.getElementById('cfMo').innerHTML=money(m0)+'<span style="font-size:20px;font-weight:700;color:var(--sub)">/mo*</span>';
+    var chips=['7.25% rate','7.755% APR**','30-yr term','No Dealer Fee','6 Months No Payments'];
+    document.getElementById('cfChips').innerHTML=chips.map(function(c){return '<span class="badge">'+c+'</span>';}).join('');
+    var cr=document.getElementById('cfCredit');
+    if(credit>0){ cr.style.display=''; cr.innerHTML='Claim your ~'+money(credit)+' NY State tax credit and put it toward the loan, and your balance drops to '+money(net)+', about <b>'+money(m1)+'/mo</b>.'; }
+    else { cr.style.display='none'; }
+    document.getElementById('cfFoot').innerHTML='Financed amount '+money(financed)+' · first payment in 6 months. *Estimate at 7.25% over 30 years; **exact rate, APR and terms are set by Climate First Bank at signing.';
+    card.style.display='';
+  }
   function beat6(){
     document.getElementById('net6').textContent='$0';
     countUp('net6', o.net, money, 1100);
     T('donothing6', money(dn));
     T('paybackline', o.payback>0 ? ('Pays for itself in about '+o.payback+' years, then it’s pure savings for the life of the system.') : '');
+    renderFinance(o);
   }
 
   document.querySelectorAll('[data-go]').forEach(function(b){ b.addEventListener('click',function(){ show(parseInt(b.getAttribute('data-go'),10)); }); });

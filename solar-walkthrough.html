@@ -657,6 +657,7 @@ function routeIntent(P){
     T('lede4',"Answer these and we'll point you to the plan that fits your home and your budget, and show you why.");
     var answered=QZ.every(function(qq){ return quiz[qq.key]; });
     if(answered){ renderReveal(); return; }
+    var _cta=document.querySelector('.screen[data-s="3"] > button.cta'); if(_cta) _cta.style.display='none';
     host.innerHTML=QZ.map(function(qq,qi){
       return '<div style="margin-bottom:16px"><div style="font-weight:700;font-size:15px;margin-bottom:8px">'+(qi+1)+'. '+qq.q+'</div><div style="display:flex;flex-direction:column;gap:8px">'+
         qq.a.map(function(op){ var on=quiz[qq.key]===op[1]; return '<button class="pick'+(on?' on':'')+'" data-q="'+qq.key+'" data-v="'+op[1]+'" style="padding:12px 14px"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:14px">'+op[0]+'</span><span class="tick">'+(on?'✓':'')+'</span></div></button>'; }).join('')+
@@ -667,6 +668,7 @@ function routeIntent(P){
   }
   function renderReveal(){
     var host=document.getElementById('picker'); if(!host) return;
+    var _cta=document.querySelector('.screen[data-s="3"] > button.cta'); if(_cta) _cta.style.display='';
     tierSel=tierSel||tierFromQuiz();
     T('h4',"Here's your match.");
     T('lede4',"Based on your answers, this is the plan we'd put in front of you, and why. You can switch anytime.");

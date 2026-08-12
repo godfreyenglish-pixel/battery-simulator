@@ -126,6 +126,31 @@
       <button class="cta" data-go="1">Show me what's possible →</button>
     </section>
 
+    <!-- ENERGY PROFILE -->
+    <section class="screen" data-s="prof">
+      <div class="kick">Step 2 · Your energy profile</div>
+      <h1>Here's how we read your home.</h1>
+      <p class="lede">Before we recommend anything, this is what your usage actually looks like, and where the money goes.</p>
+      <div class="card">
+        <div class="two">
+          <div class="mini"><div class="lbl">Yearly usage</div><div class="big teal" id="pfKwh">—</div><div class="sub2">kWh / year</div></div>
+          <div class="mini"><div class="lbl">All-in rate</div><div class="big" id="pfRate">—</div><div class="sub2">per kWh, everything in</div></div>
+        </div>
+        <div class="lbl" style="margin-top:18px">Where your bill goes</div>
+        <div id="pfSplit"></div>
+        <div class="sub2" style="margin-top:6px">About <b id="pfCost">—</b> a year, climbing about 3.3% every year you stay put.</div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="lbl">Your peak-window exposure</div>
+        <div id="pfPeak"></div>
+      </div>
+      <div class="card" id="pfHistCard" style="margin-top:14px">
+        <div class="lbl">Your last 12 months</div>
+        <div id="pfHist"></div>
+      </div>
+      <button class="cta" data-go="x">See what's possible →</button>
+    </section>
+
     <!-- 2 -->
     <section class="screen" data-s="1">
       <div class="kick">Step 2 · The real cost</div>
@@ -288,7 +313,7 @@ function readWalkPayload(){
     return { source:'payload', name:(pay.client||'').trim(),
       util:(b.util||pay.util||Q.get('util')||'your utility').trim(),
       esc:(parseFloat(Q.get('esc'))||3.3)/100,
-      bill:{ monthly:monthly, annualKwh:annualKwh, annualCost:annualCost, rate:rate },
+      bill:{ monthly:monthly, annualKwh:annualKwh, annualCost:annualCost, rate:rate, supply:+b.supply||0, delivery:+b.delivery||0, basic:+b.basic||0, peakPct:+b.peakPct||0, history:(Array.isArray(b.history)?b.history:[]) },
       options:{ solar:optClean(o.solar), solbat:optClean(o.solbat), battery:optClean(o.battery) },
       warranties: pay.warranties||DEFAULT_WTY,
       recommended: pay.recommended||'solbat', api:Q.get('api')||'' };
@@ -298,7 +323,7 @@ function readWalkPayload(){
   var solbat={ kw:num('pv',7.6), batt:num('batt',20), net:num('net',31000), year1:num('save',2600),
     payback:num('payback',9), offset:num('offset',96), life25:num('life25',0), backup:num('backup',16) };
   return { source:'params', name:(Q.get('name')||'').trim(), util:(Q.get('util')||'Con Edison').trim(),
-    esc:num('esc',3.3)/100, bill:{ monthly:m, annualKwh:akwh, annualCost:m*12, rate:m*12/Math.max(1,akwh) },
+    esc:num('esc',3.3)/100, bill:{ monthly:m, annualKwh:akwh, annualCost:m*12, rate:m*12/Math.max(1,akwh), supply:0, delivery:0, basic:0, peakPct:0, history:[] },
     options:{ solar:null, solbat:solbat, battery:null }, warranties: DEFAULT_WTY, recommended:'solbat', api:Q.get('api')||'' };
 }
 function routeIntent(P){
@@ -312,6 +337,8 @@ function routeIntent(P){
 
 (function(){
   var P = readWalkPayload();
+  var PREVIEW = /[?&]preview=1/.test(location.search);
+  if(PREVIEW){ try{ var _app=document.querySelector('.app'); if(_app){ var _pb=document.createElement('div'); _pb.textContent='PREVIEW · clients do not see this bar'; _pb.style.cssText='background:#F59E0B;color:#20180a;font-weight:700;font-size:12px;text-align:center;padding:6px 10px;border-radius:8px;margin-bottom:10px'; _app.insertBefore(_pb,_app.firstChild); } }catch(e){} }
   var route = routeIntent(P);
   var CH = route.choices;                 // selectable option keys
   var BATT_ONLY = route.path === 'battery';
@@ -445,6 +472,7 @@ function routeIntent(P){
   var prog=document.getElementById('prog');
   for(var i=0;i<N;i++){ var s=document.createElement('div'); s.className='seg'; s.innerHTML='<i></i>'; prog.appendChild(s); }
   var segs=[].slice.call(document.querySelectorAll('.seg'));
+  screens.forEach(function(sc,i){ var k=sc.querySelector('.kick'); if(k) k.innerHTML=k.innerHTML.replace(/^\s*Step\s+\d+/i,'Step '+(i+1)); });
   var beat2done=false;
 
   function show(n){
@@ -457,11 +485,13 @@ function routeIntent(P){
     enter(cur);
   }
   function enter(n){
-    if(n===1 && !beat2done){ beat2(); beat2done=true; }
-    if(n===3) buildPicker();
-    if(n===4) beat5();      // re-render from current selection every entry
-    if(n===5) beat6();
-    if(n===6) beatEquip();
+    var ds=screens[n]?screens[n].getAttribute('data-s'):'';
+    if(ds==='1' && !beat2done){ beat2(); beat2done=true; }
+    if(ds==='prof') beatProfile();
+    if(ds==='3') buildPicker();
+    if(ds==='4') beat5();
+    if(ds==='5') beat6();
+    if(ds==='eq') beatEquip();
   }
 
   function countUp(id,to,fmt,dur){
@@ -585,7 +615,27 @@ function routeIntent(P){
     if(el=document.getElementById('wtyList')) el.innerHTML=wty;
   }
 
-  document.querySelectorAll('[data-go]').forEach(function(b){ b.addEventListener('click',function(){ show(parseInt(b.getAttribute('data-go'),10)); }); });
+  function beatProfile(){
+    var b=P.bill||{};
+    var akwh=+b.annualKwh||0, rate=+b.rate||0, annualCost=+b.annualCost||Math.round(akwh*rate);
+    var supply=+b.supply||0, delivery=+b.delivery||0, basic=+b.basic||0;
+    var peakPct=+b.peakPct||0, hist=Array.isArray(b.history)?b.history:[];
+    T('pfKwh', akwh?Math.round(akwh).toLocaleString('en-US'):'—');
+    T('pfRate', rate?('$'+rate.toFixed(3)):'—');
+    T('pfCost', annualCost?money(annualCost):'—');
+    var parts;
+    if(supply>0||delivery>0){ parts=[['Supply (the power)',supply,'var(--gold)'],['Delivery (the wires)',delivery,'var(--teal)'],['Basic service',basic,'#6aa8ff']]; }
+    else { var mc=annualCost/12; parts=[['Supply (the power)',Math.round(mc*0.45),'var(--gold)'],['Delivery (the wires)',Math.round(mc*0.50),'var(--teal)'],['Basic service',Math.round(mc*0.05),'#6aa8ff']]; }
+    var maxA=Math.max.apply(null,parts.map(function(x){return x[1];}).concat([1]));
+    document.getElementById('pfSplit').innerHTML=parts.filter(function(x){return x[1]>0;}).map(function(x){ var w=Math.max(5,x[1]/maxA*100); return '<div style="display:flex;align-items:center;gap:10px;margin:9px 0"><div style="width:150px;font-size:13px;color:var(--sub)">'+x[0]+'</div><div style="flex:1;height:10px;background:#22303f;border-radius:6px;overflow:hidden"><div style="height:100%;width:'+w+'%;background:'+x[2]+'"></div></div><div style="width:70px;text-align:right;font-size:13px">'+money(x[1])+'/mo</div></div>'; }).join('');
+    var pk=peakPct||66;
+    document.getElementById('pfPeak').innerHTML='<div style="font-size:36px;font-weight:800;color:var(--gold);line-height:1">'+pk+'%</div><div class="sub2" style="margin-top:8px">of your power is used inside Con Edison\'s <b>8am to midnight</b> peak window. That 16-hour window is exactly what a battery covers, which is why switching rates only pays with storage behind it.</div>';
+    var hc=document.getElementById('pfHist'), card=document.getElementById('pfHistCard');
+    if(hist.length>=6){ if(card) card.style.display=''; var mx=Math.max.apply(null,hist.concat([1])); hc.innerHTML='<div style="display:flex;align-items:flex-end;gap:4px;height:92px">'+hist.map(function(v){ var h=Math.max(6,v/mx*100); return '<div style="flex:1;background:linear-gradient(180deg,var(--gold),var(--gold2));border-radius:3px 3px 0 0;height:'+h+'%"></div>'; }).join('')+'</div><div style="display:flex;justify-content:space-between;color:var(--sub);font-size:11px;margin-top:6px"><span>oldest</span><span>most recent</span></div>'; }
+    else if(card){ card.style.display='none'; }
+  }
+
+  document.querySelectorAll('[data-go]').forEach(function(b){ b.addEventListener('click',function(){ show(cur+1); }); });
   document.getElementById('back').addEventListener('click',function(){ show(cur-1); });
 
   // authorize (survey capture via GET channel, same as CRM)
@@ -593,7 +643,7 @@ function routeIntent(P){
     var nm=document.getElementById('nm').value.trim();
     document.getElementById('doneName').textContent = (nm.split(' ')[0]||'there');
     try{
-      if(P.api){
+      if(P.api && !PREVIEW){
         var o=opt();
         var d={ name:nm, email:document.getElementById('em').value.trim(), address:document.getElementById('ad').value.trim(),
                 batt:o.batt, save:(NOTOU?0:o.year1), net:o.net, gross:o.gross||'', inc:((o.gross&&o.net)?(o.gross-o.net):''), backup:o.backup||'', kw:o.kw||'', offset:o.offset||'', kind:LABEL[sel] };

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Sign in · Rivertown Battery Load Simulator</title>
+<style>
+  :root{
+    --bg:#0a0e16;
+    --panel:#111725;
+    --panel2:#0e1420;
+    --line:#1e2637;
+    --text:#eef2f8;
+    --muted:#8a97ad;
+    --gold:#eab543;
+    --gold2:#f5c451;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:
+      radial-gradient(1100px 600px at 50% -10%, rgba(234,181,67,.10), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
+  .card{
+    width:100%;
+    max-width:420px;
+    background:linear-gradient(180deg,var(--panel),var(--panel2));
+    border:1px solid var(--line);
+    border-radius:18px;
+    padding:34px 30px 28px;
+    box-shadow:0 24px 60px rgba(0,0,0,.45);
+    text-align:center;
+  }
+  .brand{
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    font-weight:700;font-size:15px;letter-spacing:.3px;margin-bottom:26px;
+  }
+  .brand .bolt{
+    width:30px;height:30px;border-radius:8px;
+    background:linear-gradient(160deg,var(--gold2),#d99a1f);
+    display:flex;align-items:center;justify-content:center;
+    color:#1a1204;font-size:17px;font-weight:900;
+  }
+  .brand .sub{color:var(--gold)}
+  .lock{
+    width:56px;height:56px;border-radius:50%;
+    background:rgba(234,181,67,.12);
+    border:1px solid rgba(234,181,67,.35);
+    display:flex;align-items:center;justify-content:center;
+    margin:0 auto 18px;font-size:24px;
+  }
+  h1{font-size:22px;margin:0 0 8px;letter-spacing:.2px}
+  p.lede{color:var(--muted);font-size:14px;line-height:1.55;margin:0 auto 24px;max-width:320px}
+  .btn{
+    display:block;width:100%;
+    background:linear-gradient(160deg,var(--gold2),#e0a52c);
+    color:#1a1204;text-decoration:none;
+    font-weight:800;font-size:15px;
+    padding:14px 18px;border-radius:12px;
+    border:none;cursor:pointer;
+    transition:transform .06s ease, filter .15s ease;
+  }
+  .btn:hover{filter:brightness(1.05)}
+  .btn:active{transform:translateY(1px)}
+  .note{
+    margin-top:18px;color:var(--muted);font-size:12px;line-height:1.5;
+  }
+  .divider{height:1px;background:var(--line);margin:24px 0 0}
+  .foot{margin-top:16px;color:#5f6b80;font-size:11px;letter-spacing:.4px;text-transform:uppercase}
+  .cf{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:11px;margin-top:14px}
+  .cf b{color:#c7d0df;font-weight:600}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <span class="bolt">⚡</span>
+      <span>Rivertown <span class="sub">Solar</span></span>
+    </div>
+
+    <div class="lock">🔒</div>
+    <h1>Battery Load Simulator</h1>
+    <p class="lede">Internal tool. Sign in with your Rivertown email to continue. You'll get a one-time code, no password needed.</p>
+
+    <a class="btn" href="https://myarbitragetool.com/index.html">Sign in to the tool</a>
+
+    <p class="note">Access is limited to the Rivertown Solar team. If your email isn't approved, contact the office.</p>
+
+    <div class="divider"></div>
+    <div class="cf">Secured by <b>Cloudflare Access</b></div>
+    <div class="foot">Rivertown Solar · Westchester Home Energy</div>
+  </div>
+</body>
+</html>

@@ -673,13 +673,15 @@ function routeIntent(P){
     var rec=tierSel;
     var cards=['essential','balanced','futureproof'].map(function(k){
       var o=P.tiers[k]||{}; var on=k===tierSel;
-      var save=(!NOTOU&&o.year1)?'<div class="psave">Saves ~'+money0(o.year1)+'/yr</div>':'';
-      var meta=(o.batt?o.batt+' kWh · '+(o.brand||'')+(o.backup?' · '+o.backup+'h backup':''):'')+' · net '+money0(o.net);
+      var wy=o.warrantyTerm?(''+o.warrantyTerm).split(' /')[0]:'';
+      var save='<div class="psave">'+(o.backup?o.backup+'h backup':'')+(wy?' · '+wy+' warranty':'')+'</div>';
+      var meta=(o.kw?o.kw+' kW solar · ':'')+(o.batt?o.batt+' kWh '+(o.brand||'')+' · ':'')+'net '+money0(o.net)+(o.payback?' · ~'+Math.round(o.payback)+'-yr payback':'');
       var badge=on?'<span class="rec">Recommended</span>':'';
       return '<button class="pick'+(on?' on':'')+'" data-tier="'+k+'" style="margin-bottom:10px"><div class="ph"><div><div class="pname">'+TLABEL[k]+'</div>'+save+'</div><div style="display:flex;align-items:center;gap:8px">'+badge+'<div class="tick">'+(on?'✓':'')+'</div></div></div><div class="pmeta">'+meta+'</div></button>';
     }).join('');
     var why=(P.tiers[rec]&&P.tiers[rec].why)||'';
-    host.innerHTML='<div style="background:rgba(233,184,76,.08);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:14px;font-size:14px"><b style="color:var(--gold)">'+TLABEL[rec]+'.</b> '+why+'</div>'+cards;
+    var ceil='<div style="color:var(--sub);font-size:13px;margin-bottom:12px">All three wipe out most of your bill, so the real difference is backup, longevity, and headroom, not the yearly savings.</div>';
+    host.innerHTML='<div style="background:rgba(233,184,76,.08);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:12px;font-size:14px"><b style="color:var(--gold)">'+TLABEL[rec]+'.</b> '+why+'</div>'+ceil+cards;
     Array.prototype.forEach.call(host.querySelectorAll('button[data-tier]'), function(b){ b.addEventListener('click',function(){ tierSel=b.getAttribute('data-tier'); renderReveal(); }); });
   }
 

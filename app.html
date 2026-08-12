@@ -5503,8 +5503,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   function computeTiers(){
     var base = baseSetup();
     var PD = (typeof PANEL_DEGRADATION!=='undefined')?PANEL_DEGRADATION:0.005;
-    function T(brand, qty){
+    function T(brand, qty, sf){
       var s = Object.assign(cfg(base,true,true), { brand:brand, qty:qty });
+      if(sf && sf!==1 && s.solarKw){ s.solarKw = r1(s.solarKw * sf); }
       var y1 = Math.max(0, annualSaveArb(s));
       var bC = batterySystemCost(s), sC = solarSystemCost(s);
       var net = bC.net + sC.net, gross = bC.gross + sC.gross, off = 0;
@@ -5513,9 +5514,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
         year1:Math.round(y1), payback:r1(paybackYears(net,y1,{degradation:PD})), offset:Math.round(off),
         life25:Math.round(lifetimeSavings(y1,{degradation:PD})), backup:backupHrs(s), credit:Math.round(sC.stateCredit) };
     }
-    var essential = Object.assign(T('eg4',1),      { label:'Essential',    brand:'EG4',        warrantyTerm:'10 yr / 10,000 cycles', why:'Covers the bulk of your peak window at the lowest entry price. EG4 value battery, backed 10 years.' });
-    var balanced  = Object.assign(T('eg4',2),      { label:'Balanced',     brand:'EG4',        warrantyTerm:'10 yr / 10,000 cycles', why:'Full peak-window coverage at the best value per kWh. Two EG4 batteries, our most popular setup.' });
-    var future    = Object.assign(T('enphase10c',3),{ label:'Future-proof', brand:'Enphase 10C', warrantyTerm:'15 yr / 6,000 cycles',  why:'The premium build: Enphase 10C, 15-year warranty, app-managed and expandable, sized to carry the whole home.' });
+    var essential = Object.assign(T('eg4',1,0.7),      { label:'Essential',    brand:'EG4',        warrantyTerm:'10 yr / 10,000 cycles', why:'A right-priced start: solar sized to cover most of your usage, plus one EG4 battery for the core of the peak window. Lowest upfront.' });
+    var balanced  = Object.assign(T('eg4',2,1.0),      { label:'Balanced',     brand:'EG4',        warrantyTerm:'10 yr / 10,000 cycles', why:'Full offset: solar sized to erase your bill, plus two EG4 batteries to carry the whole peak window. Our best all-round value.' });
+    var future    = Object.assign(T('enphase10c',3,1.15),{ label:'Future-proof', brand:'Enphase 10C', warrantyTerm:'15 yr / 6,000 cycles',  why:'Built for what is next: extra solar headroom for an EV or heat pump, plus the premium Enphase 10C, 15-year warranty, whole-home backup and expandable.' });
     return { essential:essential, balanced:balanced, futureproof:future };
   }
 

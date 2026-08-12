@@ -200,6 +200,17 @@
         <div class="sub2" id="paybackline" style="margin-top:14px"></div>
         <div class="sub2" style="margin-top:10px">You already pay for a system like this every year. You just give it to the utility. The site survey locks in exact financing so your monthly can beat what you pay today.</div>
       </div>
+      <div class="card" id="cfCard" style="margin-top:14px;display:none">
+        <div class="lbl">Monthly with financing</div>
+        <div class="big gold" id="cfMo">$0<span style="font-size:20px;font-weight:700;color:var(--sub)">/mo*</span></div>
+        <div id="cfChips" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:13px"></div>
+        <div id="cfCredit" style="color:var(--teal);font-size:14px;margin-top:14px;line-height:1.5"></div>
+        <div style="display:flex;align-items:center;gap:9px;margin-top:15px;padding-top:13px;border-top:1px solid var(--line)">
+          <span style="width:19px;height:19px;border-radius:50%;border:3px solid #2FA9E0;border-right-color:transparent;display:inline-block;transform:rotate(-45deg)"></span>
+          <span style="font-weight:800;letter-spacing:.5px;font-size:14px"><span style="color:#2FA9E0">CLIMATE FIRST</span> <span style="color:var(--sub)">BANK</span></span>
+        </div>
+        <div id="cfFoot" style="color:var(--sub);font-size:11.5px;margin-top:11px;opacity:.85;line-height:1.5"></div>
+      </div>
       <button class="cta" data-go="6">Lock in my custom plan →</button>
     </section>
 
@@ -495,9 +506,33 @@ function routeIntent(P){
     document.getElementById('chartwrap').innerHTML=svg;
   }
 
+  // ---- Climate First Bank financing (30-yr) ----
+  // Monthly runs on the financed amount = price after NYSERDA (which the installer
+  // applies), i.e. net + the NY State tax credit. For solar-only that equals gross.
+  // The ~$5k state tax credit is then shown as a principal paydown down to net.
+  var CF={ rate:0.0725, months:360, creditCap:5000 };
+  function cfPmt(P){ if(!(P>0)) return 0; var r=CF.rate/12; return P*r/(1-Math.pow(1+r,-CF.months)); }
+  function renderFinance(o){
+    var card=document.getElementById('cfCard'); if(!card) return;
+    var gross=Math.round(+(o&&o.gross)||0), net=Math.round(+(o&&o.net)||0);
+    if(!(net>0)){ card.style.display='none'; return; }
+    var hasSolar=(+(o&&o.kw)||0)>0;
+    var credit=(hasSolar && gross>net) ? Math.min(CF.creditCap, gross-net) : 0;
+    var financed=net+credit, m0=cfPmt(financed), m1=cfPmt(net);
+    document.getElementById('cfMo').innerHTML=money(m0)+'<span style="font-size:20px;font-weight:700;color:var(--sub)">/mo*</span>';
+    var chips=['7.25% rate','7.755% APR**','30-yr term','No Dealer Fee','6 Months No Payments'];
+    document.getElementById('cfChips').innerHTML=chips.map(function(c){return '<span class="badge">'+c+'</span>';}).join('');
+    var cr=document.getElementById('cfCredit');
+    if(credit>0){ cr.style.display=''; cr.innerHTML='Claim your ~'+money(credit)+' NY State tax credit and put it toward the loan, and your balance drops to '+money(net)+', about <b>'+money(m1)+'/mo</b>.'; }
+    else { cr.style.display='none'; }
+    document.getElementById('cfFoot').innerHTML='Financed amount '+money(financed)+' · first payment in 6 months. *Estimate at 7.25% over 30 years; **exact rate, APR and terms are set by Climate First Bank at signing.';
+    card.style.display='';
+  }
+
   // beat 6: the number, driven by the SELECTED option
   function beat6(){
     var o=opt();
+    renderFinance(o);
     T('net6lbl', 'Your '+LABEL[sel].toLowerCase()+' system, after incentives');
     T('lede6', 'After incentives, this is what your complete '+LABEL[sel].toLowerCase()+' system comes to.');
     document.getElementById('net6').textContent='$0';

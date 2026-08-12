@@ -8783,6 +8783,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     if(i===-1) return '';
     var payload = proposalUrl.slice(i+3);
     var url = (FUNNEL[intent]||FUNNEL.choose) + '?p=' + payload;
+    url += '&intent=' + encodeURIComponent(intent);
+    try{ var _g=document.getElementById('rtGuided'); if(_g&&_g.checked) url+='&guided=1'; }catch(e){}
     try{ if(typeof TRACKING_ENDPOINT!=='undefined' && TRACKING_ENDPOINT) url += '&api=' + encodeURIComponent(TRACKING_ENDPOINT); }catch(e){}
     // No-TOU utilities have no rate arbitrage, so tell the client walkthrough to
     // drop the (Con Ed-derived) savings/payback figures and show its backup story.
@@ -8823,12 +8825,15 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       +'<div style="display:flex;gap:8px">'
       +'<button id="rtWalkOpen" style="flex:1;background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:800;cursor:pointer">Open client walkthrough →</button>'
       +'<button id="rtWalkCopy" style="background:#1c2635;color:#e5e7eb;border:1px solid #334155;border-radius:10px;padding:11px 14px;font-size:13px;font-weight:700;cursor:pointer">Copy link</button>'
-      +'</div>';
+      +'</div>'
+      +'<label style="display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:#9CA3AF;cursor:pointer;margin-top:2px"><input type="checkbox" id="rtGuided" style="accent-color:#FBBF24;width:14px;height:14px;cursor:pointer">Guided flow: 3-question quiz that routes to Essential / Balanced / Future-proof (Solar + Battery only)</label>';
     wrap.appendChild(box);
     var selEl=document.getElementById('rtIntentSelect');
     ORDER.forEach(function(k){ var o=document.createElement('option'); o.value=k; o.textContent=LABEL[k]; selEl.appendChild(o); });
     selEl.value=getIntent();
     selEl.addEventListener('change',function(){ setIntent(this.value); });
+    var gEl=document.getElementById('rtGuided');
+    if(gEl){ try{ gEl.checked=(localStorage.getItem('rt-guided')==='1'); }catch(e){} gEl.addEventListener('change',function(){ try{ localStorage.setItem('rt-guided', this.checked?'1':'0'); }catch(e){} }); }
     document.getElementById('rtWalkOpen').addEventListener('click',openWalk);
     document.getElementById('rtWalkCopy').addEventListener('click',function(){ copyWalk(this); });
     var pv=document.getElementById('rtWalkPreview'); if(pv) pv.addEventListener('click',function(){ var u=buildWalkUrl(getIntent()); if(u) window.open(u+'&preview=1','_blank'); });

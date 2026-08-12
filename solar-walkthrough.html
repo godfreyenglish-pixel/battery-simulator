@@ -339,9 +339,12 @@ function routeIntent(P){
 (function(){
   var P = readWalkPayload();
   var PREVIEW = /[?&]preview=1/.test(location.search);
+  var INTENT = (new URLSearchParams(location.search).get('intent')||'');
+  var GUIDED = /[?&]guided=1/.test(location.search);
   if(PREVIEW){ try{ var _app=document.querySelector('.app'); if(_app){ var _pb=document.createElement('div'); _pb.textContent='PREVIEW · clients do not see this bar'; _pb.style.cssText='background:#F59E0B;color:#20180a;font-weight:700;font-size:12px;text-align:center;padding:6px 10px;border-radius:8px;margin-bottom:10px'; _app.insertBefore(_pb,_app.firstChild); } }catch(e){} }
   var route = routeIntent(P);
-  var TIERS = (P.tiers && P.tiers.essential && P.tiers.balanced && P.tiers.futureproof) ? ['essential','balanced','futureproof'] : null;
+  if(INTENT==='battery'){ route = { path:'battery', choices:['battery'] }; }
+  var TIERS = (GUIDED && INTENT!=='battery' && P.tiers && P.tiers.essential && P.tiers.balanced && P.tiers.futureproof) ? ['essential','balanced','futureproof'] : null;
   var TLABEL = {essential:'Essential', balanced:'Balanced', futureproof:'Future-proof'};
   var tierSel = 'balanced';
   var quiz = {};

@@ -8797,14 +8797,8 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     catch(e){ prompt('Copy client link:', u); }
   }
   function paint(){
-    var seg=document.getElementById('rtIntentSeg'); if(!seg) return;
     var cur=getIntent();
-    Array.prototype.forEach.call(seg.children, function(b){
-      var on=b.getAttribute('data-intent')===cur;
-      b.style.background = on ? 'linear-gradient(135deg,#FBBF24,#F59E0B)' : '#111827';
-      b.style.color = on ? '#3a2c00' : '#9CA3AF';
-      b.style.borderColor = on ? '#F59E0B' : '#334155';
-    });
+    var sel=document.getElementById('rtIntentSelect'); if(sel && sel.value!==cur) sel.value=cur;
   }
   function hideOldCheckbox(){
     var cb=document.getElementById('battOnlyProposalToggle');
@@ -8820,22 +8814,21 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     box.id='rtIntentRow';
     box.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:8px';
     box.innerHTML=
-      '<div style="font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:.4px">CLIENT WALKTHROUGH · pick intent</div>'
-      +'<div id="rtIntentSeg" style="display:flex;gap:6px;flex-wrap:wrap"></div>'
+      '<div style="font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:.4px">CLIENT WALKTHROUGH · pick a version</div>'
+      +'<div id="rtIntentSeg" style="display:none"></div>'
       +'<div style="display:flex;gap:8px">'
-      +'<button id="rtWalkPreview" style="background:#1c2635;color:#FBBF24;border:1px solid #F59E0B;border-radius:10px;padding:11px 14px;font-size:13px;font-weight:700;cursor:pointer" title="Open this version yourself first — no lead is logged">Preview ▸</button>'
+      +'<select id="rtIntentSelect" style="flex:1;background:#111827;color:#e5e7eb;border:1px solid #334155;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer"></select>'
+      +'<button id="rtWalkPreview" style="background:#1c2635;color:#FBBF24;border:1px solid #F59E0B;border-radius:10px;padding:11px 16px;font-size:13px;font-weight:700;cursor:pointer" title="Open the selected version yourself — no lead is logged">Preview ▸</button>'
+      +'</div>'
+      +'<div style="display:flex;gap:8px">'
       +'<button id="rtWalkOpen" style="flex:1;background:linear-gradient(135deg,#FBBF24,#F59E0B);color:#3a2c00;border:none;border-radius:10px;padding:11px;font-size:13px;font-weight:800;cursor:pointer">Open client walkthrough →</button>'
       +'<button id="rtWalkCopy" style="background:#1c2635;color:#e5e7eb;border:1px solid #334155;border-radius:10px;padding:11px 14px;font-size:13px;font-weight:700;cursor:pointer">Copy link</button>'
       +'</div>';
     wrap.appendChild(box);
-    var seg=document.getElementById('rtIntentSeg');
-    ORDER.forEach(function(k){
-      var b=document.createElement('button');
-      b.setAttribute('data-intent',k); b.textContent=LABEL[k];
-      b.style.cssText='flex:1;min-width:72px;background:#111827;color:#9CA3AF;border:1px solid #334155;border-radius:9px;padding:9px 6px;font-size:12px;font-weight:700;cursor:pointer';
-      b.addEventListener('click',function(){ setIntent(k); });
-      seg.appendChild(b);
-    });
+    var selEl=document.getElementById('rtIntentSelect');
+    ORDER.forEach(function(k){ var o=document.createElement('option'); o.value=k; o.textContent=LABEL[k]; selEl.appendChild(o); });
+    selEl.value=getIntent();
+    selEl.addEventListener('change',function(){ setIntent(this.value); });
     document.getElementById('rtWalkOpen').addEventListener('click',openWalk);
     document.getElementById('rtWalkCopy').addEventListener('click',function(){ copyWalk(this); });
     var pv=document.getElementById('rtWalkPreview'); if(pv) pv.addEventListener('click',function(){ var u=buildWalkUrl(getIntent()); if(u) window.open(u+'&preview=1','_blank'); });

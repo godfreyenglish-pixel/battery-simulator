@@ -222,6 +222,7 @@
         <div class="anchor">
           Compared to <b id="donothing6">$0</b> handed to <span id="util6">your utility</span> over the same 25 years for nothing you keep.
         </div>
+        <div class="sub2" id="cashLine" style="margin-top:10px;color:var(--teal);display:none"></div>
         <div class="sub2" id="paybackline" style="margin-top:14px"></div>
         <div class="sub2" style="margin-top:10px">You already pay for a system like this every year. You just give it to the utility. The site survey locks in exact financing so your monthly can beat what you pay today.</div>
       </div>
@@ -586,6 +587,8 @@ function routeIntent(P){
     var cr=document.getElementById('cfCredit');
     if(credit>0){ cr.style.display=''; cr.innerHTML='Claim your ~'+money(credit)+' NY State tax credit and put it toward the loan, and your balance drops to '+money(net)+', about <b>'+money(m1)+'/mo</b>.'; }
     else { cr.style.display='none'; }
+    var clx=document.getElementById('cashLine');
+    if(clx){ if(credit>0){ clx.style.display=''; clx.innerHTML='Paying cash: '+money(financed)+', and your ~'+money(credit)+' NY State tax credit brings it to <b>'+money(net)+'</b> net.'; } else { clx.style.display='none'; } }
     document.getElementById('cfFoot').innerHTML='Financed amount '+money(financed)+' · first payment in 6 months. *Estimate at 7.25% over 30 years; **exact rate, APR and terms are set by Climate First Bank at signing.';
     card.style.display='';
   }

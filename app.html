@@ -8480,7 +8480,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     // flows with that row's flex gap instead of stacking as a cramped extra row.
     // That row (genProposalWrap) is built on a 700ms timer, so on the first pass
     // it may not exist yet — build our own row now, then migrate in once it does.
-    var wrap = document.getElementById('genProposalWrap');
+    var wrap = document.getElementById('rtIntentRow') || document.getElementById('genProposalWrap');
     var label = document.getElementById('inqShareLabel');
 
     if (label){

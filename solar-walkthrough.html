@@ -353,6 +353,22 @@ function routeIntent(P){
   // engineChosen flips true and enginePath ('solar'|'battery'|'solbat') drives
   // opt(), curLabel() and the downstream beats instead of the static route.
   var engineChosen = false, enginePath = 'solbat';
+  // Reveal-screen state: REC caches the computed recommendation so switching paths
+  // or opening build-your-own never re-derives it. customMode + custom hold the
+  // build-your-own configurator (solar offset + battery on/off).
+  var REC = null, customMode = false, custom = { offset:0, batt:true };
+  function round1(x){ return Math.round((+x||0)*10)/10; }
+  function customOption(){
+    var S=P.options.solar||{}, B=P.options.battery||{};
+    var off=+custom.offset||0;
+    var hasS=!!P.options.solar && off>0;
+    var ratio=(hasS && +S.offset>0) ? Math.min(1.2, off/(+S.offset)) : 0;
+    var kw=hasS?round1((+S.kw||0)*ratio):0, sNet=hasS?Math.round((+S.net||0)*ratio):0, sY1=hasS?Math.round((+S.year1||0)*ratio):0;
+    var hasB=!!custom.batt && !!P.options.battery, bNet=hasB?(+B.net||0):0, bY1=hasB?(+B.year1||0):0;
+    var net=sNet+bNet, y1=sY1+bY1;
+    return { kw:kw, batt:hasB?(+B.batt||0):0, net:net, year1:y1, payback:y1>0?Math.round(net/y1):0,
+      offset:hasS?off:0, backup:hasB?(+B.backup||0):0, brand:hasB?(B.brand||'EG4'):'', custom:true };
+  }
   var CH = route.choices;                 // selectable option keys
   var BATT_ONLY = route.path === 'battery';
   // No-TOU: the router passes tou=0 when the client's utility has no residential
@@ -369,6 +385,7 @@ function routeIntent(P){
   var sel = (CH.indexOf(P.recommended) >= 0) ? P.recommended : CH[0];
 
   function opt(){
+    if(customMode) return customOption();
     if(engineChosen){
       if(enginePath==='solbat' && P.tiers) return P.tiers[tierSel]||P.tiers.balanced;
       return P.options[enginePath] || P.options.solbat || P.options.solar || P.options.battery;
@@ -377,12 +394,13 @@ function routeIntent(P){
     return P.options[sel] || P.options.solbat || P.options.solar || P.options.battery;
   }
   function curLabel(){
+    if(customMode){ var c=customOption(); return (c.kw>0&&c.batt>0)?'Solar + Battery':(c.kw>0?'Solar only':(c.batt>0?'Battery':'System')); }
     if(engineChosen) return ({solar:'Solar only', battery:'Battery', solbat:'Solar + Battery'})[enginePath]||'Solar + Battery';
     return TIERS ? (TLABEL[tierSel]||'Solar + Battery') : (LABEL[sel]||'Solar + Battery');
   }
   function hasSolarO(){ return (+ (opt().kw) || 0) > 0; }
   function hasBattO(){ return (+ (opt().batt) || 0) > 0; }
-  function isBattOnly(){ return engineChosen ? enginePath==='battery' : BATT_ONLY; }
+  function isBattOnly(){ if(customMode){ var c=opt(); return (+c.kw||0)<=0 && (+c.batt||0)>0; } return engineChosen ? enginePath==='battery' : BATT_ONLY; }
   function money(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
   function moneyK(n){ n=Math.round(n); return n>=1000? '$'+(n/1000).toFixed(n%1000?1:0)+'k' : '$'+n; }
   function T(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; }
@@ -752,49 +770,110 @@ function routeIntent(P){
   function optForPath(p){ if(p==='solbat' && P.tiers) return P.tiers[tierSel]||P.tiers.balanced; return P.options[p]||P.options.solbat||P.options.solar||P.options.battery; }
   function specLine(o){ var parts=[]; if((+o.kw||0)>0) parts.push(o.kw+' kW solar'); if((+o.batt||0)>0) parts.push(o.batt+' kWh '+(o.brand||'battery')); if((+o.backup||0)>0) parts.push(o.backup+'h backup'); return parts.join(' · '); }
   function moneyLine(o){ var b=[]; if((+o.year1||0)>0 && !NOTOU) b.push('Saves ~'+money(o.year1)+'/yr'); b.push('net '+money(o.net)); if((+o.payback||0)>0 && !NOTOU) b.push('~'+Math.round(o.payback)+'-yr payback'); return b.join(' · '); }
+  function availablePaths(){ var a=[]; if(P.options.solar) a.push('solar'); if(P.options.solbat) a.push('solbat'); if(P.options.battery) a.push('battery'); return a; }
   function renderReveal(){
     var host=document.getElementById('picker'); if(!host) return;
     var _cta=document.querySelector('.screen[data-s="3"] > button.cta'); if(_cta) _cta.style.display='';
-    var r=engineRoute();
-    engineChosen=true; enginePath=r.path; sel=r.path;
-    if(r.path==='solbat') tierSel=tierFor();
-    var o=opt();
-    T('h4',"Here's your match.");
-    T('lede4',"Based on your answers, this is what we'd put in front of you, and why. You can switch anytime.");
-    // hero recommendation card
+    if(!REC){ REC=engineRoute(); engineChosen=true; enginePath=REC.path; sel=REC.path; if(REC.path==='solbat') tierSel=tierFor(); }
+    if(customMode){ renderCustom(host); return; }
+    renderRecommended(host);
+  }
+  function renderRecommended(host){
+    engineChosen=true; sel=enginePath;
+    var onRec=(enginePath===REC.path), o=opt();
+    T('h4', onRec ? "Here's your match." : 'Your choice.');
+    T('lede4', onRec ? "Based on your answers, this is what we'd put in front of you, and why. You can switch anytime." : 'Comparing your options. Jump back to your match anytime.');
     var hero='<div style="background:rgba(233,184,76,.08);border:1px solid var(--line);border-radius:12px;padding:15px;margin-bottom:12px">'
-      +'<span class="rec">Recommended for you</span>'
-      +'<div class="pname" style="font-size:20px;margin-top:8px">'+PATHLABEL[r.path]+'</div>'
+      +(onRec?'<span class="rec">Recommended for you</span>':'<span class="rec" style="background:var(--teal)">Your choice</span>')
+      +'<div class="pname" style="font-size:20px;margin-top:8px">'+PATHLABEL[enginePath]+'</div>'
       +(specLine(o)?'<div class="pmeta">'+specLine(o)+'</div>':'')
       +'<div class="psave" style="margin-top:4px">'+moneyLine(o)+'</div>'
-      +'<div class="sub2" style="margin-top:10px">'+whyText(r.path, r, o)+'</div>'
+      +'<div class="sub2" style="margin-top:10px">'+whyText(enginePath, REC, o)+'</div>'
       +'</div>';
-    // tier switcher, only when the full system is recommended
+    // path chooser: every real option, recommended one flagged. Lets them override the match.
+    var paths=availablePaths(), chooser='';
+    if(paths.length>1){
+      chooser='<div style="color:var(--sub);font-size:13px;margin:2px 0 8px">Compare your options</div>'
+        +'<div style="display:flex;gap:8px;margin-bottom:12px">'+paths.map(function(p){
+          var po=optForPath(p), on=(p===enginePath);
+          return '<button class="pick byoPath'+(on?' on':'')+'" data-path="'+p+'" style="flex:1;text-align:center;padding:10px 6px">'
+            +'<div style="font-weight:700;font-size:13px">'+PATHLABEL[p]+'</div>'
+            +'<div class="sub2" style="color:var(--sub);font-size:11px;margin-top:2px">net '+money0(po.net)+'</div>'
+            +(p===REC.path?'<div style="color:var(--gold);font-size:10px;font-weight:700;margin-top:2px">RECOMMENDED</div>':'')
+            +'</button>';
+        }).join('')+'</div>';
+    }
+    // tier switcher when solar+battery is the current pick
     var tiers='';
-    if(r.path==='solbat' && P.tiers){
+    if(enginePath==='solbat' && P.tiers){
       tiers='<div style="color:var(--sub);font-size:13px;margin:2px 0 10px">Sized as <b style="color:var(--gold)">'+TLABEL[tierSel]+'</b>. Resize anytime, all three wipe out most of your bill so the real difference is backup, longevity and headroom.</div>'
         +['essential','balanced','futureproof'].map(function(k){
           var t=P.tiers[k]||{}, on=k===tierSel;
           var wy=t.warrantyTerm?(''+t.warrantyTerm).split(' /')[0]:'';
           var save='<div class="psave">'+((+t.backup)?t.backup+'h backup':'')+(wy?' · '+wy+' warranty':'')+'</div>';
           var meta=(t.kw?t.kw+' kW solar · ':'')+(t.batt?t.batt+' kWh '+(t.brand||'')+' · ':'')+'net '+money0(t.net)+((+t.payback)?' · ~'+Math.round(t.payback)+'-yr payback':'');
-          var badge=on?'<span class="rec">Recommended</span>':'';
+          var badge=on?'<span class="rec">Selected</span>':'';
           return '<button class="pick'+(on?' on':'')+'" data-tier="'+k+'" style="margin-bottom:10px"><div class="ph"><div><div class="pname">'+TLABEL[k]+'</div>'+save+'</div><div style="display:flex;align-items:center;gap:8px">'+badge+'<div class="tick">'+(on?'✓':'')+'</div></div></div><div class="pmeta">'+meta+'</div></button>';
         }).join('');
     }
-    // phased de-risk card, only when the answers signal hesitation
+    // phased de-risk card, only on the recommended path when answers signal hesitation
     var phased='';
-    if(r.s.hesit>=3){
+    if(onRec && REC.s.hesit>=3){
       var msg='';
-      if(r.path==='solbat'){ var bo=P.options.battery||{}; msg='Start with the battery to cover the peak window now, about '+money(bo.net)+' after incentives, and add solar in phase 2. Phase 2 also unlocks the ~$5,000 NY State solar credit.'; }
-      else if(r.path==='battery'){ msg='The battery is already the low-commitment way in, about '+money(o.net)+' after incentives. Start here, and layer solar on later if you want to erase the bill too.'; }
+      if(enginePath==='solbat'){ var bo=P.options.battery||{}; msg='Start with the battery to cover the peak window now, about '+money(bo.net)+' after incentives, and add solar in phase 2. Phase 2 also unlocks the ~$5,000 NY State solar credit.'; }
+      else if(enginePath==='battery'){ msg='The battery is already the low-commitment way in, about '+money(o.net)+' after incentives. Start here, and layer solar on later if you want to erase the bill too.'; }
       else { var so=P.options.solar||{}; msg='Start with the array now, about '+money(so.net)+' after incentives, and add a battery later if you move to a time-of-use rate.'; }
       phased='<div style="border:1px dashed var(--line);border-radius:12px;padding:13px 15px;margin-top:12px">'
         +'<div style="font-weight:700;color:var(--teal)">Not ready for all of it? Start here.</div>'
         +'<div class="sub2" style="margin-top:6px">'+msg+'</div></div>';
     }
-    host.innerHTML=hero+tiers+phased;
+    var byo='<button class="pick" id="byoOpen" style="text-align:center;justify-content:center;margin-top:12px">🔧 Build your own system</button>';
+    host.innerHTML=hero+chooser+tiers+phased+byo;
+    Array.prototype.forEach.call(host.querySelectorAll('button[data-path]'), function(b){ b.addEventListener('click',function(){ enginePath=b.getAttribute('data-path'); if(enginePath==='solbat' && P.tiers && !tierSel) tierSel='balanced'; renderReveal(); }); });
     Array.prototype.forEach.call(host.querySelectorAll('button[data-tier]'), function(b){ b.addEventListener('click',function(){ tierSel=b.getAttribute('data-tier'); renderReveal(); }); });
+    var op=document.getElementById('byoOpen'); if(op) op.addEventListener('click',function(){ var cur=opt(); custom.offset=(+cur.kw>0)?(+cur.offset||0):0; custom.batt=(+cur.batt>0); customMode=true; renderReveal(); });
+  }
+  function renderCustom(host){
+    var S=P.options.solar||{}, B=P.options.battery||{};
+    var solarAvail=!!P.options.solar, battAvail=!!P.options.battery;
+    var maxOff=Math.round(Math.max((P.options.solbat&&+P.options.solbat.offset)||0, +S.offset||0, 100));
+    T('h4','Build your own.');
+    T('lede4','Size your solar, add a battery or leave it off. Estimates update live, we lock the exact numbers at your free survey.');
+    var html='<div class="sub2" style="margin-bottom:12px;color:var(--sub)">Estimates. Your exact system, price and savings are locked at your free site survey.</div>';
+    if(solarAvail){
+      html+='<div style="border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px">'
+        +'<div style="font-weight:700">☀️ Solar coverage <span id="byoOffLbl" style="color:var(--gold);float:right">'+(custom.offset|0)+'% of your bill</span></div>'
+        +'<input id="byoSolar" type="range" min="0" max="'+maxOff+'" step="5" value="'+(custom.offset|0)+'" style="width:100%;margin-top:14px;accent-color:#e9b84c">'
+        +'<div class="sub2" style="color:var(--sub);margin-top:4px">Slide to size your array. 0% means no solar.</div>'
+        +'</div>';
+    }
+    if(battAvail){
+      html+='<div style="border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:10px">'
+        +'<div style="font-weight:700;margin-bottom:10px">🔋 Add a battery? <span class="sub2" style="color:var(--sub);font-weight:400">'+(+B.batt||0)+' kWh · '+(+B.backup||0)+'h backup</span></div>'
+        +'<div style="display:flex;gap:8px">'
+          +'<button class="pick byoBatt" data-batt="1" style="flex:1;text-align:center;justify-content:center">Add battery</button>'
+          +'<button class="pick byoBatt" data-batt="0" style="flex:1;text-align:center;justify-content:center">No battery</button>'
+        +'</div></div>';
+    }
+    html+='<div style="background:rgba(55,201,166,.08);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px">'
+      +'<div style="font-weight:700;font-size:16px" id="byoSys">—</div>'
+      +'<div class="psave" style="margin-top:6px">Est. net <b id="byoNet">—</b>'+(NOTOU?'':' · saves <b id="byoSave">—</b>')+' · backup <b id="byoBackup">—</b></div>'
+      +'</div>';
+    html+='<button class="pick" id="byoBack" style="text-align:center;justify-content:center">← Back to my recommendation</button>';
+    host.innerHTML=html;
+    var sl=document.getElementById('byoSolar'); if(sl) sl.addEventListener('input',function(){ custom.offset=+this.value; updateBYO(); });
+    Array.prototype.forEach.call(host.querySelectorAll('.byoBatt'), function(b){ b.addEventListener('click',function(){ custom.batt=(b.getAttribute('data-batt')==='1'); refreshBattBtns(host); updateBYO(); }); });
+    var bk=document.getElementById('byoBack'); if(bk) bk.addEventListener('click',function(){ customMode=false; renderReveal(); });
+    refreshBattBtns(host); updateBYO();
+  }
+  function refreshBattBtns(host){ Array.prototype.forEach.call(host.querySelectorAll('.byoBatt'), function(b){ b.classList.toggle('on', (b.getAttribute('data-batt')==='1')===!!custom.batt); }); }
+  function updateBYO(){
+    var o=customOption();
+    var lbl=document.getElementById('byoOffLbl'); if(lbl) lbl.textContent=(o.kw>0? (custom.offset|0)+'% of your bill' : 'No solar');
+    var sys=document.getElementById('byoSys'); if(sys) sys.textContent=specLine(o)||'Nothing selected yet';
+    var nt=document.getElementById('byoNet'); if(nt) nt.textContent=money(o.net);
+    var sv=document.getElementById('byoSave'); if(sv) sv.textContent=(o.year1>0)?('~'+money(o.year1)+'/yr'):'—';
+    var bk=document.getElementById('byoBackup'); if(bk) bk.textContent=(o.batt>0)?(o.backup+'h'):'—';
   }
 
   document.querySelectorAll('[data-go]').forEach(function(b){ b.addEventListener('click',function(){ show(cur+1); }); });

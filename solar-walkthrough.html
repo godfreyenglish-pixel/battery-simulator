@@ -349,6 +349,10 @@ function routeIntent(P){
   var TLABEL = {essential:'Essential', balanced:'Balanced', futureproof:'Future-proof'};
   var tierSel = 'balanced';
   var quiz = {};
+  // All-scoping engine state: once the questionnaire computes a recommendation,
+  // engineChosen flips true and enginePath ('solar'|'battery'|'solbat') drives
+  // opt(), curLabel() and the downstream beats instead of the static route.
+  var engineChosen = false, enginePath = 'solbat';
   var CH = route.choices;                 // selectable option keys
   var BATT_ONLY = route.path === 'battery';
   // No-TOU: the router passes tou=0 when the client's utility has no residential
@@ -364,8 +368,21 @@ function routeIntent(P){
   // current selection: recommended if selectable, else first choice
   var sel = (CH.indexOf(P.recommended) >= 0) ? P.recommended : CH[0];
 
-  function opt(){ if(TIERS) return P.tiers[tierSel]||P.tiers.balanced; return P.options[sel] || P.options.solbat || P.options.solar || P.options.battery; }
-  function curLabel(){ return TIERS ? (TLABEL[tierSel]||'Solar + Battery') : (LABEL[sel]||'Solar + Battery'); }
+  function opt(){
+    if(engineChosen){
+      if(enginePath==='solbat' && P.tiers) return P.tiers[tierSel]||P.tiers.balanced;
+      return P.options[enginePath] || P.options.solbat || P.options.solar || P.options.battery;
+    }
+    if(TIERS) return P.tiers[tierSel]||P.tiers.balanced;
+    return P.options[sel] || P.options.solbat || P.options.solar || P.options.battery;
+  }
+  function curLabel(){
+    if(engineChosen) return ({solar:'Solar only', battery:'Battery', solbat:'Solar + Battery'})[enginePath]||'Solar + Battery';
+    return TIERS ? (TLABEL[tierSel]||'Solar + Battery') : (LABEL[sel]||'Solar + Battery');
+  }
+  function hasSolarO(){ return (+ (opt().kw) || 0) > 0; }
+  function hasBattO(){ return (+ (opt().batt) || 0) > 0; }
+  function isBattOnly(){ return engineChosen ? enginePath==='battery' : BATT_ONLY; }
   function money(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
   function moneyK(n){ n=Math.round(n); return n>=1000? '$'+(n/1000).toFixed(n%1000?1:0)+'k' : '$'+n; }
   function T(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; }
@@ -533,19 +550,19 @@ function routeIntent(P){
       var s25t=document.getElementById('save25'); if(s25t){ var mini=s25t.closest('.mini'); if(mini) mini.style.display='none'; }
       var cw=document.getElementById('chartwrap');
       if(cw) cw.innerHTML='<div class="sub2">Your battery carries critical loads about <b style="color:var(--gold)">'+(o.backup||0)+' hours</b> when the grid goes down. On a flat rate there’s no arbitrage to bank, so the value is resilience and protection if net metering changes, not a monthly saving.</div>';
-      var bdg=document.getElementById('badges'); if(bdg){ bdg.innerHTML=''; var chips=[]; if(HASBATT[sel]) chips.push('🔋 <b>'+(o.batt||0)+' kWh</b> · '+(o.backup||0)+'h backup'); chips.push('🛡️ Net-metering protection'); chips.push('✅ Licensed &amp; local'); chips.forEach(function(c){ var e=document.createElement('span'); e.className='badge'; e.innerHTML=c; bdg.appendChild(e); }); }
+      var bdg=document.getElementById('badges'); if(bdg){ bdg.innerHTML=''; var chips=[]; if(hasBattO()) chips.push('🔋 <b>'+(o.batt||0)+' kWh</b> · '+(o.backup||0)+'h backup'); chips.push('🛡️ Net-metering protection'); chips.push('✅ Licensed &amp; local'); chips.forEach(function(c){ var e=document.createElement('span'); e.className='badge'; e.innerHTML=c; bdg.appendChild(e); }); }
       return;
     }
     T('plan5', curLabel().toLowerCase());
-    T('offset5', BATT_ONLY ? (o.backup?o.backup+'h':'—') : Math.round(o.offset)+'%');
-    T('offlbl', BATT_ONLY ? 'Backup runtime' : 'Usage covered');
+    T('offset5', isBattOnly() ? (o.backup?o.backup+'h':'—') : Math.round(o.offset)+'%');
+    T('offlbl', isBattOnly() ? 'Backup runtime' : 'Usage covered');
     var s25=save25For(o);
     countUp('save25', s25, moneyK, 1200);
     // badges from the selection
     var badges=document.getElementById('badges'); badges.innerHTML='';
     var chips=[];
-    if(!BATT_ONLY) chips.push('🔆 <b>'+(o.kw||0)+' kW</b> · 25-yr panel output');
-    if(HASBATT[sel]) chips.push('🔋 <b>'+(o.batt||0)+' kWh</b> · '+(o.backup||0)+'h backup');
+    if(hasSolarO()) chips.push('🔆 <b>'+(o.kw||0)+' kW</b> · 25-yr panel output');
+    if(hasBattO()) chips.push('🔋 <b>'+(o.batt||0)+' kWh</b> · '+(o.backup||0)+'h backup');
     chips.push('✅ Licensed &amp; local');
     chips.forEach(function(c){ var e=document.createElement('span'); e.className='badge'; e.innerHTML=c; badges.appendChild(e); });
 
@@ -649,13 +666,68 @@ function routeIntent(P){
     else if(card){ card.style.display='none'; }
   }
 
+  // ---- All-scoping engine: 7 questions -> solar/battery/readiness scores ----
+  // Each answer feeds one or more scores. Solar and battery scores decide WHAT
+  // gets recommended (solar-only / battery-only / both). The readiness score
+  // decides HOW it's shown (confident vs a phased "start here" off-ramp). See the
+  // engine spec for the point values and thresholds; these are tuning dials.
   var QZ=[
-    { key:'priority', q:'What matters most to you?', a:[["Lowest cost up front",'essential'],["Best long-term value",'balanced'],["The best system, built to last",'futureproof']] },
-    { key:'stay', q:'How long will you be in this home?', a:[["Under 5 years",'essential'],["5 to 15 years",'balanced'],["15+ years, our forever home",'futureproof']] },
-    { key:'backup', q:'How important is backup in an outage?', a:[["Nice to have",'essential'],["Important",'balanced'],["Must-have, whole home",'futureproof']] }
+    { key:'bill', q:'Roughly what is your average electric bill?', a:[["Under $150",'lo'],["$150 to $250",'mid'],["$250 or more",'hi']] },
+    { key:'roof', q:'Which best describes your home?', a:[["Own it, good sunny roof",'good'],["Own it, some shade or a small roof",'partial'],["Own it, lots of shade or no roof space",'shade'],["I already have solar",'hassolar'],["I rent",'rent']] },
+    { key:'day', q:'Are you usually home during the day?', a:[["Yes, most days",'yes'],["No, usually out",'no'],["It varies",'varies']] },
+    { key:'outage', q:'How much do outages bother you?', a:[["A real problem, I want backup",'want'],["Nice to have",'nice'],["Do not really care",'idc']] },
+    { key:'goal', q:'What are you mainly after?', a:[["Cut my bill",'bill'],["Backup and resilience",'backup'],["Both, best overall value",'both'],["Just exploring for now",'explore']] },
+    { key:'budget', q:'Where are you on budget?', a:[["Ready to invest in the full solution",'ready'],["Cost-conscious, want the smartest spend",'smart'],["Not sure I can swing it right now",'unsure']] },
+    { key:'ready', q:'How ready are you to move forward?', a:[["Ready now",'now'],["In a few months",'soon'],["Just researching",'research']] }
   ];
   function money0(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
-  function tierFromQuiz(){ var score={essential:1,balanced:2,futureproof:3}, sum=0,c=0; QZ.forEach(function(qq){ var v=quiz[qq.key]; if(v){ sum+=score[v]; c++; } }); if(!c) return 'balanced'; var avg=sum/c; return avg<1.67?'essential':(avg<2.34?'balanced':'futureproof'); }
+  function engineScores(){
+    var q=quiz, solar=0, battery=0, hesit=0;
+    var solarKilled = (q.roof==='rent' || q.roof==='shade' || q.roof==='hassolar');
+    // solar score
+    if(q.roof==='good') solar+=5; else if(q.roof==='partial') solar+=3;
+    if(q.day==='yes') solar+=3; else if(q.day==='varies') solar+=1;
+    if(q.bill==='hi') solar+=2; else if(q.bill==='mid') solar+=1;
+    if(q.goal==='bill') solar+=1;
+    if(solarKilled) solar=0;
+    // battery score (peak exposure + resilience). Con Ed peak runs 8am-midnight,
+    // so everyone carries some exposure; baseline sits naturally higher.
+    if(q.day==='no') battery+=3; else if(q.day==='varies') battery+=2; else battery+=1;
+    if(q.bill==='hi') battery+=3; else if(q.bill==='mid') battery+=2; else battery+=1;
+    if(q.outage==='want') battery+=3; else if(q.outage==='nice') battery+=1;
+    if(q.goal==='backup') battery+=1;
+    if(q.roof==='hassolar') battery+=3; // already have panels -> battery is the add
+    // readiness = hesitation. Higher means less ready.
+    if(q.goal==='explore') hesit+=3;
+    if(q.budget==='unsure') hesit+=4; else if(q.budget==='smart') hesit+=2;
+    if(q.ready==='research') hesit+=3; else if(q.ready==='soon') hesit+=1;
+    return { solar:solar, battery:battery, hesit:hesit, killed:solarKilled };
+  }
+  function engineRoute(){
+    var s=engineScores();
+    var sQual=s.solar>=5, bQual=s.battery>=5, path;
+    if(sQual && bQual) path='solbat';
+    else if(sQual && !bQual) path='solar';
+    else if(!sQual && bQual) path='battery';
+    else path='battery';                  // both low -> battery, led with arbitrage
+    if(quiz.roof==='hassolar') path='battery';
+    return { path:path, s:s, bothLow:(!sQual && !bQual), sQual:sQual, bQual:bQual };
+  }
+  function tierFor(){                      // sizing within solar+battery
+    var q=quiz, t = q.budget==='ready' ? 'futureproof' : (q.budget==='unsure' ? 'essential' : 'balanced');
+    if(q.outage==='want' && t==='essential') t='balanced';
+    if(q.goal==='both' && t==='essential') t='balanced';
+    return t;
+  }
+  function whyText(path, r, o){
+    var q=quiz, y=(+ (o&&o.year1) ||0);
+    if(path==='solbat') return 'Your bill and your peak-hour usage both point to the full system. Solar erases the bill, and the battery carries you through Con Edison’s 8am to midnight window and backs up your home.';
+    if(path==='solar') return 'Good roof, daytime usage, and outages are not your worry. Solar does the heavy lifting here, and you can always add a battery later.';
+    // battery paths
+    if(q.roof==='hassolar') return 'You already own the panels. A battery is the missing piece: it cycles on the overnight-to-peak rate spread and keeps your home on when the grid drops.';
+    if(r && r.bothLow && y>0) return 'Even a single battery earns its keep: it charges cheap overnight and discharges through the expensive hours, banking about '+money(y)+' a year on the rate spread, with backup on top.';
+    return 'Your roof is not the fit, but your rate exposure is real. The battery fills overnight on cheap power and carries your home through the peak window, and keeps the lights on in an outage.';
+  }
   function buildQuiz(){
     var host=document.getElementById('picker'); if(!host) return;
     var out=document.getElementById('outage'); if(out) out.style.display='none';
@@ -670,26 +742,54 @@ function routeIntent(P){
       '</div></div>';
     }).join('')+'<button class="cta" id="quizGo" style="margin-top:4px">See my recommendation →</button>';
     Array.prototype.forEach.call(host.querySelectorAll('button[data-q]'), function(b){ b.addEventListener('click',function(){ quiz[b.getAttribute('data-q')]=b.getAttribute('data-v'); buildQuiz(); }); });
-    var go=document.getElementById('quizGo'); if(go){ var ok=QZ.every(function(qq){return quiz[qq.key];}); go.disabled=!ok; go.style.opacity=ok?'1':'.5'; go.addEventListener('click',function(){ if(!QZ.every(function(qq){return quiz[qq.key];})) return; tierSel=tierFromQuiz(); renderReveal(); }); }
+    var go=document.getElementById('quizGo'); if(go){ var ok=QZ.every(function(qq){return quiz[qq.key];}); go.disabled=!ok; go.style.opacity=ok?'1':'.5'; go.addEventListener('click',function(){ if(!QZ.every(function(qq){return quiz[qq.key];})) return; renderReveal(); }); }
   }
+  var PATHLABEL={ solar:'Solar only', battery:'Battery', solbat:'Solar + Battery' };
+  function optForPath(p){ if(p==='solbat' && P.tiers) return P.tiers[tierSel]||P.tiers.balanced; return P.options[p]||P.options.solbat||P.options.solar||P.options.battery; }
+  function specLine(o){ var parts=[]; if((+o.kw||0)>0) parts.push(o.kw+' kW solar'); if((+o.batt||0)>0) parts.push(o.batt+' kWh '+(o.brand||'battery')); if((+o.backup||0)>0) parts.push(o.backup+'h backup'); return parts.join(' · '); }
+  function moneyLine(o){ var b=[]; if((+o.year1||0)>0 && !NOTOU) b.push('Saves ~'+money(o.year1)+'/yr'); b.push('net '+money(o.net)); if((+o.payback||0)>0 && !NOTOU) b.push('~'+Math.round(o.payback)+'-yr payback'); return b.join(' · '); }
   function renderReveal(){
     var host=document.getElementById('picker'); if(!host) return;
     var _cta=document.querySelector('.screen[data-s="3"] > button.cta'); if(_cta) _cta.style.display='';
-    tierSel=tierSel||tierFromQuiz();
+    var r=engineRoute();
+    engineChosen=true; enginePath=r.path; sel=r.path;
+    if(r.path==='solbat') tierSel=tierFor();
+    var o=opt();
     T('h4',"Here's your match.");
-    T('lede4',"Based on your answers, this is the plan we'd put in front of you, and why. You can switch anytime.");
-    var rec=tierSel;
-    var cards=['essential','balanced','futureproof'].map(function(k){
-      var o=P.tiers[k]||{}; var on=k===tierSel;
-      var wy=o.warrantyTerm?(''+o.warrantyTerm).split(' /')[0]:'';
-      var save='<div class="psave">'+(o.backup?o.backup+'h backup':'')+(wy?' · '+wy+' warranty':'')+'</div>';
-      var meta=(o.kw?o.kw+' kW solar · ':'')+(o.batt?o.batt+' kWh '+(o.brand||'')+' · ':'')+'net '+money0(o.net)+(o.payback?' · ~'+Math.round(o.payback)+'-yr payback':'');
-      var badge=on?'<span class="rec">Recommended</span>':'';
-      return '<button class="pick'+(on?' on':'')+'" data-tier="'+k+'" style="margin-bottom:10px"><div class="ph"><div><div class="pname">'+TLABEL[k]+'</div>'+save+'</div><div style="display:flex;align-items:center;gap:8px">'+badge+'<div class="tick">'+(on?'✓':'')+'</div></div></div><div class="pmeta">'+meta+'</div></button>';
-    }).join('');
-    var why=(P.tiers[rec]&&P.tiers[rec].why)||'';
-    var ceil='<div style="color:var(--sub);font-size:13px;margin-bottom:12px">All three wipe out most of your bill, so the real difference is backup, longevity, and headroom, not the yearly savings.</div>';
-    host.innerHTML='<div style="background:rgba(233,184,76,.08);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin-bottom:12px;font-size:14px"><b style="color:var(--gold)">'+TLABEL[rec]+'.</b> '+why+'</div>'+ceil+cards;
+    T('lede4',"Based on your answers, this is what we'd put in front of you, and why. You can switch anytime.");
+    // hero recommendation card
+    var hero='<div style="background:rgba(233,184,76,.08);border:1px solid var(--line);border-radius:12px;padding:15px;margin-bottom:12px">'
+      +'<span class="rec">Recommended for you</span>'
+      +'<div class="pname" style="font-size:20px;margin-top:8px">'+PATHLABEL[r.path]+'</div>'
+      +(specLine(o)?'<div class="pmeta">'+specLine(o)+'</div>':'')
+      +'<div class="psave" style="margin-top:4px">'+moneyLine(o)+'</div>'
+      +'<div class="sub2" style="margin-top:10px">'+whyText(r.path, r, o)+'</div>'
+      +'</div>';
+    // tier switcher, only when the full system is recommended
+    var tiers='';
+    if(r.path==='solbat' && P.tiers){
+      tiers='<div style="color:var(--sub);font-size:13px;margin:2px 0 10px">Sized as <b style="color:var(--gold)">'+TLABEL[tierSel]+'</b>. Resize anytime, all three wipe out most of your bill so the real difference is backup, longevity and headroom.</div>'
+        +['essential','balanced','futureproof'].map(function(k){
+          var t=P.tiers[k]||{}, on=k===tierSel;
+          var wy=t.warrantyTerm?(''+t.warrantyTerm).split(' /')[0]:'';
+          var save='<div class="psave">'+((+t.backup)?t.backup+'h backup':'')+(wy?' · '+wy+' warranty':'')+'</div>';
+          var meta=(t.kw?t.kw+' kW solar · ':'')+(t.batt?t.batt+' kWh '+(t.brand||'')+' · ':'')+'net '+money0(t.net)+((+t.payback)?' · ~'+Math.round(t.payback)+'-yr payback':'');
+          var badge=on?'<span class="rec">Recommended</span>':'';
+          return '<button class="pick'+(on?' on':'')+'" data-tier="'+k+'" style="margin-bottom:10px"><div class="ph"><div><div class="pname">'+TLABEL[k]+'</div>'+save+'</div><div style="display:flex;align-items:center;gap:8px">'+badge+'<div class="tick">'+(on?'✓':'')+'</div></div></div><div class="pmeta">'+meta+'</div></button>';
+        }).join('');
+    }
+    // phased de-risk card, only when the answers signal hesitation
+    var phased='';
+    if(r.s.hesit>=3){
+      var msg='';
+      if(r.path==='solbat'){ var bo=P.options.battery||{}; msg='Start with the battery to cover the peak window now, about '+money(bo.net)+' after incentives, and add solar in phase 2. Phase 2 also unlocks the ~$5,000 NY State solar credit.'; }
+      else if(r.path==='battery'){ msg='The battery is already the low-commitment way in, about '+money(o.net)+' after incentives. Start here, and layer solar on later if you want to erase the bill too.'; }
+      else { var so=P.options.solar||{}; msg='Start with the array now, about '+money(so.net)+' after incentives, and add a battery later if you move to a time-of-use rate.'; }
+      phased='<div style="border:1px dashed var(--line);border-radius:12px;padding:13px 15px;margin-top:12px">'
+        +'<div style="font-weight:700;color:var(--teal)">Not ready for all of it? Start here.</div>'
+        +'<div class="sub2" style="margin-top:6px">'+msg+'</div></div>';
+    }
+    host.innerHTML=hero+tiers+phased;
     Array.prototype.forEach.call(host.querySelectorAll('button[data-tier]'), function(b){ b.addEventListener('click',function(){ tierSel=b.getAttribute('data-tier'); renderReveal(); }); });
   }
 

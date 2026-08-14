@@ -672,7 +672,7 @@ function routeIntent(P){
   // decides HOW it's shown (confident vs a phased "start here" off-ramp). See the
   // engine spec for the point values and thresholds; these are tuning dials.
   var QZ=[
-    { key:'bill', q:'Roughly what is your average electric bill?', a:[["Under $150",'lo'],["$150 to $250",'mid'],["$250 or more",'hi']] },
+    { key:'future', q:'Any big electric loads coming soon?', a:[["Yes, an EV or heat pump",'yes'],["Maybe someday",'maybe'],["No, just what I have now",'no']] },
     { key:'roof', q:'Which best describes your home?', a:[["Own it, good sunny roof",'good'],["Own it, some shade or a small roof",'partial'],["Own it, lots of shade or no roof space",'shade'],["I already have solar",'hassolar'],["I rent",'rent']] },
     { key:'day', q:'Are you usually home during the day?', a:[["Yes, most days",'yes'],["No, usually out",'no'],["It varies",'varies']] },
     { key:'outage', q:'How much do outages bother you?', a:[["A real problem, I want backup",'want'],["Nice to have",'nice'],["Do not really care",'idc']] },
@@ -681,19 +681,22 @@ function routeIntent(P){
     { key:'ready', q:'How ready are you to move forward?', a:[["Ready now",'now'],["In a few months",'soon'],["Just researching",'research']] }
   ];
   function money0(n){ return '$'+Math.round(n).toLocaleString('en-US'); }
+  function billBand(){ var m=+((P.bill&&P.bill.monthly))||0; return m>=250?'hi':(m>=150?'mid':'lo'); }
   function engineScores(){
     var q=quiz, solar=0, battery=0, hesit=0;
+    var bb=billBand();               // bill comes from the tool payload, not a question
     var solarKilled = (q.roof==='rent' || q.roof==='shade' || q.roof==='hassolar');
     // solar score
     if(q.roof==='good') solar+=5; else if(q.roof==='partial') solar+=3;
     if(q.day==='yes') solar+=3; else if(q.day==='varies') solar+=1;
-    if(q.bill==='hi') solar+=2; else if(q.bill==='mid') solar+=1;
+    if(bb==='hi') solar+=2; else if(bb==='mid') solar+=1;
+    if(q.future==='yes') solar+=2; else if(q.future==='maybe') solar+=1;   // headroom for EV/heat pump
     if(q.goal==='bill') solar+=1;
     if(solarKilled) solar=0;
     // battery score (peak exposure + resilience). Con Ed peak runs 8am-midnight,
     // so everyone carries some exposure; baseline sits naturally higher.
     if(q.day==='no') battery+=3; else if(q.day==='varies') battery+=2; else battery+=1;
-    if(q.bill==='hi') battery+=3; else if(q.bill==='mid') battery+=2; else battery+=1;
+    if(bb==='hi') battery+=3; else if(bb==='mid') battery+=2; else battery+=1;
     if(q.outage==='want') battery+=3; else if(q.outage==='nice') battery+=1;
     if(q.goal==='backup') battery+=1;
     if(q.roof==='hassolar') battery+=3; // already have panels -> battery is the add
@@ -717,6 +720,7 @@ function routeIntent(P){
     var q=quiz, t = q.budget==='ready' ? 'futureproof' : (q.budget==='unsure' ? 'essential' : 'balanced');
     if(q.outage==='want' && t==='essential') t='balanced';
     if(q.goal==='both' && t==='essential') t='balanced';
+    if(q.future==='yes') t = (t==='essential') ? 'balanced' : 'futureproof';   // planned EV/heat pump wants headroom
     return t;
   }
   function whyText(path, r, o){

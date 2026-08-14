@@ -249,6 +249,7 @@
         <div class="lbl">Equipment</div>
         <div id="eqList"></div>
       </div>
+      <div id="recUpg" style="margin-top:14px"></div>
       <div class="card" style="margin-top:14px">
         <div class="lbl">Warranties</div>
         <div id="eqRt" style="background:rgba(55,201,166,.08);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px"></div>
@@ -357,6 +358,7 @@ function routeIntent(P){
   // or opening build-your-own never re-derives it. customMode + custom hold the
   // build-your-own configurator (solar offset + battery on/off).
   var REC = null, customMode = false, custom = { offset:0, batt:true };
+  var recUpgrade = false;   // REC Alpha 450W panel upgrade, toggled on the equipment screen
   function round1(x){ return Math.round((+x||0)*10)/10; }
   function customOption(){
     var S=P.options.solar||{}, B=P.options.battery||{};
@@ -657,11 +659,32 @@ function routeIntent(P){
     function keep(c){ var n=c.name||''; if(/batter/i.test(n))return hasBatt; if(/panel|inverter|rack|monitor/i.test(n))return hasSolar; return true; }
     var vis=comps.filter(keep);
     if(TIERS){ var _t=P.tiers[tierSel]||{}; vis=vis.map(function(c){ return /batter/i.test(c.name)?{name:'Battery',mfr:(_t.brand||c.mfr),term:(_t.warrantyTerm||c.term)}:c; }); }
+    // REC 450W panel upgrade only applies when there's solar. Swaps the panel line
+    // and its warranty to the REC ProTrust terms we get as a Pro Plus installer.
+    if(!hasSolar) recUpgrade=false;
+    if(recUpgrade){ vis=vis.map(function(c){ return /panel/i.test(c.name)?{name:'Solar Panels',mfr:'REC Alpha 450W',term:'25 yr product · 25 yr power · 25 yr labor'}:c; }); }
     var eq=vis.map(function(c){ return '<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line)"><div style="font-size:22px;line-height:1">'+ic(c.name)+'</div><div style="flex:1"><div style="font-weight:700;font-size:15px">'+eE(c.name)+' <span style="color:var(--sub);font-weight:600">· '+eE(c.mfr)+'</span></div><div style="color:var(--sub);font-size:13px;margin-top:3px">'+eE(hi(c.name))+'</div></div></div>'; }).join('');
     if(el=document.getElementById('eqList')) el.innerHTML=eq||'<div style="color:var(--sub);font-size:14px">Confirmed at your free site survey.</div>';
     if(el=document.getElementById('eqRt')) el.innerHTML='Rivertown performance, workmanship and labor, all <b style="color:var(--teal)">'+eE(rt.workmanship||'Lifetime')+'</b>.';
     var wty=vis.map(function(c){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px"><span>'+eE(c.name)+' <span style="color:var(--sub)">· '+eE(c.mfr)+'</span></span><span style="color:var(--gold);font-weight:700;white-space:nowrap">'+eE(c.term||'—')+'</span></div>'; }).join('');
     if(el=document.getElementById('wtyList')) el.innerHTML=wty;
+    // REC upgrade card + price reveal
+    var up=document.getElementById('recUpg');
+    if(up){
+      if(hasSolar){
+        var adder=Math.round(200*kw);            // $0.20/W × system watts
+        var upgNet=Math.round((+o.net||0)+adder);
+        var head='<div style="display:flex;gap:12px;align-items:flex-start;justify-content:space-between">'
+          +'<div style="flex:1"><div style="font-weight:700;font-size:15px">Upgrade to REC Alpha 450W panels</div>'
+          +'<div style="color:var(--sub);font-size:13px;margin-top:3px">Premium HJT panels. As a REC Certified Pro Plus installer, your panel coverage jumps to the <b style="color:var(--teal)">REC ProTrust warranty: 25-yr product, 25-yr power, 25-yr labor</b>.</div></div>'
+          +'<button class="pick recUpgBtn'+(recUpgrade?' on':'')+'" style="width:104px;flex:none;text-align:center;justify-content:center">'+(recUpgrade?'✓ Added':'Add')+'</button></div>';
+        var reveal = recUpgrade
+          ? '<div class="sub2" style="margin-top:12px;color:var(--teal)">With REC panels, your '+curLabel().toLowerCase()+' comes to <b>'+money(upgNet)+'</b> net. This is your price to lock in at your free site survey.</div>'
+          : '<div class="sub2" style="margin-top:12px;color:var(--sub)">Tap Add to see your upgraded price before you lock in.</div>';
+        up.innerHTML='<div class="card"><div class="lbl">Panel upgrade</div>'+head+reveal+'</div>';
+        var ub=up.querySelector('.recUpgBtn'); if(ub) ub.addEventListener('click',function(){ recUpgrade=!recUpgrade; beatEquip(); });
+      } else { up.innerHTML=''; }
+    }
   }
 
   function beatProfile(){

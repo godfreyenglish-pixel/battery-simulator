@@ -1274,6 +1274,28 @@
             <div class="result-sub">battery output limit</div>
           </div>
         </div>
+        <!-- Battery pricing model — visible in the non-arbitrage (backup) view, including
+             the client-facing shared link. Totals only; never $/W. -->
+        <div class="roi-panel hidden" id="roiPanelBak">
+          <div class="roi-header">
+            <span class="roi-title">Battery Pricing · after NYSERDA incentive</span>
+            <span class="roi-config" id="roiBakConfig">—</span>
+          </div>
+          <div class="roi-grid">
+            <div class="roi-cell">
+              <div class="roi-label">System Price</div>
+              <div class="roi-value mono" id="roiBakGross">$0</div>
+            </div>
+            <div class="roi-cell">
+              <div class="roi-label">NYSERDA Incentive</div>
+              <div class="roi-value mono" id="roiBakIncentive" style="color: var(--teal);">−$0</div>
+            </div>
+            <div class="roi-cell" style="border-left: 1px solid var(--border); padding-left: 14px;">
+              <div class="roi-label">Your Price · after incentive</div>
+              <div class="roi-value mono" id="roiBakNet" style="color: var(--yellow);">$0</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Solar Only results -->
@@ -2994,6 +3016,23 @@ function renderBackup() {
   document.getElementById('rtWhole').textContent = fmtHr(b.wholeRuntime);
   document.getElementById('rtCritW').textContent = Math.round(b.critW) + ' W';
   document.getElementById('rtSurge').textContent = b.cont.toFixed(0) + ' kW';
+
+  // Battery pricing model — shown in the non-arbitrage (backup) view, including the
+  // client-facing shared link, so a resilience-first client still sees what it costs.
+  // Totals only (gross → NYSERDA → net); $/W stays installer-only.
+  const bakCost = batterySystemCost(s);
+  const bakPanel = document.getElementById('roiPanelBak');
+  if (bakPanel) {
+    if (s.hasBatt && bakCost.gross > 0) {
+      bakPanel.classList.remove('hidden');
+      document.getElementById('roiBakConfig').textContent = `${BRANDS[s.brand].name} ×${s.qty} · ${fmtKwh(b.usable)} kWh usable`;
+      document.getElementById('roiBakGross').textContent = fmt$0(bakCost.gross);
+      document.getElementById('roiBakIncentive').textContent = '−' + fmt$0(bakCost.incentive);
+      document.getElementById('roiBakNet').textContent = fmt$0(bakCost.net);
+    } else {
+      bakPanel.classList.add('hidden');
+    }
+  }
 
   try { drawBackupChart(b); } catch(e) { console.warn('Chart skipped:', e.message); }
 

@@ -1209,9 +1209,9 @@
             <div class="result-sub">per day</div>
           </div>
           <div class="result-tile">
-            <div class="result-label">Battery Utilization</div>
+            <div class="result-label">Peak Load Coverage</div>
             <div class="result-value mono" id="rUtil">0%</div>
-            <div class="result-sub">of usable cap per cycle</div>
+            <div class="result-sub">of peak-window load carried</div>
           </div>
         </div>
 
@@ -1743,7 +1743,13 @@ function simulateArbitrage(s, peakRateOverride) {
   }
 
   const kwhShifted = trace.reduce((a,t)=>a+t.fromBattery, 0);
-  const util = usable > 0 ? (kwhShifted / usable) * 100 : 0;
+  // Utilization redefined as PEAK-LOAD COVERAGE: the share of the dispatch-window
+  // load the batteries actually carry. Climbs as batteries are added and plateaus at
+  // 100% once the window is fully covered — a real right-sizing signal. The old
+  // kwhShifted/usable ratio saturated at the ~95% round-trip-efficiency ceiling and
+  // read the same for 1, 2 or 3 batteries whenever the pack fully cycled.
+  const peakWindowLoad = dischargeHrs.reduce((a,h)=> a + Math.max(0, load[h] - solar[h]), 0);
+  const util = peakWindowLoad > 0 ? Math.min(100, (kwhShifted / peakWindowLoad) * 100) : 0;
 
   return { trace, load, solar, baseline, totalCost, totalCredit, netCost,
            dailySave: baseline - netCost, kwhShifted, util,
@@ -3989,7 +3995,12 @@ setupEvents();
       baseline += load[h2] * getHourRate(h2, season).rate;
     }
 
-    var util = usable > 0 ? (kwhShifted / usable) * 100 : 0;
+    // Peak-load coverage (see base simulateArbitrage): share of the dispatch-window
+    // load the batteries carry, so it tracks battery count and window instead of
+    // pinning at the efficiency ceiling.
+    var peakWindowLoad = 0;
+    for (var pw = 0; pw < dischargeHrs.length; pw++) { var ph = dischargeHrs[pw]; peakWindowLoad += Math.max(0, load[ph] - solar[ph]); }
+    var util = peakWindowLoad > 0 ? Math.min(100, (kwhShifted / peakWindowLoad) * 100) : 0;
     var peakRate = season === 'summer' ? STATE.peakRate : STATE.winterPeakRate;
 
     return {trace:trace, load:load, solar:solar, baseline:baseline,

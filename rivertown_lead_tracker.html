@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Rivertown Solar · Lead Tracker</title>
+<style>
+  :root{
+    --navy:#0d1b33; --navy2:#152744; --gold:#a9812c; --gold2:#c69a3d;
+    --bg:#f4f6f9; --card:#ffffff; --line:#e4e8ef; --ink:#1a2230; --mut:#6b7688;
+    --good:#1f9d55; --good-bg:#e6f6ec; --bad:#c0392b; --bad-bg:#fdecea; --warn:#b7791f;
+    --shadow:0 1px 3px rgba(13,27,51,.08),0 6px 18px rgba(13,27,51,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+  a{color:inherit}
+  button{font-family:inherit;cursor:pointer}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 16px 64px}
+
+  /* Header */
+  header.top{background:var(--navy);color:#fff}
+  .top-in{max-width:1180px;margin:0 auto;padding:14px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.2px}
+  .brand .dot{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--gold),var(--gold2));display:flex;align-items:center;justify-content:center;color:#1a1300;font-weight:800;font-size:14px}
+  .brand small{display:block;font-weight:500;color:#9fb0cc;font-size:11px;letter-spacing:.3px}
+  .top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .top-actions .status-pill{font-size:12px;color:#bcd0f0;display:flex;align-items:center;gap:6px}
+  .top-actions .status-pill i{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block}
+  .btn{border:1px solid transparent;border-radius:9px;padding:8px 13px;font-size:13px;font-weight:600;background:#e9edf3;color:var(--ink)}
+  .btn:hover{filter:brightness(.98)}
+  .btn.ghost{background:transparent;border-color:#33456a;color:#dfe7f5}
+  .btn.ghost:hover{background:#1b2c4c}
+  .btn.gold{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#1a1300}
+  .btn.primary{background:var(--navy);color:#fff}
+  .btn.danger{background:var(--bad);color:#fff}
+  .btn.sm{padding:6px 10px;font-size:12px;border-radius:8px}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+
+  /* Tabs */
+  nav.tabs{max-width:1180px;margin:0 auto;padding:10px 16px 0;display:flex;gap:6px;flex-wrap:wrap}
+  nav.tabs button{background:transparent;border:none;padding:10px 14px;font-size:14px;font-weight:600;color:#9fb0cc;border-radius:9px 9px 0 0}
+  nav.tabs button.active{background:var(--bg);color:var(--navy)}
+  .tabsbar{background:var(--navy)}
+
+  h2.sec{font-size:16px;margin:26px 2px 12px;letter-spacing:.2px}
+  .muted{color:var(--mut)}
+
+  /* KPI grid */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-top:18px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow)}
+  .kpi .lab{font-size:12px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+  .kpi .val{font-size:26px;font-weight:800;margin-top:6px;letter-spacing:-.5px}
+  .kpi .sub{font-size:12px;color:var(--mut);margin-top:2px}
+
+  .cards2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+  @media(max-width:760px){.cards2{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+  .panel h3{margin:0 0 12px;font-size:14px}
+
+  /* Charts */
+  .bar-row{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:13px}
+  .bar-row .bl{width:118px;flex:none;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{flex:1;background:#eef1f6;border-radius:6px;height:16px;overflow:hidden}
+  .bar-fill{height:100%;background:linear-gradient(90deg,var(--navy),#2c4576);border-radius:6px}
+  .bar-row .bv{width:38px;text-align:right;font-weight:700;flex:none}
+
+  /* Controls */
+  .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0}
+  .controls input[type=text],.controls select{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-size:13px;background:#fff;color:var(--ink)}
+  .controls input[type=text]{min-width:200px;flex:1}
+  .spacer{flex:1}
+
+  /* Table */
+  .tablewrap{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:auto}
+  table{border-collapse:collapse;width:100%;min-width:720px}
+  th,td{text-align:left;padding:11px 13px;font-size:13px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{background:#f8fafc;color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px;position:sticky;top:0}
+  tbody tr:hover{background:#fafbfd}
+  td .who{font-weight:700}
+  td .sub{color:var(--mut);font-size:12px}
+  .rowbtns{display:flex;gap:6px}
+  .iconbtn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 8px;font-size:12px;font-weight:600;color:var(--ink)}
+  .iconbtn:hover{background:#f2f5f9}
+  .iconbtn.del:hover{background:var(--bad-bg);border-color:#f3b9b1;color:var(--bad)}
+
+  /* status chips */
+  .chip{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.2px}
+  .st-New{background:#eef2ff;color:#3b4cca}
+  .st-Contacted{background:#fff4e5;color:#b7791f}
+  .st-Proposal.Sent,.st-ProposalSent{background:#e8f0fe;color:#1a56db}
+  .st-Contract.Signed,.st-ContractSigned{background:#e6f6ec;color:#1f7a44}
+  .st-Permitted{background:#eafaf1;color:#1f9d55}
+  .st-Installed{background:#e6f7f9;color:#0e7490}
+  .st-PTO{background:#f3e8ff;color:#7e22ce}
+  .st-Commission.Paid,.st-CommissionPaid{background:#e6f6ec;color:#0f5132}
+
+  /* Forms */
+  .formgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:680px){.formgrid{grid-template-columns:1fr}}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:12px;font-weight:600;color:var(--mut)}
+  .field input,.field select,.field textarea{padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff;color:var(--ink);width:100%}
+  .field textarea{min-height:74px;resize:vertical}
+  .field.calc input{background:#f6f8fb;font-weight:700}
+  .form-actions{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
+
+  /* Edit drawer */
+  .drawer-bg{position:fixed;inset:0;background:rgba(13,27,51,.42);backdrop-filter:blur(1px);z-index:40;display:flex;justify-content:flex-end}
+  .drawer{width:min(520px,100%);height:100%;background:var(--bg);overflow:auto;box-shadow:-8px 0 30px rgba(0,0,0,.2);animation:slidein .18s ease}
+  @keyframes slidein{from{transform:translateX(24px);opacity:.6}to{transform:none;opacity:1}}
+  .drawer-head{position:sticky;top:0;background:var(--navy);color:#fff;padding:16px 18px;display:flex;align-items:center;gap:10px}
+  .drawer-head .x{margin-left:auto;background:transparent;border:none;color:#cdd8ec;font-size:22px;line-height:1;cursor:pointer}
+  .drawer-body{padding:18px}
+
+  /* Modal (delete / log) */
+  .modal-bg{position:fixed;inset:0;background:rgba(13,27,51,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:18px}
+  .modal{background:#fff;border-radius:16px;max-width:420px;width:100%;padding:22px 22px 18px;box-shadow:0 20px 60px rgba(0,0,0,.3);animation:pop .16s ease}
+  @keyframes pop{from{transform:scale(.96);opacity:.7}to{transform:none;opacity:1}}
+  .modal h3{margin:0 0 8px;font-size:18px}
+  .modal p{margin:0 0 18px;color:var(--mut);font-size:14px;line-height:1.5}
+  .modal .warnring{width:44px;height:44px;border-radius:50%;background:var(--bad-bg);color:var(--bad);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;margin-bottom:12px}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end}
+
+  /* Toast */
+  .toasts{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:80;display:flex;flex-direction:column;gap:8px;align-items:center}
+  .toast{background:var(--navy);color:#fff;padding:12px 18px;border-radius:11px;font-size:14px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.25);display:flex;align-items:center;gap:9px;animation:pop .16s ease}
+  .toast.good{background:var(--good)}
+  .toast.bad{background:var(--bad)}
+
+  /* Connect screen */
+  .connect{max-width:520px;margin:8vh auto;background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:30px 28px}
+  .connect h1{font-size:20px;margin:14px 0 6px}
+  .connect p{color:var(--mut);font-size:14px;line-height:1.55;margin:0 0 18px}
+  .connect input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:10px;font-size:14px;margin-bottom:12px}
+  .connect .big-dot{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,var(--gold),var(--gold2));display:flex;align-items:center;justify-content:center;color:#1a1300;font-weight:800;font-size:20px}
+  .center{display:flex;flex-direction:column;align-items:center;text-align:center}
+
+  .empty{padding:44px 20px;text-align:center;color:var(--mut)}
+  .spin{width:34px;height:34px;border:3px solid #dfe5ee;border-top-color:var(--navy);border-radius:50%;animation:sp 1s linear infinite;margin:40px auto}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .err-banner{background:var(--bad-bg);color:var(--bad);border:1px solid #f3b9b1;padding:12px 14px;border-radius:11px;font-size:13px;margin-top:14px;display:flex;gap:10px;align-items:center}
+  .grid-mini{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13px;margin-top:6px}
+  .grid-mini div span{color:var(--mut)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>/* preact 10.23.2 */!function(n){"function"==typeof define&&define.amd?define(n):n()}(function(){var n,l,t,u,i,o,e,r,f,c,s,a,h,p=65536,v=1<<17,d={},y=[],w=/acit|ex(?:s|g|n|p|$)|rph|grid|ows|mnc|ntw|ine[ch]|zoo|^ord|itera/i,_=Array.isArray;function m(n,l){for(var t in l)n[t]=l[t];return n}function g(n){var l=n.parentNode;l&&l.removeChild(n)}function k(l,t,u){var i,o,e,r={};for(e in t)"key"==e?i=t[e]:"ref"==e?o=t[e]:r[e]=t[e];if(arguments.length>2&&(r.children=arguments.length>3?n.call(arguments,2):u),"function"==typeof l&&null!=l.defaultProps)for(e in l.defaultProps)void 0===r[e]&&(r[e]=l.defaultProps[e]);return b(l,r,i,o,null)}function b(n,u,i,o,e){var r={type:n,props:u,key:i,ref:o,__k:null,__:null,__b:0,__e:null,__d:void 0,__c:null,constructor:void 0,__v:null==e?++t:e,__i:-1,__u:0};return null==e&&null!=l.vnode&&l.vnode(r),r}function C(n){return n.children}function x(n,l){this.props=n,this.context=l}function M(n,l){if(null==l)return n.__?M(n.__,n.__i+1):null;for(var t;l<n.__k.length;l++)if(null!=(t=n.__k[l])&&null!=t.__e)return t.__e;return"function"==typeof n.type?M(n):null}function P(n){var l,t;if(null!=(n=n.__)&&null!=n.__c){for(n.__e=n.__c.base=null,l=0;l<n.__k.length;l++)if(null!=(t=n.__k[l])&&null!=t.__e){n.__e=n.__c.base=t.__e;break}return P(n)}}function S(n){(!n.__d&&(n.__d=!0)&&i.push(n)&&!$.__r++||o!==l.debounceRendering)&&((o=l.debounceRendering)||e)($)}function $(){var n,t,u,o,e,f,c,s;for(i.sort(r);n=i.shift();)n.__d&&(t=i.length,o=void 0,f=(e=(u=n).__v).__e,c=[],s=[],u.__P&&((o=m({},e)).__v=e.__v+1,l.vnode&&l.vnode(o),O(u.__P,o,e,u.__n,u.__P.namespaceURI,32&e.__u?[f]:null,c,null==f?M(e):f,!!(32&e.__u),s),o.__v=e.__v,o.__.__k[o.__i]=o,V(c,o,s),o.__e!=f&&P(o)),i.length>t&&i.sort(r));$.__r=0}function I(n,l,t,u,i,o,e,r,f,c,s){var a,h,v,w,_,m=u&&u.__k||y,g=l.length;for(t.__d=f,A(t,l,m),f=t.__d,a=0;a<g;a++)null!=(v=t.__k[a])&&"boolean"!=typeof v&&"function"!=typeof v&&(h=-1===v.__i?d:m[v.__i]||d,v.__i=a,O(n,v,h,i,o,e,r,f,c,s),w=v.__e,v.ref&&h.ref!=v.ref&&(h.ref&&z(h.ref,null,v),s.push(v.ref,v.__c||w,v)),null==_&&null!=w&&(_=w),v.__u&p||h.__k===v.__k?f=E(v,f,n):"function"==typeof v.type&&void 0!==v.__d?f=v.__d:w&&(f=w.nextSibling),v.__d=void 0,v.__u&=-196609);t.__d=f,t.__e=_}function A(n,l,t){var u,i,o,e,r,f=l.length,c=t.length,s=c,a=0;for(n.__k=[],u=0;u<f;u++)e=u+a,null!=(i=n.__k[u]=null==(i=l[u])||"boolean"==typeof i||"function"==typeof i?null:"string"==typeof i||"number"==typeof i||"bigint"==typeof i||i.constructor==String?b(null,i,null,null,null):_(i)?b(C,{children:i},null,null,null):void 0===i.constructor&&i.__b>0?b(i.type,i.props,i.key,i.ref?i.ref:null,i.__v):i)?(i.__=n,i.__b=n.__b+1,r=F(i,t,e,s),i.__i=r,o=null,-1!==r&&(s--,(o=t[r])&&(o.__u|=v)),null==o||null===o.__v?(-1==r&&a--,"function"!=typeof i.type&&(i.__u|=p)):r!==e&&(r==e-1?a--:r==e+1?a++:r>e?s>f-e?a+=r-e:a--:r<e&&(r==e-a?a-=r-e:a++),r!==u+a&&(i.__u|=p))):(o=t[e])&&null==o.key&&o.__e&&0==(o.__u&v)&&(o.__e==n.__d&&(n.__d=M(o)),N(o,o,!1),t[e]=null,s--);if(s)for(u=0;u<c;u++)null!=(o=t[u])&&0==(o.__u&v)&&(o.__e==n.__d&&(n.__d=M(o)),N(o,o))}function E(n,l,t){var u,i;if("function"==typeof n.type){for(u=n.__k,i=0;u&&i<u.length;i++)u[i]&&(u[i].__=n,l=E(u[i],l,t));return l}n.__e!=l&&(l&&n.type&&!t.contains(l)&&(l=M(n)),t.insertBefore(n.__e,l||null),l=n.__e);do{l=l&&l.nextSibling}while(null!=l&&8===l.nodeType);return l}function F(n,l,t,u){var i=n.key,o=n.type,e=t-1,r=t+1,f=l[t];if(null===f||f&&i==f.key&&o===f.type&&0==(f.__u&v))return t;if(u>(null!=f&&0==(f.__u&v)?1:0))for(;e>=0||r<l.length;){if(e>=0){if((f=l[e])&&0==(f.__u&v)&&i==f.key&&o===f.type)return e;e--}if(r<l.length){if((f=l[r])&&0==(f.__u&v)&&i==f.key&&o===f.type)return r;r++}}return-1}function H(n,l,t){"-"===l[0]?n.setProperty(l,null==t?"":t):n[l]=null==t?"":"number"!=typeof t||w.test(l)?t:t+"px"}function L(n,l,t,u,i){var o;n:if("style"===l)if("string"==typeof t)n.style.cssText=t;else{if("string"==typeof u&&(n.style.cssText=u=""),u)for(l in u)t&&l in t||H(n.style,l,"");if(t)for(l in t)u&&t[l]===u[l]||H(n.style,l,t[l])}else if("o"===l[0]&&"n"===l[1])o=l!==(l=l.replace(/(PointerCapture)$|Capture$/i,"$1")),l=l.toLowerCase()in n||"onFocusOut"===l||"onFocusIn"===l?l.toLowerCase().slice(2):l.slice(2),n.l||(n.l={}),n.l[l+o]=t,t?u?t.t=u.t:(t.t=f,n.addEventListener(l,o?s:c,o)):n.removeEventListener(l,o?s:c,o);else{if("http://www.w3.org/2000/svg"==i)l=l.replace(/xlink(H|:h)/,"h").replace(/sName$/,"s");else if("width"!=l&&"height"!=l&&"href"!=l&&"list"!=l&&"form"!=l&&"tabIndex"!=l&&"download"!=l&&"rowSpan"!=l&&"colSpan"!=l&&"role"!=l&&"popover"!=l&&l in n)try{n[l]=null==t?"":t;break n}catch(n){}"function"==typeof t||(null==t||!1===t&&"-"!==l[4]?n.removeAttribute(l):n.setAttribute(l,"popover"==l&&1==t?"":t))}}function T(n){return function(t){if(this.l){var u=this.l[t.type+n];if(null==t.u)t.u=f++;else if(t.u<u.t)return;return u(l.event?l.event(t):t)}}}function O(n,t,u,i,o,e,r,f,c,s){var a,h,p,v,d,y,w,g,k,b,M,P,S,$,A,E,F=t.type;if(void 0!==t.constructor)return null;128&u.__u&&(c=!!(32&u.__u),e=[f=t.__e=u.__e]),(a=l.__b)&&a(t);n:if("function"==typeof F)try{if(g=t.props,k="prototype"in F&&F.prototype.render,b=(a=F.contextType)&&i[a.__c],M=a?b?b.props.value:a.__:i,u.__c?w=(h=t.__c=u.__c).__=h.__E:(k?t.__c=h=new F(g,M):(t.__c=h=new x(g,M),h.constructor=F,h.render=R),b&&b.sub(h),h.props=g,h.state||(h.state={}),h.context=M,h.__n=i,p=h.__d=!0,h.__h=[],h._sb=[]),k&&null==h.__s&&(h.__s=h.state),k&&null!=F.getDerivedStateFromProps&&(h.__s==h.state&&(h.__s=m({},h.__s)),m(h.__s,F.getDerivedStateFromProps(g,h.__s))),v=h.props,d=h.state,h.__v=t,p)k&&null==F.getDerivedStateFromProps&&null!=h.componentWillMount&&h.componentWillMount(),k&&null!=h.componentDidMount&&h.__h.push(h.componentDidMount);else{if(k&&null==F.getDerivedStateFromProps&&g!==v&&null!=h.componentWillReceiveProps&&h.componentWillReceiveProps(g,M),!h.__e&&(null!=h.shouldComponentUpdate&&!1===h.shouldComponentUpdate(g,h.__s,M)||t.__v===u.__v)){for(t.__v!==u.__v&&(h.props=g,h.state=h.__s,h.__d=!1),t.__e=u.__e,t.__k=u.__k,t.__k.forEach(function(n){n&&(n.__=t)}),P=0;P<h._sb.length;P++)h.__h.push(h._sb[P]);h._sb=[],h.__h.length&&r.push(h);break n}null!=h.componentWillUpdate&&h.componentWillUpdate(g,h.__s,M),k&&null!=h.componentDidUpdate&&h.__h.push(function(){h.componentDidUpdate(v,d,y)})}if(h.context=M,h.props=g,h.__P=n,h.__e=!1,S=l.__r,$=0,k){for(h.state=h.__s,h.__d=!1,S&&S(t),a=h.render(h.props,h.state,h.context),A=0;A<h._sb.length;A++)h.__h.push(h._sb[A]);h._sb=[]}else do{h.__d=!1,S&&S(t),a=h.render(h.props,h.state,h.context),h.state=h.__s}while(h.__d&&++$<25);h.state=h.__s,null!=h.getChildContext&&(i=m(m({},i),h.getChildContext())),k&&!p&&null!=h.getSnapshotBeforeUpdate&&(y=h.getSnapshotBeforeUpdate(v,d)),I(n,_(E=null!=a&&a.type===C&&null==a.key?a.props.children:a)?E:[E],t,u,i,o,e,r,f,c,s),h.base=t.__e,t.__u&=-161,h.__h.length&&r.push(h),w&&(h.__E=h.__=null)}catch(n){if(t.__v=null,c||null!=e){for(t.__u|=c?160:32;f&&8===f.nodeType&&f.nextSibling;)f=f.nextSibling;e[e.indexOf(f)]=null,t.__e=f}else t.__e=u.__e,t.__k=u.__k;l.__e(n,t,u)}else null==e&&t.__v===u.__v?(t.__k=u.__k,t.__e=u.__e):t.__e=j(u.__e,t,u,i,o,e,r,c,s);(a=l.diffed)&&a(t)}function V(n,t,u){t.__d=void 0;for(var i=0;i<u.length;i++)z(u[i],u[++i],u[++i]);l.__c&&l.__c(t,n),n.some(function(t){try{n=t.__h,t.__h=[],n.some(function(n){n.call(t)})}catch(n){l.__e(n,t.__v)}})}function j(l,t,u,i,o,e,r,f,c){var s,a,h,p,v,y,w,m=u.props,k=t.props,b=t.type;if("svg"===b?o="http://www.w3.org/2000/svg":"math"===b?o="http://www.w3.org/1998/Math/MathML":o||(o="http://www.w3.org/1999/xhtml"),null!=e)for(s=0;s<e.length;s++)if((v=e[s])&&"setAttribute"in v==!!b&&(b?v.localName===b:3===v.nodeType)){l=v,e[s]=null;break}if(null==l){if(null===b)return document.createTextNode(k);l=document.createElementNS(o,b,k.is&&k),e=null,f=!1}if(null===b)m===k||f&&l.data===k||(l.data=k);else{if(e=e&&n.call(l.childNodes),m=u.props||d,!f&&null!=e)for(m={},s=0;s<l.attributes.length;s++)m[(v=l.attributes[s]).name]=v.value;for(s in m)if(v=m[s],"children"==s);else if("dangerouslySetInnerHTML"==s)h=v;else if("key"!==s&&!(s in k)){if("value"==s&&"defaultValue"in k||"checked"==s&&"defaultChecked"in k)continue;L(l,s,null,v,o)}for(s in k)v=k[s],"children"==s?p=v:"dangerouslySetInnerHTML"==s?a=v:"value"==s?y=v:"checked"==s?w=v:"key"===s||f&&"function"!=typeof v||m[s]===v||L(l,s,v,m[s],o);if(a)f||h&&(a.__html===h.__html||a.__html===l.innerHTML)||(l.innerHTML=a.__html),t.__k=[];else if(h&&(l.innerHTML=""),I(l,_(p)?p:[p],t,u,i,"foreignObject"===b?"http://www.w3.org/1999/xhtml":o,e,r,e?e[0]:u.__k&&M(u,0),f,c),null!=e)for(s=e.length;s--;)null!=e[s]&&g(e[s]);f||(s="value",void 0!==y&&(y!==l[s]||"progress"===b&&!y||"option"===b&&y!==m[s])&&L(l,s,y,m[s],o),s="checked",void 0!==w&&w!==l[s]&&L(l,s,w,m[s],o))}return l}function z(n,t,u){try{if("function"==typeof n){var i="function"==typeof n.__u;i&&n.__u(),i&&null==t||(n.__u=n(t))}else n.current=t}catch(n){l.__e(n,u)}}function N(n,t,u){var i,o;if(l.unmount&&l.unmount(n),(i=n.ref)&&(i.current&&i.current!==n.__e||z(i,null,t)),null!=(i=n.__c)){if(i.componentWillUnmount)try{i.componentWillUnmount()}catch(n){l.__e(n,t)}i.base=i.__P=null}if(i=n.__k)for(o=0;o<i.length;o++)i[o]&&N(i[o],t,u||"function"!=typeof n.type);u||null==n.__e||g(n.__e),n.__c=n.__=n.__e=n.__d=void 0}function R(n,l,t){return this.constructor(n,t)}function q(t,u,i){var o,e,r,f;l.__&&l.__(t,u),e=(o="function"==typeof i)?null:i&&i.__k||u.__k,r=[],f=[],O(u,t=(!o&&i||u).__k=k(C,null,[t]),e||d,d,u.namespaceURI,!o&&i?[i]:e?null:u.firstChild?n.call(u.childNodes):null,r,!o&&i?i:e?e.__e:u.firstChild,o,f),V(r,t,f)}n=y.slice,l={__e:function(n,l,t,u){for(var i,o,e;l=l.__;)if((i=l.__c)&&!i.__)try{if((o=i.constructor)&&null!=o.getDerivedStateFromError&&(i.setState(o.getDerivedStateFromError(n)),e=i.__d),null!=i.componentDidCatch&&(i.componentDidCatch(n,u||{}),e=i.__d),e)return i.__E=i}catch(l){n=l}throw n}},t=0,u=function(n){return null!=n&&null==n.constructor},x.prototype.setState=function(n,l){var t;t=null!=this.__s&&this.__s!==this.state?this.__s:this.__s=m({},this.state),"function"==typeof n&&(n=n(m({},t),this.props)),n&&m(t,n),null!=n&&this.__v&&(l&&this._sb.push(l),S(this))},x.prototype.forceUpdate=function(n){this.__v&&(this.__e=!0,n&&this.__h.push(n),S(this))},x.prototype.render=C,i=[],e="function"==typeof Promise?Promise.prototype.then.bind(Promise.resolve()):setTimeout,r=function(n,l){return n.__v.__b-l.__v.__b},$.__r=0,f=0,c=T(!1),s=T(!0),a=0,h={__proto__:null,render:q,hydrate:function n(l,t){q(l,t,n)},createElement:k,h:k,Fragment:C,createRef:function(){return{current:null}},isValidElement:u,Component:x,cloneElement:function(l,t,u){var i,o,e,r,f=m({},l.props);for(e in l.type&&l.type.defaultProps&&(r=l.type.defaultProps),t)"key"==e?i=t[e]:"ref"==e?o=t[e]:f[e]=void 0===t[e]&&void 0!==r?r[e]:t[e];return arguments.length>2&&(f.children=arguments.length>3?n.call(arguments,2):u),b(l.type,f,i||l.key,o||l.ref,null)},createContext:function(n,l){var t={__c:l="__cC"+a++,__:n,Consumer:function(n,l){return n.children(l)},Provider:function(n){var t,u;return this.getChildContext||(t=[],(u={})[l]=this,this.getChildContext=function(){return u},this.componentWillUnmount=function(){t=null},this.shouldComponentUpdate=function(n){this.props.value!==n.value&&t.some(function(n){n.__e=!0,S(n)})},this.sub=function(n){t.push(n);var l=n.componentWillUnmount;n.componentWillUnmount=function(){t&&t.splice(t.indexOf(n),1),l&&l.call(n)}}),n.children}};return t.Provider.__=t.Consumer.contextType=t},toChildArray:function n(l,t){return t=t||[],null==l||"boolean"==typeof l||(_(l)?l.some(function(l){n(l,t)}):t.push(l)),t},options:l},typeof module<"u"?module.exports=h:self.preact=h});
+//# sourceMappingURL=preact.min.umd.js.map
+</script>
+<script>/* preact hooks */!function(n,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports,require("preact")):"function"==typeof define&&define.amd?define(["exports","preact"],t):t((n||self).preactHooks={},n.preact)}(this,function(n,t){var u,r,i,o,f=0,c=[],e=t.options,a=e.__b,v=e.__r,l=e.diffed,d=e.__c,s=e.unmount,p=e.__;function h(n,t){e.__h&&e.__h(r,n,f||t),f=0;var u=r.__H||(r.__H={__:[],__h:[]});return n>=u.__.length&&u.__.push({}),u.__[n]}function y(n){return f=1,m(j,n)}function m(n,t,i){var o=h(u++,2);if(o.t=n,!o.__c&&(o.__=[i?i(t):j(void 0,t),function(n){var t=o.__N?o.__N[0]:o.__[0],u=o.t(t,n);t!==u&&(o.__N=[u,o.__[1]],o.__c.setState({}))}],o.__c=r,!r.u)){var f=function(n,t,u){if(!o.__c.__H)return!0;var r=o.__c.__H.__.filter(function(n){return!!n.__c});if(r.every(function(n){return!n.__N}))return!c||c.call(this,n,t,u);var i=!1;return r.forEach(function(n){if(n.__N){var t=n.__[0];n.__=n.__N,n.__N=void 0,t!==n.__[0]&&(i=!0)}}),!(!i&&o.__c.props===n)&&(!c||c.call(this,n,t,u))};r.u=!0;var c=r.shouldComponentUpdate,e=r.componentWillUpdate;r.componentWillUpdate=function(n,t,u){if(this.__e){var r=c;c=void 0,f(n,t,u),c=r}e&&e.call(this,n,t,u)},r.shouldComponentUpdate=f}return o.__N||o.__}function T(n,t){var i=h(u++,4);!e.__s&&g(i.__H,t)&&(i.__=n,i.i=t,r.__h.push(i))}function _(n,t){var r=h(u++,7);return g(r.__H,t)&&(r.__=n(),r.__H=t,r.__h=n),r.__}function b(){for(var n;n=c.shift();)if(n.__P&&n.__H)try{n.__H.__h.forEach(A),n.__H.__h.forEach(F),n.__H.__h=[]}catch(t){n.__H.__h=[],e.__e(t,n.__v)}}e.__b=function(n){r=null,a&&a(n)},e.__=function(n,t){n&&t.__k&&t.__k.__m&&(n.__m=t.__k.__m),p&&p(n,t)},e.__r=function(n){v&&v(n),u=0;var t=(r=n.__c).__H;t&&(i===r?(t.__h=[],r.__h=[],t.__.forEach(function(n){n.__N&&(n.__=n.__N),n.i=n.__N=void 0})):(t.__h.forEach(A),t.__h.forEach(F),t.__h=[],u=0)),i=r},e.diffed=function(n){l&&l(n);var t=n.__c;t&&t.__H&&(t.__H.__h.length&&(1!==c.push(t)&&o===e.requestAnimationFrame||((o=e.requestAnimationFrame)||x)(b)),t.__H.__.forEach(function(n){n.i&&(n.__H=n.i),n.i=void 0})),i=r=null},e.__c=function(n,t){t.some(function(n){try{n.__h.forEach(A),n.__h=n.__h.filter(function(n){return!n.__||F(n)})}catch(u){t.some(function(n){n.__h&&(n.__h=[])}),t=[],e.__e(u,n.__v)}}),d&&d(n,t)},e.unmount=function(n){s&&s(n);var t,u=n.__c;u&&u.__H&&(u.__H.__.forEach(function(n){try{A(n)}catch(n){t=n}}),u.__H=void 0,t&&e.__e(t,u.__v))};var q="function"==typeof requestAnimationFrame;function x(n){var t,u=function(){clearTimeout(r),q&&cancelAnimationFrame(t),setTimeout(n)},r=setTimeout(u,100);q&&(t=requestAnimationFrame(u))}function A(n){var t=r,u=n.__c;"function"==typeof u&&(n.__c=void 0,u()),r=t}function F(n){var t=r;n.__c=n.__(),r=t}function g(n,t){return!n||n.length!==t.length||t.some(function(t,u){return t!==n[u]})}function j(n,t){return"function"==typeof t?t(n):t}n.useCallback=function(n,t){return f=8,_(function(){return n},t)},n.useContext=function(n){var t=r.context[n.__c],i=h(u++,9);return i.c=n,t?(null==i.__&&(i.__=!0,t.sub(r)),t.props.value):n.__},n.useDebugValue=function(n,t){e.useDebugValue&&e.useDebugValue(t?t(n):n)},n.useEffect=function(n,t){var i=h(u++,3);!e.__s&&g(i.__H,t)&&(i.__=n,i.i=t,r.__H.__h.push(i))},n.useErrorBoundary=function(n){var t=h(u++,10),i=y();return t.__=n,r.componentDidCatch||(r.componentDidCatch=function(n,u){t.__&&t.__(n,u),i[1](n)}),[i[0],function(){i[1](void 0)}]},n.useId=function(){var n=h(u++,11);if(!n.__){for(var t=r.__v;null!==t&&!t.__m&&null!==t.__;)t=t.__;var i=t.__m||(t.__m=[0,0]);n.__="P"+i[0]+"-"+i[1]++}return n.__},n.useImperativeHandle=function(n,t,u){f=6,T(function(){return"function"==typeof n?(n(t()),function(){return n(null)}):n?(n.current=t(),function(){return n.current=null}):void 0},null==u?u:u.concat(n))},n.useLayoutEffect=T,n.useMemo=_,n.useReducer=m,n.useRef=function(n){return f=5,_(function(){return{current:n}},[])},n.useState=y});
+//# sourceMappingURL=hooks.umd.js.map
+</script>
+<script>/* htm 3.1.1 */!function(n,e){"object"==typeof exports&&"undefined"!=typeof module?module.exports=e():"function"==typeof define&&define.amd?define(e):n.htm=e()}(this,function(){var n=function(e,t,u,s){var r;t[0]=0;for(var p=1;p<t.length;p++){var h=t[p++],o=t[p]?(t[0]|=h?1:2,u[t[p++]]):t[++p];3===h?s[0]=o:4===h?s[1]=Object.assign(s[1]||{},o):5===h?(s[1]=s[1]||{})[t[++p]]=o:6===h?s[1][t[++p]]+=o+"":h?(r=e.apply(o,n(e,o,u,["",null])),s.push(r),o[0]?t[0]|=2:(t[p-2]=0,t[p]=r)):s.push(o)}return s},e=new Map;return function(t){var u=e.get(this);return u||(u=new Map,e.set(this,u)),(u=n(this,u.get(t)||(u.set(t,u=function(n){for(var e,t,u=1,s="",r="",p=[0],h=function(n){1===u&&(n||(s=s.replace(/^\s*\n\s*|\s*\n\s*$/g,"")))?p.push(0,n,s):3===u&&(n||s)?(p.push(3,n,s),u=2):2===u&&"..."===s&&n?p.push(4,n,0):2===u&&s&&!n?p.push(5,0,!0,s):u>=5&&((s||!n&&5===u)&&(p.push(u,0,s,t),u=6),n&&(p.push(u,n,0,t),u=6)),s=""},o=0;o<n.length;o++){o&&(1===u&&h(),h(o));for(var f=0;f<n[o].length;f++)e=n[o][f],1===u?"<"===e?(h(),p=[p],u=3):s+=e:4===u?"--"===s&&">"===e?(u=1,s=""):s=e+s[0]:r?e===r?r="":s+=e:'"'===e||"'"===e?r=e:">"===e?(h(),u=1):u&&("="===e?(u=5,t=s,s=""):"/"===e&&(u<5||">"===n[o][f+1])?(h(),3===u&&(p=p[0]),u=p,(p=p[0]).push(2,0,u),u=0):" "===e||"\t"===e||"\n"===e||"\r"===e?(h(),u=2):s+=e),3===u&&"!--"===s&&(u=4,p=p[0])}return h(),p}(t)),u),arguments,[])).length>1?u:u[0]}});
+</script>
+<script>
+(function(){
+  "use strict";
+  const { h, render } = preact;
+  const {useState,useEffect,useMemo,useCallback,useRef} = preactHooks;
+  const html = htm.bind(h);
+
+  /* ---------- constants ---------- */
+  const SOURCES  = ["Social Media","Company Lead","Website","SEO","Referral","Other"];
+  const STATUSES = ["New","Contacted","Proposal Sent","Contract Signed","Permitted","Installed","PTO","Commission Paid"];
+  const OPEN_STATUSES = ["New","Contacted","Proposal Sent"];
+  const WON_STATUSES  = ["Contract Signed","Permitted","Installed","PTO","Commission Paid"];
+  const LOG_KINDS   = ["Call","Text","Email","Meeting","Voicemail","Note"];
+  const LOG_OUTCOMES= ["Positive","Neutral","No answer","Negative","Follow-up set"];
+  const URL_KEY = "rivertown_leadtracker_url";
+
+  /* ---------- tiny storage (degrades to memory) ---------- */
+  const mem = {};
+  const store = {
+    get(k){ try{ return window.localStorage.getItem(k); }catch(e){ return mem[k]||null; } },
+    set(k,v){ try{ window.localStorage.setItem(k,v); }catch(e){ mem[k]=v; } },
+    del(k){ try{ window.localStorage.removeItem(k); }catch(e){ delete mem[k]; } }
+  };
+
+  /* ---------- helpers ---------- */
+  const fmt$ = n => (isFinite(n)?n:0).toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+  const num = v => { const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,"")); return isNaN(n)?0:n; };
+  const todayISO = () => new Date().toISOString().slice(0,10);
+  const parseDate = s => { if(!s) return null; const d=new Date(s); return isNaN(d)?null:d; };
+  const daysBetween = (a,b) => { const da=parseDate(a),db=parseDate(b); if(!da||!db) return null; return Math.round((db-da)/86400000); };
+  const stClass = s => "st-"+String(s||"").replace(/\s+/g,"");
+  const monthKey = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+  const monthLabel = key => { const [y,m]=key.split("-"); return new Date(y,m-1,1).toLocaleDateString("en-US",{month:"short"}); };
+
+  /* ---------- API (all Apps Script doGet actions; GET avoids CORS preflight) ---------- */
+  function makeApi(baseUrl){
+    const call = async (params) => {
+      const u = new URL(baseUrl);
+      Object.keys(params).forEach(k => u.searchParams.set(k, params[k]));
+      const res = await fetch(u.toString(), { method:"GET", redirect:"follow" });
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const txt = await res.text();
+      let data; try{ data = JSON.parse(txt); }catch(e){ data = txt; }
+      // surface server-reported failures
+      if(data && typeof data==="object" && (data.status==="error"||data.error) && !data.leads){
+        throw new Error(data.message || data.error || "Server error");
+      }
+      return data;
+    };
+    const normalizeLeads = d => {
+      let arr = Array.isArray(d) ? d : (d && (d.leads || d.data || d.rows)) || [];
+      return arr.map(r => ({
+        id:r.id||"", name:r.name||"", email:r.email||"", phone:r.phone||"",
+        source:r.source||"", dateAdded:r.dateAdded||"", status:r.status||"New",
+        systemSize:r.systemSize||"", dealValue:r.dealValue||"", commissionPct:r.commissionPct||"",
+        commissionAmount:r.commissionAmount||"", dateClosed:r.dateClosed||"", dateInstalled:r.dateInstalled||"",
+        datePTO:r.datePTO||"", dateCommissionPaid:r.dateCommissionPaid||"", notes:r.notes||""
+      }));
+    };
+    return {
+      get:    async () => normalizeLeads(await call({action:"get"})),
+      add:    lead => call({action:"add",    data:JSON.stringify(lead)}),
+      update: lead => call({action:"update", data:JSON.stringify(lead)}),
+      remove: id   => call({action:"delete", id:id}),
+      // send both the handler param names (kind/outcome/text) so notes never save blank
+      log:    (id,kind,outcome,text) => call({action:"logInteraction", id:id, kind:kind, outcome:outcome, text:text})
+    };
+  }
+
+  /* ---------- small components ---------- */
+  function BarChart({rows}){
+    const max = Math.max(1, ...rows.map(r=>r.value));
+    if(!rows.length) return html`<div class="muted" style="font-size:13px">No data yet.</div>`;
+    return html`<div>${rows.map(r=>html`
+      <div class="bar-row" key=${r.label}>
+        <div class="bl" title=${r.label}>${r.label}</div>
+        <div class="bar-track"><div class="bar-fill" style=${{width:(r.value/max*100)+"%"}}></div></div>
+        <div class="bv">${r.display!=null?r.display:r.value}</div>
+      </div>`)}</div>`;
+  }
+
+  function Toasts({items}){
+    return html`<div class="toasts">${items.map(t=>html`
+      <div class=${"toast "+(t.type||"")} key=${t.id}>${t.type==="good"?"✓":t.type==="bad"?"!":"•"} ${t.msg}</div>`)}</div>`;
+  }
+
+  /* ---------- Connect screen ---------- */
+  function Connect({onConnect}){
+    const [val,setVal] = useState("");
+    const [busy,setBusy] = useState(false);
+    const [err,setErr] = useState("");
+    const go = async () => {
+      const u = val.trim();
+      if(!/^https:\/\/script\.google\.com\/macros\//.test(u)){
+        setErr("That doesn't look like a Web App URL. It should start with https://script.google.com/macros/…/exec");
+        return;
+      }
+      setBusy(true); setErr("");
+      try{
+        const api = makeApi(u);
+        await api.get(); // validate it responds
+        onConnect(u);
+      }catch(e){
+        setErr("Couldn't reach that URL. Check the deployment is set to Anyone, then paste the /exec link again.");
+      }finally{ setBusy(false); }
+    };
+    return html`
+      <div class="connect center">
+        <div class="big-dot">R</div>
+        <h1>Rivertown Lead Tracker</h1>
+        <p>Paste your Apps Script <b>Web App URL</b> (the <code>/exec</code> link) to connect to your Leads sheet.</p>
+        <input placeholder="https://script.google.com/macros/s/…/exec" value=${val}
+               onInput=${e=>setVal(e.target.value)} onKeyDown=${e=>e.key==="Enter"&&go()} />
+        <button class="btn gold" style="width:100%;padding:12px" disabled=${busy} onClick=${go}>
+          ${busy?"Connecting…":"Connect to Sheet"}</button>
+        ${err && html`<div class="err-banner" style="margin-top:14px">${err}</div>`}
+      </div>`;
+  }
+
+  /* ---------- Lead form (add + edit) ---------- */
+  function LeadForm({initial,onSubmit,onCancel,submitting,submitLabel}){
+    const [f,setF] = useState(()=>Object.assign({
+      id:"",name:"",email:"",phone:"",source:"Referral",dateAdded:todayISO(),status:"New",
+      systemSize:"",dealValue:"",commissionPct:"",commissionAmount:"",dateClosed:"",dateInstalled:"",
+      datePTO:"",dateCommissionPaid:"",notes:""
+    },initial||{}));
+    const set = (k,v) => setF(p=>{
+      const n={...p,[k]:v};
+      if(k==="dealValue"||k==="commissionPct"){ n.commissionAmount = Math.round(num(n.dealValue)*num(n.commissionPct)/100); }
+      return n;
+    });
+    const F = (label,key,type="text",opts) => html`
+      <div class="field ${key==="commissionAmount"?"calc":""}">
+        <label>${label}</label>
+        ${opts ? html`<select value=${f[key]} onChange=${e=>set(key,e.target.value)}>
+              ${opts.map(o=>html`<option key=${o} value=${o}>${o}</option>`)}</select>`
+          : html`<input type=${type} value=${f[key]} readOnly=${key==="commissionAmount"}
+                    onInput=${e=>set(key,e.target.value)} />`}
+      </div>`;
+    return html`
+      <div>
+        <div class="formgrid">
+          ${F("Full name","name")}
+          ${F("Email","email","email")}
+          ${F("Phone","phone")}
+          ${F("Source","source",null,SOURCES)}
+          ${F("Date added","dateAdded","date")}
+          ${F("Status","status",null,STATUSES)}
+          ${F("System size (kW)","systemSize","number")}
+          ${F("Deal value ($)","dealValue","number")}
+          ${F("Commission %","commissionPct","number")}
+          ${F("Commission amount ($)","commissionAmount")}
+          ${F("Date closed","dateClosed","date")}
+          ${F("Date installed","dateInstalled","date")}
+          ${F("Date PTO","datePTO","date")}
+          ${F("Date commission paid","dateCommissionPaid","date")}
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label>Notes</label>
+          <textarea value=${f.notes} onInput=${e=>set("notes",e.target.value)}></textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn gold" disabled=${submitting||!f.name.trim()} onClick=${()=>onSubmit(f)}>
+            ${submitting?"Saving…":(submitLabel||"Save")}</button>
+          ${onCancel && html`<button class="btn" onClick=${onCancel}>Cancel</button>`}
+        </div>
+      </div>`;
+  }
+
+  /* ---------- App ---------- */
+  function App(){
+    const [url,setUrl] = useState(()=>store.get(URL_KEY)||"");
+    const api = useMemo(()=> url?makeApi(url):null, [url]);
+
+    const [leads,setLeads] = useState([]);
+    const [loading,setLoading] = useState(false);
+    const [loadErr,setLoadErr] = useState("");
+    const [tab,setTab] = useState("overview");
+
+    const [search,setSearch] = useState("");
+    const [fSource,setFSource] = useState("");
+    const [fStatus,setFStatus] = useState("");
+
+    const [editing,setEditing] = useState(null);   // lead being edited (drawer)
+    const [savingEdit,setSavingEdit] = useState(false);
+    const [addSaving,setAddSaving] = useState(false);
+
+    const [delTarget,setDelTarget] = useState(null); // delete modal
+    const [deleting,setDeleting] = useState(false);
+
+    const [logTarget,setLogTarget] = useState(null); // log modal
+    const [toasts,setToasts] = useState([]);
+    const toastId = useRef(0);
+
+    const toast = useCallback((msg,type)=>{
+      const id = ++toastId.current;
+      setToasts(t=>[...t,{id,msg,type}]);
+      setTimeout(()=>setToasts(t=>t.filter(x=>x.id!==id)), 2600);
+    },[]);
+
+    const load = useCallback(async ()=>{
+      if(!api) return;
+      setLoading(true); setLoadErr("");
+      try{ setLeads(await api.get()); }
+      catch(e){ setLoadErr("Couldn't load leads. Your Sheet may be waking up. Tap Sync to retry."); }
+      finally{ setLoading(false); }
+    },[api]);
+
+    useEffect(()=>{ if(api) load(); },[api,load]);
+
+    const connect = (u)=>{ store.set(URL_KEY,u); setUrl(u); };
+    const disconnect = ()=>{ store.del(URL_KEY); setUrl(""); setLeads([]); };
+
+    /* ----- CRUD handlers ----- */
+    const doAdd = async (lead)=>{
+      setAddSaving(true);
+      const optimistic = {...lead, id: lead.id || ("tmp-"+Date.now())};
+      try{
+        await api.add(lead);
+        toast("Lead added","good");
+        setTab("leads");
+        await load();
+      }catch(e){ toast("Couldn't add lead. Try again.","bad"); }
+      finally{ setAddSaving(false); }
+    };
+
+    const doUpdate = async (lead)=>{
+      setSavingEdit(true);
+      const prev = leads;
+      setLeads(ls=>ls.map(l=>l.id===lead.id?lead:l)); // optimistic
+      try{
+        await api.update(lead);
+        toast("Changes saved","good");
+        setEditing(null);
+      }catch(e){ setLeads(prev); toast("Couldn't save changes. Try again.","bad"); }
+      finally{ setSavingEdit(false); }
+    };
+
+    const doDelete = async ()=>{
+      if(!delTarget) return;
+      setDeleting(true);
+      const prev = leads;
+      try{
+        await api.remove(delTarget.id);
+        setLeads(ls=>ls.filter(l=>l.id!==delTarget.id)); // remove only on confirmed success
+        setDelTarget(null);
+        toast("Lead deleted","good");
+      }catch(e){
+        setLeads(prev);
+        toast("Couldn't delete. Try again.","bad");
+      }finally{ setDeleting(false); }
+    };
+
+    const doLog = async (kind,outcome,text)=>{
+      if(!logTarget) return;
+      try{
+        await api.log(logTarget.id, kind, outcome, text);
+        toast("Interaction logged","good");
+        setLogTarget(null);
+        load(); // refresh notes/last-touch
+      }catch(e){ toast("Couldn't log that. Try again.","bad"); }
+    };
+
+    /* ----- derived data ----- */
+    const filtered = useMemo(()=>{
+      const q = search.trim().toLowerCase();
+      return leads.filter(l=>{
+        if(fSource && l.source!==fSource) return false;
+        if(fStatus && l.status!==fStatus) return false;
+        if(q){ const hay=(l.name+" "+l.email+" "+l.phone+" "+l.notes).toLowerCase(); if(!hay.includes(q)) return false; }
+        return true;
+      });
+    },[leads,search,fSource,fStatus]);
+
+    const stats = useMemo(()=>{
+      const now = new Date(), thisMonth = monthKey(now);
+      let pipeVal=0, totalComm=0, closedThisMonth=0, daysArr=[];
+      leads.forEach(l=>{
+        if(!WON_STATUSES.includes(l.status)) pipeVal += num(l.dealValue);
+        if(WON_STATUSES.includes(l.status)) totalComm += num(l.commissionAmount);
+        const dc = parseDate(l.dateClosed);
+        if(dc && monthKey(dc)===thisMonth) closedThisMonth++;
+        const dd = daysBetween(l.dateAdded,l.dateClosed);
+        if(dd!=null && dd>=0) daysArr.push(dd);
+      });
+      const active = leads.filter(l=>OPEN_STATUSES.includes(l.status)).length;
+      const avgDays = daysArr.length ? Math.round(daysArr.reduce((a,b)=>a+b,0)/daysArr.length) : null;
+      return {total:leads.length, active, closedThisMonth, pipeVal, totalComm, avgDays};
+    },[leads]);
+
+    const byStatus = useMemo(()=>STATUSES.map(s=>({label:s,value:leads.filter(l=>l.status===s).length})).filter(r=>r.value>0),[leads]);
+    const bySource = useMemo(()=>SOURCES.map(s=>({label:s,value:leads.filter(l=>l.source===s).length})).filter(r=>r.value>0),[leads]);
+    const byMonth = useMemo(()=>{
+      const now=new Date(), keys=[];
+      for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); keys.push(monthKey(d)); }
+      const counts = Object.fromEntries(keys.map(k=>[k,0]));
+      leads.forEach(l=>{ const d=parseDate(l.dateAdded); if(d){ const k=monthKey(d); if(k in counts) counts[k]++; } });
+      return keys.map(k=>({label:monthLabel(k),value:counts[k]}));
+    },[leads]);
+
+    const sourcePerf = useMemo(()=>SOURCES.map(s=>{
+      const rows = leads.filter(l=>l.source===s);
+      const closed = rows.filter(l=>WON_STATUSES.includes(l.status));
+      const comm = closed.reduce((a,l)=>a+num(l.commissionAmount),0);
+      const closeDays = rows.map(l=>daysBetween(l.dateAdded,l.dateClosed)).filter(d=>d!=null&&d>=0);
+      const avgClose = closeDays.length?Math.round(closeDays.reduce((a,b)=>a+b,0)/closeDays.length):null;
+      return {source:s, leads:rows.length, closed:closed.length,
+              rate: rows.length?Math.round(closed.length/rows.length*100):0,
+              comm, perLead: rows.length?Math.round(comm/rows.length):0, avgClose};
+    }).filter(r=>r.leads>0),[leads]);
+
+    /* ----- render gates ----- */
+    if(!url) return html`<${Connect} onConnect=${connect} />`;
+
+    return html`
+      <div>
+        <header class="top">
+          <div class="top-in">
+            <div class="brand"><div class="dot">R</div><div>Rivertown Lead Tracker<small>Live from your Google Sheet</small></div></div>
+            <div class="top-actions">
+              <div class="status-pill"><i></i> Connected</div>
+              <button class="btn ghost sm" onClick=${load} disabled=${loading}>${loading?"Syncing…":"Sync"}</button>
+              <button class="btn ghost sm" onClick=${disconnect}>Disconnect</button>
+            </div>
+          </div>
+          <div class="tabsbar">
+            <nav class="tabs">
+              ${[["overview","Overview"],["add","Add Lead"],["leads","Leads"],["analytics","Analytics"]].map(([k,lab])=>html`
+                <button key=${k} class=${tab===k?"active":""} onClick=${()=>setTab(k)}>${lab}</button>`)}
+            </nav>
+          </div>
+        </header>
+
+        <div class="wrap">
+          ${loadErr && html`<div class="err-banner">${loadErr}
+              <button class="btn sm" style="margin-left:auto" onClick=${load}>Retry</button></div>`}
+
+          ${tab==="overview" && html`<${Overview} stats=${stats} byStatus=${byStatus} bySource=${bySource} byMonth=${byMonth} loading=${loading} count=${leads.length} />`}
+
+          ${tab==="add" && html`
+            <h2 class="sec">Add a lead</h2>
+            <div class="panel">
+              <${LeadForm} onSubmit=${doAdd} submitting=${addSaving} submitLabel="Add lead" />
+            </div>`}
+
+          ${tab==="leads" && html`<${LeadsTab}
+              leads=${filtered} total=${leads.length} loading=${loading}
+              search=${search} setSearch=${setSearch}
+              fSource=${fSource} setFSource=${setFSource} fStatus=${fStatus} setFStatus=${setFStatus}
+              onEdit=${setEditing} onDelete=${setDelTarget} onLog=${setLogTarget} />`}
+
+          ${tab==="analytics" && html`<${Analytics} rows=${sourcePerf} />`}
+        </div>
+
+        ${editing && html`
+          <div class="drawer-bg" onClick=${e=>{ if(e.target.className==="drawer-bg") setEditing(null); }}>
+            <div class="drawer">
+              <div class="drawer-head"><b>Edit lead</b>
+                <span class="muted" style="color:#9fb0cc;font-weight:500">${editing.name}</span>
+                <button class="x" onClick=${()=>setEditing(null)}>×</button></div>
+              <div class="drawer-body">
+                <${LeadForm} initial=${editing} onSubmit=${doUpdate} onCancel=${()=>setEditing(null)}
+                    submitting=${savingEdit} submitLabel="Save changes" />
+              </div>
+            </div>
+          </div>`}
+
+        ${delTarget && html`<${DeleteModal} lead=${delTarget} deleting=${deleting}
+            onCancel=${()=>!deleting&&setDelTarget(null)} onConfirm=${doDelete} />`}
+
+        ${logTarget && html`<${LogModal} lead=${logTarget} onCancel=${()=>setLogTarget(null)} onSubmit=${doLog} />`}
+
+        <${Toasts} items=${toasts} />
+      </div>`;
+  }
+
+  /* ---------- Overview tab ---------- */
+  function Overview({stats,byStatus,bySource,byMonth,loading,count}){
+    if(loading && !count) return html`<div class="spin"></div>`;
+    const K = (lab,val,sub)=>html`<div class="kpi"><div class="lab">${lab}</div><div class="val">${val}</div>${sub&&html`<div class="sub">${sub}</div>`}</div>`;
+    return html`
+      <div>
+        <div class="kpis">
+          ${K("Total leads", stats.total)}
+          ${K("Active pipeline", stats.active, "open leads")}
+          ${K("Closed this month", stats.closedThisMonth)}
+          ${K("Pipeline value", fmt$(stats.pipeVal), "open deals")}
+          ${K("Total commission", fmt$(stats.totalComm), "won deals")}
+          ${K("Avg days to close", stats.avgDays==null?"—":stats.avgDays)}
+        </div>
+        <div class="cards2">
+          <div class="panel"><h3>Pipeline by status</h3><${BarChart} rows=${byStatus} /></div>
+          <div class="panel"><h3>Leads by source</h3><${BarChart} rows=${bySource} /></div>
+        </div>
+        <div class="panel" style="margin-top:14px"><h3>Monthly lead volume (last 6 months)</h3><${BarChart} rows=${byMonth} /></div>
+      </div>`;
+  }
+
+  /* ---------- Leads tab ---------- */
+  function LeadsTab({leads,total,loading,search,setSearch,fSource,setFSource,fStatus,setFStatus,onEdit,onDelete,onLog}){
+    return html`
+      <div>
+        <h2 class="sec">Leads <span class="muted" style="font-weight:500;font-size:13px">· ${leads.length} of ${total}</span></h2>
+        <div class="controls">
+          <input type="text" placeholder="Search name, email, phone, notes…" value=${search} onInput=${e=>setSearch(e.target.value)} />
+          <select value=${fSource} onChange=${e=>setFSource(e.target.value)}>
+            <option value="">All sources</option>${SOURCES.map(s=>html`<option key=${s} value=${s}>${s}</option>`)}</select>
+          <select value=${fStatus} onChange=${e=>setFStatus(e.target.value)}>
+            <option value="">All statuses</option>${STATUSES.map(s=>html`<option key=${s} value=${s}>${s}</option>`)}</select>
+        </div>
+        ${loading && !total ? html`<div class="spin"></div>` : html`
+        <div class="tablewrap">
+          <table>
+            <thead><tr>
+              <th>Name</th><th>Source</th><th>Status</th><th>System</th><th>Deal</th><th>Commission</th><th>Added</th><th>Days</th><th></th>
+            </tr></thead>
+            <tbody>
+              ${leads.length===0 ? html`<tr><td colspan="9"><div class="empty">No leads match. Adjust filters or add one.</div></td></tr>` :
+              leads.map(l=>{
+                const days = daysBetween(l.dateAdded, l.dateClosed);
+                return html`<tr key=${l.id}>
+                  <td><div class="who">${l.name||"—"}</div><div class="sub">${l.email||l.phone||""}</div></td>
+                  <td>${l.source||"—"}</td>
+                  <td><span class=${"chip "+stClass(l.status)}>${l.status||"—"}</span></td>
+                  <td>${l.systemSize?num(l.systemSize)+" kW":"—"}</td>
+                  <td>${num(l.dealValue)?fmt$(num(l.dealValue)):"—"}</td>
+                  <td>${num(l.commissionAmount)?fmt$(num(l.commissionAmount)):"—"}</td>
+                  <td>${l.dateAdded||"—"}</td>
+                  <td>${days==null?"—":days}</td>
+                  <td><div class="rowbtns">
+                    <button class="iconbtn" title="Log interaction" onClick=${()=>onLog(l)}>Log</button>
+                    <button class="iconbtn" title="Edit" onClick=${()=>onEdit(l)}>Edit</button>
+                    <button class="iconbtn del" title="Delete" onClick=${()=>onDelete(l)}>Delete</button>
+                  </div></td>
+                </tr>`;
+              })}
+            </tbody>
+          </table>
+        </div>`}
+      </div>`;
+  }
+
+  /* ---------- Analytics tab ---------- */
+  function Analytics({rows}){
+    const closeRows = rows.filter(r=>r.avgClose!=null).map(r=>({label:r.source,value:r.avgClose,display:r.avgClose+"d"}));
+    return html`
+      <div>
+        <h2 class="sec">Analytics</h2>
+        <div class="panel"><h3>Avg days to close by source</h3><${BarChart} rows=${closeRows} /></div>
+        <div class="panel" style="margin-top:14px">
+          <h3>Source performance</h3>
+          <div class="tablewrap" style="box-shadow:none;border:none">
+            <table>
+              <thead><tr><th>Source</th><th>Leads</th><th>Closed</th><th>Close rate</th><th>Commission</th><th>Per lead</th></tr></thead>
+              <tbody>
+                ${rows.length===0?html`<tr><td colspan="6"><div class="empty">No data yet.</div></td></tr>`:
+                rows.map(r=>html`<tr key=${r.source}>
+                  <td><b>${r.source}</b></td><td>${r.leads}</td><td>${r.closed}</td>
+                  <td><div style="display:flex;align-items:center;gap:8px">
+                    <div class="bar-track" style="width:70px"><div class="bar-fill" style=${{width:r.rate+"%"}}></div></div>${r.rate}%</div></td>
+                  <td>${fmt$(r.comm)}</td><td>${fmt$(r.perLead)}</td>
+                </tr>`)}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /* ---------- Delete confirmation modal ---------- */
+  function DeleteModal({lead,deleting,onCancel,onConfirm}){
+    return html`
+      <div class="modal-bg" onClick=${e=>{ if(e.target.className==="modal-bg") onCancel(); }}>
+        <div class="modal">
+          <div class="warnring">!</div>
+          <h3>Delete this lead?</h3>
+          <p><b>${lead.name||"This lead"}</b>${lead.email?` (${lead.email})`:""} will be removed from your Sheet. This can't be undone.</p>
+          <div class="modal-actions">
+            <button class="btn" disabled=${deleting} onClick=${onCancel}>Cancel</button>
+            <button class="btn danger" disabled=${deleting} onClick=${onConfirm}>${deleting?"Deleting…":"Delete lead"}</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  /* ---------- Log interaction modal ---------- */
+  function LogModal({lead,onCancel,onSubmit}){
+    const [kind,setKind] = useState(LOG_KINDS[0]);
+    const [outcome,setOutcome] = useState(LOG_OUTCOMES[0]);
+    const [text,setText] = useState("");
+    const [busy,setBusy] = useState(false);
+    const go = async ()=>{ setBusy(true); await onSubmit(kind,outcome,text); setBusy(false); };
+    return html`
+      <div class="modal-bg" onClick=${e=>{ if(e.target.className==="modal-bg"&&!busy) onCancel(); }}>
+        <div class="modal" style="max-width:440px">
+          <h3>Log interaction</h3>
+          <p style="margin-bottom:14px">${lead.name}</p>
+          <div class="formgrid">
+            <div class="field"><label>Type</label>
+              <select value=${kind} onChange=${e=>setKind(e.target.value)}>${LOG_KINDS.map(k=>html`<option key=${k}>${k}</option>`)}</select></div>
+            <div class="field"><label>Outcome</label>
+              <select value=${outcome} onChange=${e=>setOutcome(e.target.value)}>${LOG_OUTCOMES.map(o=>html`<option key=${o}>${o}</option>`)}</select></div>
+          </div>
+          <div class="field" style="margin-top:12px"><label>Note</label>
+            <textarea value=${text} onInput=${e=>setText(e.target.value)} placeholder="What happened, next step…"></textarea></div>
+          <div class="modal-actions" style="margin-top:16px">
+            <button class="btn" disabled=${busy} onClick=${onCancel}>Cancel</button>
+            <button class="btn gold" disabled=${busy} onClick=${go}>${busy?"Saving…":"Save log"}</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  render(html`<${App} />`, document.getElementById("root"));
+})();
+</script>
+</body>
+</html>

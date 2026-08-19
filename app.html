@@ -8951,5 +8951,34 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', enhance); else enhance();
 })();
 </script>
+<script>// CSV -> ANNUAL USAGE FIELD SYNC v1
+// When a Green Button CSV is the active source, the "Annual usage" field and the
+// proposal's annualKwh must reflect the CSV's annual, not whatever preset sat in the
+// box before upload. The Annual Usage Override block seeds window.__annualUsage from
+// that preset on load, and billBlock() (the proposal payload) reads __annualUsage
+// FIRST — so a CSV-loaded client could silently carry the stale preset into their
+// proposal instead of their real metered usage. Keep the field and __annualUsage in
+// step with the CSV whenever src === 'csv'. A typed override flips src to 'preset'
+// (see apply()), so this never fights a manual entry.
+(function(){
+  function sync(){
+    try{
+      var s = (typeof activeSetup==='function') ? activeSetup() : null;
+      if(!s || s.src!=='csv' || !s.csvMeta || !s.csvMeta.annual) return;
+      var annual = Math.round(s.csvMeta.annual);
+      if(!annual) return;
+      window.__annualUsage = annual;
+      var fld = document.getElementById('annualOverride');
+      if(fld && document.activeElement!==fld && String(fld.value)!==String(annual)) fld.value = annual;
+    }catch(e){}
+  }
+  if(typeof window.render==='function' && !window.__csvAnnualSyncWrapped){
+    var _r = window.render;
+    window.render = function(){ var out=_r.apply(this, arguments); sync(); return out; };
+    window.__csvAnnualSyncWrapped = true;
+  }
+  setTimeout(sync, 1200); // catch a CSV loaded before this wrapper installed
+})();
+</script>
 </body>
 </html>

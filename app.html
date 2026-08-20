@@ -5519,7 +5519,25 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   function baseSetup(){
     var so = STATE.workspaces.solar.setupB;
     var ab = STATE.workspaces.arbBak.setupB;
-    return Object.assign({}, so, { brand: ab.brand, qty: ab.qty, hasClp: ab.hasClp });
+    var out = Object.assign({}, so, { brand: ab.brand, qty: ab.qty, hasClp: ab.hasClp });
+    // The proposal must be built on the SAME usage the client saw on the tool.
+    // Solar sizing comes from the solar workspace, but the load (CSV/Green Button
+    // or manual daily) lives in the arbitrage workspace, where the bill and the
+    // tool's arbitrage numbers are based. Without this, options/tiers compute
+    // savings off the solar workspace's separate (often stale) load and the
+    // proposal numbers do not match the tool. Prefer a real metered CSV load,
+    // arbitrage workspace first, then solar, then the arbitrage manual daily.
+    var loadSrc = (ab && ab.src === 'csv' && ab.csvProfile) ? ab
+                : (so && so.src === 'csv' && so.csvProfile) ? so
+                : ab;
+    if (loadSrc) {
+      out.src = loadSrc.src;
+      out.csvProfile = loadSrc.csvProfile || null;
+      out.csvMeta = loadSrc.csvMeta || null;
+      out.daily = loadSrc.daily;
+      out.home = loadSrc.home;
+    }
+    return out;
   }
   function cfg(base, hasSolar, hasBatt){ return Object.assign({}, base, { hasSolar:hasSolar, hasBatt:hasBatt, csvProfile: base.csvProfile||null, csvMeta: base.csvMeta||null }); }
 

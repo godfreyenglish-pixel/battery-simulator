@@ -150,7 +150,7 @@
       </div>
       <div class="grid">
         <div class="tile"><div class="k">Est. yearly usage</div><div class="v teal" id="d_kwh">—</div><div class="s">kWh / year</div></div>
-        <div class="tile"><div class="k">Est. yearly cost</div><div class="v amber" id="d_cost">—</div><div class="s">at ~30&cent;/kWh today</div></div>
+        <div class="tile"><div class="k">Est. yearly cost</div><div class="v amber" id="d_cost">—</div><div class="s" id="d_rate">at ~30&cent;/kWh today</div></div>
       </div>
     </div>
 
@@ -344,7 +344,7 @@
   function model(){
     if(REAL){
       var dk=REAL.kwh/365;
-      return {bill:REAL.bill,annualKwh:REAL.kwh,annualCost:Math.round(REAL.kwh*0.30),daily:dk,
+      return {bill:REAL.bill,annualKwh:REAL.kwh,annualCost:(REAL.bill?REAL.bill*12:Math.round(REAL.kwh*0.30)),daily:dk,
               batt:REAL.batt,yr1:REAL.yr1,gross:REAL.gross,nyserda:REAL.nyserda,fed:REAL.fed,net:REAL.net,spread:0.23,shift:0};
     }
     var bill=+document.getElementById('bill').value;
@@ -380,6 +380,8 @@
     document.getElementById('billLbl').textContent=m.bill;
     document.getElementById('d_kwh').textContent=m.annualKwh.toLocaleString();
     document.getElementById('d_cost').textContent=money(m.annualCost);
+    var _dr=document.getElementById('d_rate');
+    if(_dr && m.annualKwh){ _dr.innerHTML='at ~'+Math.round(m.annualCost/m.annualKwh*100)+'&cent;/kWh today'; }
     // step2 read bars + pct
     buildReadBars(m);
     var peakPct=Math.round(66+ (home==='heatpump'?8:home==='dual'?3:0));

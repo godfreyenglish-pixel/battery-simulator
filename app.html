@@ -8641,12 +8641,22 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     if(!s) return null;
     var spec=(typeof batterySpecs==='function')?batterySpecs(s):null;
     var cost=(typeof batterySystemCost==='function')?batterySystemCost(s):null;
+    // Annual usage: use the real metered CSV / Green Button annual when present, not
+    // daily*365 (daily can lag the uploaded usage). This is the figure the tool's
+    // numbers are built on, so the walkthrough must carry the same one or the
+    // client sees a different usage than the tool showed.
+    var annualKwh = (s.src==='csv' && s.csvMeta && s.csvMeta.annual) ? Math.round(s.csvMeta.annual) : Math.round((s.daily||0)*365);
+    // The tool's actual EL1 (flat-rate) bill, so the walkthrough shows the client's
+    // real bill and cost instead of guessing a ~30c/kWh rate.
+    var monthlyBill = 0;
+    try { monthlyBill = Math.round((annualKwh * STATE.el1Rate + (STATE.basicCharge||0)*12) / 12); } catch(e){}
     return {
       batt: (spec&&spec.usable)?Math.round(spec.usable):0,
       gross: cost?Math.round(cost.gross):0,
       inc: cost?Math.round(cost.incentive):0,
       save: num((document.getElementById('rAnnualSave')||{}).textContent),
-      kwh: Math.round((s.daily||0)*365)
+      kwh: annualKwh,
+      bill: monthlyBill
     };
   }
   function openWalk(){
@@ -8661,6 +8671,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var p=new URLSearchParams();
     p.set('batt',q.batt); p.set('gross',q.gross); p.set('inc',q.inc);
     p.set('save', noTou?0:q.save); p.set('kwh',q.kwh);
+    if(q.bill) p.set('bill', q.bill);
     if(noTou){
       p.set('tou','0');
       var uname=(uMeta.label||'').replace(/\s*\(.*\)/,'').trim();

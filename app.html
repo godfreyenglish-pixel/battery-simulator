@@ -8605,14 +8605,15 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   function ensureCss(){
     if(document.getElementById('v17css')) return;
     var st=document.createElement('style'); st.id='v17css';
-    st.textContent='body.v7-client .roi-cell:has(#roiArbNet),body.v7-client .roi-cell:has(#roiArbPayback){display:none!important}';
+    st.textContent='';  /* pricing (System Cost + Payback) now shown to clients on the share link */
     document.head.appendChild(st);
   }
   function hidePrice(){
-    if(!isClient()) return;
+    // Pricing is now shown to clients on the share link. Actively re-reveal the
+    // System Cost + Payback cells in case a cached style or earlier pass hid them.
     ['roiArbNet','roiArbPayback'].forEach(function(id){
       var el=document.getElementById(id); if(!el) return;
-      var cell=el.closest('.roi-cell'); if(cell) cell.style.display='none';
+      var cell=el.closest('.roi-cell'); if(cell) cell.style.display='';
     });
   }
 

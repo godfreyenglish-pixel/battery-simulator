@@ -9010,5 +9010,68 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   setTimeout(sync, 1200); // catch a CSV loaded before this wrapper installed
 })();
 </script>
+<script>// INSTALLER UNLOCK GATE v1
+// With Cloudflare Access removed and the domain public, a raw visit to app.html
+// would otherwise land on the full installer view ($/W pricing gear, Compare,
+// A/B setup, Generate Proposal). This gate hides those installer-only controls
+// from the public until an access code is entered once per device. Client share
+// links (?s=, ?client=, ?view=client) are NEVER gated — clients get the exact
+// frictionless client view as before.
+//
+// NOTE: this is a light deterrent, not hard security — the code below lives in
+// client-side source. It stops casual/accidental access to the installer view.
+// For hard protection, keep Cloudflare Access on the installer path instead.
+(function(){
+  'use strict';
+  var P = new URLSearchParams(location.search);
+  var forcedView = P.get('view');
+  var fromShare = !!(P.get('s') || P.get('client'));
+  var isClientContext = (forcedView === 'client') || (fromShare && forcedView !== 'installer');
+  if (isClientContext) return;                  // clients: no gate, ever
+
+  // ▼▼▼ CHANGE YOUR INSTALLER ACCESS CODE HERE ▼▼▼
+  var INSTALLER_CODE = 'rtsolar2026';
+  // ▲▲▲ CHANGE YOUR INSTALLER ACCESS CODE HERE ▲▲▲
+
+  var STORE_KEY = 'rt-installer-unlocked';
+  var unlocked = false;
+  try { unlocked = localStorage.getItem(STORE_KEY) === '1'; } catch(e){}
+  if (unlocked) return;                          // this device already unlocked -> full installer view
+
+  // Not unlocked: borrow the client-view rules to hide installer-only controls,
+  // and keep them hidden even if a later script toggles the class.
+  function lock(){ if(document.body) document.body.classList.add('v7-client'); }
+  lock();
+  var guard = setInterval(function(){ if(document.body && !document.body.classList.contains('v7-client')) lock(); }, 400);
+
+  function inject(){
+    if (document.getElementById('rtInstallerUnlock') || !document.body) return;
+    var wrap = document.createElement('div');
+    wrap.id = 'rtInstallerUnlock';
+    wrap.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:99998;display:flex;align-items:center;gap:8px;background:#111725;border:1px solid #1e2637;border-radius:12px;padding:9px 11px;box-shadow:0 8px 24px rgba(0,0,0,.4);font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif';
+    wrap.innerHTML =
+      '<span style="font-size:12px;color:#8a97ad;font-weight:600">Installer</span>' +
+      '<input id="rtUnlockCode" type="password" placeholder="Access code" autocomplete="off" style="width:118px;background:#0b1220;border:1px solid #1f2937;color:#eef2f8;border-radius:8px;padding:7px 9px;font-size:13px;outline:none">' +
+      '<button id="rtUnlockBtn" style="background:linear-gradient(160deg,#f5c451,#e0a52c);color:#1a1204;border:none;border-radius:8px;padding:7px 13px;font-size:13px;font-weight:800;cursor:pointer">Unlock</button>';
+    document.body.appendChild(wrap);
+    var input = document.getElementById('rtUnlockCode');
+    var btn = document.getElementById('rtUnlockBtn');
+    function tryUnlock(){
+      if ((input.value || '') === INSTALLER_CODE){
+        try { localStorage.setItem(STORE_KEY, '1'); } catch(e){}
+        clearInterval(guard);
+        location.reload();
+      } else {
+        input.value=''; input.placeholder='Wrong code'; input.style.borderColor='#c0392b';
+        setTimeout(function(){ if(input){ input.style.borderColor='#1f2937'; input.placeholder='Access code'; } }, 1500);
+      }
+    }
+    btn.addEventListener('click', tryUnlock);
+    input.addEventListener('keydown', function(e){ if(e.key === 'Enter') tryUnlock(); });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(inject, 300); });
+  else setTimeout(inject, 300);
+})();
+</script>
 </body>
 </html>

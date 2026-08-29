@@ -1720,7 +1720,7 @@ function simulateArbitrage(s, peakRateOverride) {
   // the EL1 baseline kWh is ALREADY net of exports. Earning fresh VDER credits here
   // double-counts the customer's solar offset and inflates Rate III savings.
   // The battery's real value is shifting peak imports to off-peak, not the export credit.
-  if (s.src === 'csv' && s.csvMeta && s.csvMeta.hasNetMetered && !s.hasSolar) {
+  if (s.src === 'csv' && s.csvMeta && (s.csvMeta.hasNetMetered || s.csvMeta.hasExport) && !s.hasSolar) {
     totalCredit = 0;
   }
   // Steady-state correction: the simulator starts the battery at full SOC for chart
@@ -2371,6 +2371,7 @@ function parseGreenButton(input) {
   let allRecords = [];
   let totalExportKwh = 0;
   let hasExportCol = false;
+  let anyNetMetered = false;
   const perFileSummary = [];
 
   for (let f = 0; f < texts.length; f++) {
@@ -2378,6 +2379,7 @@ function parseGreenButton(input) {
     allRecords = allRecords.concat(section.records);
     totalExportKwh += section.exportTotal;
     if (section.hasExport) hasExportCol = true;
+    if (section.netMetered) anyNetMetered = true;
     perFileSummary.push({
       idx: f + 1,
       rows: section.records.length,
@@ -2467,15 +2469,19 @@ function parseGreenButton(input) {
 
   // Detect net-metered single-column data: any hours with negative average?
   // (negative = excess solar exported, common in pre-PTO single-USAGE-column Con Ed exports)
-  const hasNetMetered = hourly.some(v => v < 0);
+  // Net metering is now split out at parse time (negative net intervals become
+  // gross import + export), so the profile no longer dips below zero. Flag solar
+  // from the sections (or any residual negative hour, for safety).
+  const hasNetMetered = anyNetMetered || hourly.some(v => v < 0);
   let implicitSolarKwh = 0;
   let grossLoadKwh = 0;
   if (hasNetMetered) {
-    implicitSolarKwh = hourly.reduce((a, v) => a + (v < 0 ? -v : 0), 0);
-    grossLoadKwh = hourly.reduce((a, v) => a + Math.max(0, v), 0);
-    // Annualize for display
-    implicitSolarKwh *= 365;
-    grossLoadKwh *= 365;
+    // Profile is already gross import; implicit solar is the measured export,
+    // gross load is the (gross) annual. Fall back to any residual negative hours.
+    const annualize = 365 / Math.max(1, dayCount);
+    implicitSolarKwh = Math.round((totalExportKwh || 0) * annualize)
+                    || Math.round(hourly.reduce((a, v) => a + (v < 0 ? -v : 0), 0) * 365);
+    grossLoadKwh = Math.round(annual);
   }
 
   let label = `${dayCount} days · ${dailyAvg.toFixed(1)} kWh/day · ${Math.round(annual).toLocaleString()} kWh/yr`;
@@ -2604,6 +2610,7 @@ function parseCsvSection(text) {
 
   const records = [];
   let exportTotal = 0;
+  let sawNetExport = false;
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const raw = lines[i];
     // Skip any re-appearing header line (defensive)
@@ -2615,17 +2622,26 @@ function parseCsvSection(text) {
     else if (combinedIdx >= 0) dtStr = cols[combinedIdx];
     else if (dateIdx >= 0) dtStr = cols[dateIdx];
     else dtStr = cols[0];
-    const usage = cleanNum(cols[usageIdx]);
+    let usage = cleanNum(cols[usageIdx]);
     if (!isFinite(usage)) continue;
     const dt = parseDate(dtStr, dateFormat);
     if (!dt) continue;
     if (exportIdx >= 0) {
       const ex = cleanNum(cols[exportIdx]);
       if (isFinite(ex)) exportTotal += ex;
+    } else if (usage < 0) {
+      // Single-column net-metered export: this format reports import minus export
+      // and dips negative when the panels overproduce. A battery works against
+      // GROSS import, so bank the negative part as export and keep only the
+      // positive (gross import) as the load. Without this, gross import is
+      // undercounted by the amount the home exported — the net-vs-gross trap.
+      exportTotal += -usage;
+      sawNetExport = true;
     }
+    if (usage < 0) usage = 0;   // load basis is gross import, never negative
     records.push({ dt, usage });
   }
-  return { records, exportTotal, hasExport: exportIdx >= 0 };
+  return { records, exportTotal, hasExport: exportIdx >= 0 || sawNetExport, netMetered: sawNetExport };
 }
 
 function parseDate(str, formatHint) {

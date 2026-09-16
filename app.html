@@ -9089,5 +9089,47 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   else setTimeout(inject, 300);
 })();
 </script>
+
+<script>
+/* ── v8: EG4 14.3 Power Pro — third battery brand (append-only, runs after the v3 brand patch) ── */
+(function () {
+  'use strict';
+  if (typeof BRANDS === 'undefined' || typeof BATT_BASE === 'undefined') return;
+
+  // Spec + price. Base scaled from EG4 16K by capacity (14.3 / 16 = 0.89375),
+  // preserving the 16K's per-quantity volume-discount shape. CLP is the
+  // +$3,000 toggleable add-on (NOT bundled), same as the 16K. NYSERDA incentive
+  // and net are handled by the shared batterySystemCost(), so nothing new there.
+  BRANDS.eg4pp    = { name: 'EG4 14.3', kwh: 14.3, contKw: 12, dod: 0.80, maxQty: 3 };
+  BATT_BASE.eg4pp = { 1: 16088, 2: 21949, 3: 27957 };
+
+  // Add the third button to the brand toggle, once, right after EG4 16K so the
+  // two EG4 units sit together.
+  var seg = document.getElementById('brandSeg');
+  if (seg && !seg.querySelector('[data-brand="eg4pp"]')) {
+    var btn = document.createElement('button');
+    btn.className = 'seg-btn';
+    btn.dataset.brand = 'eg4pp';
+    btn.textContent = 'EG4 14.3';
+    var eg4Btn = seg.querySelector('[data-brand="eg4"]');
+    if (eg4Btn && eg4Btn.nextSibling) seg.insertBefore(btn, eg4Btn.nextSibling);
+    else seg.appendChild(btn);
+  }
+
+  // setupEvents() re-binds every #brandSeg button's .onclick (overwrite-safe), so
+  // the new button switches brand like the others. The v3 patch's CLP-toggle
+  // listeners on the existing buttons survive; add the same listener to the new
+  // button so moving to EG4 14.3 re-enables the CLP field after Enphase disables it.
+  if (typeof setupEvents === 'function') setupEvents();
+  var newBtn = seg && seg.querySelector('[data-brand="eg4pp"]');
+  if (newBtn) {
+    newBtn.addEventListener('click', function () {
+      if (typeof updateClpToggle === 'function') setTimeout(updateClpToggle, 10);
+    });
+  }
+  if (typeof refreshControls === 'function') refreshControls();
+  if (typeof render === 'function') render();
+})();
+</script>
 </body>
 </html>

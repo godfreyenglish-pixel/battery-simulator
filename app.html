@@ -9131,5 +9131,78 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   if (typeof render === 'function') render();
 })();
 </script>
+
+<script>
+/* ── v9: Franklin aPower2 — fourth battery brand (append-only, runs after v3 + v8) ── */
+(function () {
+  'use strict';
+  if (typeof BRANDS === 'undefined' || typeof BATT_BASE === 'undefined') return;
+
+  // Franklin aPower2. Price basis (Godfrey's numbers): $/kWh by quantity — 1u $1,155,
+  // 2u $755, 3u $805 — times 15 kWh per unit = gross. The aGate smart panel is bundled,
+  // so CLP is included (no +$3,000 add-on), same treatment as Enphase 10C. NYSERDA
+  // ($250/kWh capped at 25 kWh total) and net come from the shared batterySystemCost().
+  //   gross: 1u $17,325 · 2u $22,650 · 3u $36,225
+  //   net  : 1u $13,575 · 2u $16,400 · 3u $29,975
+  BRANDS.franklin    = { name: 'Franklin aPower2', kwh: 15, contKw: 10, dod: 1.0, maxQty: 3 };
+  BATT_BASE.franklin = { 1: 17325, 2: 22650, 3: 36225 };
+  if (typeof BATT_CLP_INCLUDED !== 'undefined') BATT_CLP_INCLUDED.franklin = true;
+
+  // Generalized CLP-toggle UI state: grey the CLP field for ANY brand whose price
+  // already bundles it (Enphase 10C, Franklin aPower2), leave it interactive for
+  // add-on brands (EG4 16K, EG4 14.3). Replaces the v3 enphase-only check so Franklin
+  // greys out correctly too. Reuses the existing #clpEnphaseNote element.
+  function clpState() {
+    var sw = document.getElementById('clpSwitch'); if (!sw) return;
+    var field = sw.closest('.field'); if (!field) return;
+    var s = (typeof activeSetup === 'function') ? activeSetup() : null;
+    var brand = s ? s.brand : null;
+    var bundled = !!(brand && typeof BATT_CLP_INCLUDED !== 'undefined' && BATT_CLP_INCLUDED[brand]);
+    field.style.opacity = bundled ? '0.4' : '1';
+    field.style.pointerEvents = bundled ? 'none' : 'auto';
+    var note = document.getElementById('clpEnphaseNote');
+    if (bundled) {
+      if (!note) {
+        note = document.createElement('div');
+        note.id = 'clpEnphaseNote';
+        note.style.cssText = 'font-size:11px;color:var(--text-muted);margin-top:4px;pointer-events:none';
+        field.appendChild(note);
+      }
+      note.textContent = 'Included with ' + ((BRANDS[brand] && BRANDS[brand].name) || 'this battery');
+    } else if (note) {
+      note.remove();
+    }
+  }
+  window.updateClpToggle = clpState;
+
+  // Add the aPower2 button once, after Enphase 10C.
+  var seg = document.getElementById('brandSeg');
+  if (seg && !seg.querySelector('[data-brand="franklin"]')) {
+    var btn = document.createElement('button');
+    btn.className = 'seg-btn';
+    btn.dataset.brand = 'franklin';
+    btn.textContent = 'aPower2';
+    seg.appendChild(btn);
+  }
+
+  // Reset every brand button's listeners (clone strips the older v3/v8 handlers), rebind
+  // brand-switch via setupEvents(), then attach the generalized clpState to all four so
+  // they behave identically. With four buttons the row is tight, so trim padding/size a hair.
+  if (seg) {
+    seg.querySelectorAll('.seg-btn').forEach(function (b) { b.parentNode.replaceChild(b.cloneNode(true), b); });
+  }
+  if (typeof setupEvents === 'function') setupEvents();
+  if (seg) {
+    seg.querySelectorAll('.seg-btn').forEach(function (b) {
+      b.addEventListener('click', function () { setTimeout(clpState, 10); });
+      b.style.padding = '8px 6px';
+      b.style.fontSize = '11.5px';
+    });
+  }
+  if (typeof refreshControls === 'function') refreshControls();
+  if (typeof render === 'function') render();
+  clpState();
+})();
+</script>
 </body>
 </html>

@@ -9392,20 +9392,29 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   function money(n) { return '$' + Math.round(n).toLocaleString(); }
   function money2(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 }); }
 
-  function annualSaveFor(brand, qty) {
+  // Full switch + battery savings for a brand at a qty: EL1 flat bill minus Rate III
+  // with the battery, mirroring the main arbitrage headline. Solar is excluded so this
+  // stays a pure battery comparison and the payback lines up with the main view instead
+  // of the old arbitrage-only basis (which read ~3x longer and confused the client).
+  function totalSaveFor(brand, qty) {
     var base = (typeof activeSetup === 'function') ? activeSetup() : STATE.setupB;
-    var s = Object.assign({}, base, { hasBatt: true, brand: brand, qty: qty });
+    var s = Object.assign({}, base, { hasBatt: true, hasSolar: false, brand: brand, qty: qty, hasClp: true });
     var orig = s.season;
     s.season = 'summer'; var su = simulateArbitrage(s, STATE.peakRate);
+    var sd = su.load.reduce(function (a, x) { return a + x; }, 0);
     s.season = 'winter'; var wi = simulateArbitrage(s, STATE.winterPeakRate);
+    var wd = wi.load.reduce(function (a, x) { return a + x; }, 0);
     s.season = orig;
-    return su.dailySave * SUMMER_DAYS + wi.dailySave * WINTER_DAYS;
+    var annualKwh = (s.src === 'csv' && s.csvMeta && s.csvMeta.annual) ? s.csvMeta.annual : sd * SUMMER_DAYS + wd * WINTER_DAYS;
+    var el9 = su.netCost * SUMMER_DAYS + wi.netCost * WINTER_DAYS + STATE.basicCharge * 12;
+    var el1 = annualKwh * STATE.el1Rate + STATE.basicCharge * 12;
+    return el1 - el9;
   }
   function modelFor(brand, qty) {
     var b = BRANDS[brand]; if (!b) return null;
     var q = Math.min(qty, b.maxQty);
     var cost = batterySystemCost({ hasBatt: true, brand: brand, qty: q, hasClp: true });
-    var annual = annualSaveFor(brand, q);
+    var annual = totalSaveFor(brand, q);
     return {
       brand: brand, name: b.name, qty: q,
       nameplate: b.kwh * q, usable: b.kwh * b.dod * q, cont: b.contKw * q,
@@ -9502,6 +9511,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     h += '</tbody></table></div>' +
       '<div class="cmp4-note">All four columns run the same load profile, rate plan, and discharge window, at the same quantity. ' +
       'Enphase 10C and Franklin aPower2 bundle their backup gateway, so no separate critical load panel is priced. ' +
+      'Annual savings, payback and 25-yr savings reflect the full switch-plus-battery figure (matching the main view), so those rows barely separate the batteries — net cost and cost per usable kWh are the real differentiators. ' +
       'Green marks the best figure per row, not the best system overall. Scroll sideways on a phone to see all four.</div>';
     return h;
   }

@@ -9204,5 +9204,163 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   clpState();
 })();
 </script>
+
+<script>
+/* ── v10: Savings contribution breakdown — "where the savings come from" ──
+   Additive, arbitrage view only. Does NOT touch the headline or the payback (both
+   declined for editing in Jul 2026). Decomposes the existing "Annual Savings
+   (Switch + Battery)" number into exactly two levers that sum back to it to the
+   dollar: the rate switch alone (EL1 bill - Rate III with NO battery), and the
+   battery arbitrage on top (Rate III no-batt - Rate III with batt). The switch
+   lever is usually negative on a 16-hour peak window; that negative bar IS the
+   argument for the battery, which lifts the total back above zero. Client-safe:
+   savings dollars only, no $/W or gross price. Rebuilds each time renderArbitrage
+   runs (wrapping window.renderArbitrage, the pattern the tool already uses). */
+(function () {
+  'use strict';
+  if (typeof simulateArbitrage !== 'function' || typeof setupB !== 'function') return;
+
+  function money(n) {
+    var r = Math.round(n);
+    return (r < 0 ? '−$' : '$') + Math.abs(r).toLocaleString();
+  }
+  function signed(n) {
+    var r = Math.round(n);
+    return (r < 0 ? '−$' : '+$') + Math.abs(r).toLocaleString();
+  }
+
+  // Faithful re-implementation of renderArbitrage's local computeAnnualBills (which
+  // is closure-scoped and not reachable here). Same seasonal sims, same annual-kWh
+  // source, same el9/el1 formulas — so results reconcile with the headline exactly.
+  function computeBills(setup) {
+    var orig = setup.season;
+    setup.season = 'summer';
+    var summer = simulateArbitrage(setup, STATE.peakRate);
+    var summerDaily = summer.load.reduce(function (a, b) { return a + b; }, 0);
+    setup.season = 'winter';
+    var winter = simulateArbitrage(setup, STATE.winterPeakRate);
+    var winterDaily = winter.load.reduce(function (a, b) { return a + b; }, 0);
+    setup.season = orig;
+    var annualKwh;
+    if (setup.src === 'csv' && setup.csvMeta && setup.csvMeta.annual) annualKwh = setup.csvMeta.annual;
+    else annualKwh = summerDaily * SUMMER_DAYS + winterDaily * WINTER_DAYS;
+    var el9 = summer.netCost * SUMMER_DAYS + winter.netCost * WINTER_DAYS + STATE.basicCharge * 12;
+    var el1 = annualKwh * STATE.el1Rate + STATE.basicCharge * 12;
+    return { el1: el1, el9: el9, save: el1 - el9 };
+  }
+
+  function ensureCard() {
+    var host = document.getElementById('roiPanelArb');
+    if (!host) return null;
+    var card = document.getElementById('arbContribCard');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'arbContribCard';
+      card.className = 'roi-panel';
+      card.style.marginTop = '12px';
+      host.parentNode.insertBefore(card, host.nextSibling);
+    }
+    return card;
+  }
+
+  function bar(label, leftPct, widthPct, color, valStr, zeroPct) {
+    return '' +
+      '<div style="display:flex;align-items:center;gap:10px;margin:7px 0;">' +
+        '<div style="flex:0 0 118px;font-size:12px;color:var(--text-3);">' + label + '</div>' +
+        '<div style="flex:1;position:relative;height:22px;background:rgba(255,255,255,0.03);border-radius:4px;">' +
+          '<div style="position:absolute;top:0;bottom:0;left:' + zeroPct + '%;width:1px;background:var(--border-2);"></div>' +
+          '<div style="position:absolute;top:3px;bottom:3px;left:' + leftPct + '%;width:' + widthPct + '%;background:' + color + ';border-radius:3px;min-width:2px;"></div>' +
+        '</div>' +
+        '<div class="mono" style="flex:0 0 84px;text-align:right;font-size:12.5px;font-weight:700;color:' + color + ';">' + valStr + '</div>' +
+      '</div>';
+  }
+
+  function renderContribution() {
+    var host = document.getElementById('roiPanelArb');
+    var card = ensureCard();
+    if (!card) return;
+    // Mirror the economics panel's visibility, and only meaningful in arbitrage mode.
+    if ((host && host.classList.contains('hidden')) || (typeof STATE !== 'undefined' && STATE.mode !== 'arbitrage')) {
+      card.style.display = 'none';
+      return;
+    }
+    var sB = setupB();
+    if (!sB || !sB.hasBatt) { card.style.display = 'none'; return; } // battery story needs a battery
+    card.style.display = '';
+
+    var withB = computeBills(sB);
+    var noB = computeBills(Object.assign({}, sB, { hasBatt: false }));
+
+    var el1 = withB.el1;
+    var el9NoBatt = noB.el9;
+    var el9WithBatt = withB.el9;
+    var switchDelta = el1 - el9NoBatt;        // EL1 -> Rate III (no battery). Often negative.
+    var batteryDelta = el9NoBatt - el9WithBatt; // arbitrage the battery adds on top.
+    var total = switchDelta + batteryDelta;    // == withB.save == the headline.
+
+    // Waterfall domain across running points 0 -> switchDelta -> total.
+    var pts = [0, switchDelta, total];
+    var dmin = Math.min.apply(null, pts), dmax = Math.max.apply(null, pts);
+    var span = (dmax - dmin) || 1;
+    var pct = function (v) { return (v - dmin) / span * 100; };
+    var zeroPct = pct(0);
+
+    var swLeft = pct(Math.min(0, switchDelta)), swW = Math.abs(switchDelta) / span * 100;
+    var btLeft = pct(Math.min(switchDelta, total)), btW = Math.abs(batteryDelta) / span * 100;
+    var ntLeft = pct(Math.min(0, total)), ntW = Math.abs(total) / span * 100;
+
+    var swColor = switchDelta >= 0 ? 'var(--green)' : 'var(--red)';
+
+    var html = '' +
+      '<div class="roi-header" style="margin-bottom:4px;">' +
+        '<span class="roi-title">Where your savings come from</span>' +
+        '<span class="roi-config">EL1 &rarr; Rate III, with the battery covering peak</span>' +
+      '</div>' +
+      '<div style="padding:6px 2px 2px;">' +
+        bar('Rate switch', swLeft, swW, swColor, signed(switchDelta), zeroPct) +
+        bar('Battery arbitrage', btLeft, btW, 'var(--green)', signed(batteryDelta), zeroPct) +
+        bar('Net annual savings', ntLeft, ntW, 'var(--yellow)', money(total), zeroPct) +
+      '</div>' +
+      '<div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;font-size:12px;color:var(--text-3);line-height:1.7;">' +
+        '<div style="display:flex;justify-content:space-between;"><span>Today on EL1 (flat rate)</span><span class="mono">' + money(el1) + '/yr</span></div>' +
+        '<div style="display:flex;justify-content:space-between;"><span>Rate III, no battery</span><span class="mono" style="color:' + (switchDelta < 0 ? 'var(--red)' : 'var(--text)') + ';">' + money(el9NoBatt) + '/yr</span></div>' +
+        '<div style="display:flex;justify-content:space-between;"><span>Rate III, with battery</span><span class="mono">' + money(el9WithBatt) + '/yr</span></div>' +
+      '</div>' +
+      '<div style="margin-top:8px;font-size:11.5px;color:var(--text-4);line-height:1.5;">' +
+        (switchDelta < 0
+          ? 'Switching alone would cost about ' + money(-switchDelta) + '/yr on the 16-hour peak window. The battery carries the peak and turns that into ' + money(total) + '/yr saved.'
+          : 'The rate switch and the battery both work in your favor here, for ' + money(total) + '/yr total.') +
+      '</div>';
+
+    card.innerHTML = html;
+  }
+  window.renderArbContribution = renderContribution;
+  var repaint = function () { try { renderContribution(); } catch (e) {} };
+
+  // Primary trigger: watch the headline savings figure. It re-renders on every input
+  // that changes the arbitrage math (brand, quantity, CLP, rates, sliders, CSV, season),
+  // so observing it catches every case without depending on how render() dispatches to
+  // renderArbitrage (bare-call vs window.* — the closure-call trap the patch stack warns
+  // about). Debounced so a burst of updates paints once.
+  var pending = null;
+  function schedule() { clearTimeout(pending); pending = setTimeout(repaint, 30); }
+  function attach() {
+    var head = document.getElementById('rAnnualSave');
+    if (!head || typeof MutationObserver === 'undefined') { setTimeout(attach, 300); return; }
+    new MutationObserver(schedule).observe(head, { childList: true, characterData: true, subtree: true });
+    repaint();
+  }
+  attach();
+
+  // Mode switches (Arbitrage / Backup / Solar / Compare) don't touch the headline text,
+  // so also hook setMode to re-evaluate visibility.
+  if (typeof window.setMode === 'function') {
+    var _origSM = window.setMode;
+    window.setMode = function () { var o = _origSM.apply(this, arguments); schedule(); return o; };
+  }
+  // Belt-and-suspenders first paint.
+  setTimeout(repaint, 500);
+})();
+</script>
 </body>
 </html>

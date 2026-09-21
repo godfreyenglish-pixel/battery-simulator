@@ -9362,5 +9362,199 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   setTimeout(repaint, 500);
 })();
 </script>
+
+<script>
+/* ── v11: Compare tab — all four brands side by side ──
+   The v6 compare tab was hardwired to EG4 16K vs Enphase 10C (two columns). This
+   widens it to a four-brand ranking: EG4 16K, EG4 14.3, Enphase 10C, Franklin
+   aPower2, same load profile and quantity, best value per row flagged green.
+   v6's renderCompare is closure-scoped and repaints #cmpBody wholesale, and the
+   v8 competitor-quote feature appends #cqHost inside #cmpBody. So rather than
+   fight the closure, this paints AFTER each render: it strips v6's own two-column
+   nodes (.cmp-qty/.cmp-verdict/.cmp-grid/.cmp-note) and injects a four-column
+   table as the first child of #cmpBody, leaving #cqHost (the competitor panel)
+   untouched below it. Models are recomputed from global functions, mirroring
+   v6's modelFor exactly, so the numbers match the rest of the tool. Client-safe:
+   same figure set the two-column table already showed (dollar totals + $/kWh),
+   no $/W. */
+(function () {
+  'use strict';
+  if (typeof BRANDS === 'undefined' || typeof simulateArbitrage !== 'function') return;
+
+  var ORDER = ['eg4', 'eg4pp', 'enphase10c', 'franklin'];
+  var HEADCOLOR = { eg4: 'var(--yellow)', eg4pp: '#FCD34D', enphase10c: 'var(--teal)', franklin: 'var(--green)' };
+  var WARRANTY = {
+    eg4: '10 yr / 10k cyc', eg4pp: '10 yr / 10k cyc',
+    enphase10c: '15 yr / 6k cyc', franklin: '12 yr'
+  };
+  var COUPLING = { eg4: 'DC hybrid', eg4pp: 'DC hybrid', enphase10c: 'AC-coupled', franklin: 'AC-coupled' };
+
+  function money(n) { return '$' + Math.round(n).toLocaleString(); }
+  function money2(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 }); }
+
+  function annualSaveFor(brand, qty) {
+    var base = (typeof activeSetup === 'function') ? activeSetup() : STATE.setupB;
+    var s = Object.assign({}, base, { hasBatt: true, brand: brand, qty: qty });
+    var orig = s.season;
+    s.season = 'summer'; var su = simulateArbitrage(s, STATE.peakRate);
+    s.season = 'winter'; var wi = simulateArbitrage(s, STATE.winterPeakRate);
+    s.season = orig;
+    return su.dailySave * SUMMER_DAYS + wi.dailySave * WINTER_DAYS;
+  }
+  function modelFor(brand, qty) {
+    var b = BRANDS[brand]; if (!b) return null;
+    var q = Math.min(qty, b.maxQty);
+    var cost = batterySystemCost({ hasBatt: true, brand: brand, qty: q, hasClp: true });
+    var annual = annualSaveFor(brand, q);
+    return {
+      brand: brand, name: b.name, qty: q,
+      nameplate: b.kwh * q, usable: b.kwh * b.dod * q, cont: b.contKw * q,
+      warranty: WARRANTY[brand] || '—', coupling: COUPLING[brand] || '—',
+      gross: cost.gross, incentive: cost.incentive || 0, net: cost.net, clp: cost.clpCost || 0,
+      annual: annual, payback: paybackYears(cost.net, annual),
+      life25: lifetimeSavings(annual),
+      perUsable: (b.kwh * b.dod * q) > 0 ? cost.net / (b.kwh * b.dod * q) : 0
+    };
+  }
+
+  function injectStyles() {
+    if (document.getElementById('cmp4Styles')) return;
+    var st = document.createElement('style');
+    st.id = 'cmp4Styles';
+    st.textContent =
+      '#cmp4Host .cmp4-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}' +
+      '#cmp4Host table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:460px}' +
+      '#cmp4Host th{padding:10px 8px;text-align:center;font-size:12px;font-weight:700;border-bottom:2px solid var(--border-2)}' +
+      '#cmp4Host th:first-child{text-align:left;color:var(--text-4);font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;min-width:112px}' +
+      '#cmp4Host td{padding:8px;text-align:center;border-bottom:1px solid var(--border);color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}' +
+      '#cmp4Host td:first-child{text-align:left;color:var(--text-4);font-size:11.5px}' +
+      '#cmp4Host tr.rule td{padding:0;height:8px;border-bottom:2px solid var(--border-2)}' +
+      '#cmp4Host .w{color:var(--green)!important;font-weight:700}' +
+      '#cmp4Host .cmp4-qty{display:flex;align-items:center;gap:8px;margin-bottom:12px}' +
+      '#cmp4Host .cmp4-qty span{font-size:11px;color:var(--text-4);text-transform:uppercase;letter-spacing:.06em}' +
+      '#cmp4Host .cmp4-qty button{background:var(--card-2);border:1px solid var(--border-2);color:var(--text-2);width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:15px;line-height:1}' +
+      '#cmp4Host .cmp4-qty button:disabled{opacity:.35;cursor:default}' +
+      '#cmp4Host .cmp4-qty b{color:var(--text);font-size:14px;min-width:16px;text-align:center}' +
+      '#cmp4Host .cmp4-verdict{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:14px;padding:12px 14px;background:var(--card-2);border:1px solid var(--border);border-radius:12px}' +
+      '#cmp4Host .cmp4-verdict .vk{font-size:11px;color:var(--text-4);text-transform:uppercase;letter-spacing:.08em}' +
+      '#cmp4Host .cmp4-verdict .vv{font-size:15px;font-weight:700;color:var(--text)}' +
+      '#cmp4Host .cmp4-note{font-size:11px;color:var(--text-4);line-height:1.5;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}';
+    document.head.appendChild(st);
+  }
+
+  // best index among finite values; null if ambiguous (tie at display precision) or none.
+  function bestIdx(vals, higherWins, dp) {
+    var fin = vals.map(function (v, i) { return { v: v, i: i }; }).filter(function (o) { return isFinite(o.v); });
+    if (!fin.length) return null;
+    fin.sort(function (a, b) { return higherWins ? b.v - a.v : a.v - b.v; });
+    var best = fin[0];
+    var tie = fin.filter(function (o) { return dp !== undefined ? o.v.toFixed(dp) === best.v.toFixed(dp) : o.v === best.v; });
+    return tie.length > 1 ? null : best.i;
+  }
+
+  function buildHTML(models, qty, maxQty) {
+    var rows = [
+      { k: 'Nameplate', f: function (m) { return m.nameplate.toFixed(1) + ' kWh'; }, v: function (m) { return m.nameplate; }, hi: true, dp: 1 },
+      { k: 'Usable', f: function (m) { return m.usable.toFixed(1) + ' kWh'; }, v: function (m) { return m.usable; }, hi: true, dp: 1 },
+      { k: 'Continuous', f: function (m) { return m.cont.toFixed(1) + ' kW'; }, v: function (m) { return m.cont; }, hi: true, dp: 1 },
+      { k: 'Coupling', f: function (m) { return m.coupling; } },
+      { k: 'Warranty', f: function (m) { return m.warranty; } },
+      { rule: true },
+      { k: 'Gross', f: function (m) { return money(m.gross); }, v: function (m) { return m.gross; }, hi: false, dp: 0 },
+      { k: 'Critical load panel', f: function (m) { return m.clp > 0 ? money(m.clp) : 'included'; } },
+      { k: 'NYSERDA', f: function (m) { return '−' + money(m.incentive); }, v: function (m) { return m.incentive; }, hi: true, dp: 0 },
+      { k: 'Net cost', f: function (m) { return money(m.net); }, v: function (m) { return m.net; }, hi: false, dp: 0 },
+      { rule: true },
+      { k: 'Annual savings', f: function (m) { return money(m.annual) + '/yr'; }, v: function (m) { return m.annual; }, hi: true, dp: 0 },
+      { k: 'Payback', f: function (m) { return isFinite(m.payback) ? m.payback.toFixed(1) + ' yrs' : '—'; }, v: function (m) { return m.payback; }, hi: false, dp: 1 },
+      { k: '25-yr savings', f: function (m) { return money(m.life25); }, v: function (m) { return m.life25; }, hi: true, dp: 0 },
+      { k: 'Cost per usable kWh', f: function (m) { return money2(m.perUsable); }, v: function (m) { return m.perUsable; }, hi: false, dp: 2 }
+    ];
+
+    // Verdict: lowest cost per usable kWh across the four.
+    var best = null;
+    models.forEach(function (m) { if (!best || m.perUsable < best.perUsable) best = m; });
+
+    var h = '' +
+      '<div class="cmp4-qty"><span>Quantity</span>' +
+        '<button id="cmp4Minus"' + (qty <= 1 ? ' disabled' : '') + '>−</button>' +
+        '<b>' + qty + '</b>' +
+        '<button id="cmp4Plus"' + (qty >= maxQty ? ' disabled' : '') + '>+</button>' +
+        '<span style="letter-spacing:0;text-transform:none">all four brands, same profile</span>' +
+      '</div>' +
+      '<div class="cmp4-verdict">' +
+        '<span class="vk">Best value</span><span class="vv">' + best.name + '</span>' +
+        '<span class="vk">at</span><span class="vv">' + money2(best.perUsable) + '</span>' +
+        '<span class="vk">per usable kWh</span>' +
+      '</div>' +
+      '<div class="cmp4-scroll"><table><thead><tr><th></th>' +
+        models.map(function (m) { return '<th style="color:' + (HEADCOLOR[m.brand] || 'var(--text)') + '">' + m.name + '</th>'; }).join('') +
+      '</tr></thead><tbody>';
+
+    rows.forEach(function (r) {
+      if (r.rule) { h += '<tr class="rule"><td colspan="' + (models.length + 1) + '"></td></tr>'; return; }
+      var win = (r.v) ? bestIdx(models.map(r.v), r.hi, r.dp) : null;
+      h += '<tr><td>' + r.k + '</td>' +
+        models.map(function (m, i) { return '<td' + (i === win ? ' class="w"' : '') + '>' + r.f(m) + '</td>'; }).join('') +
+      '</tr>';
+    });
+
+    h += '</tbody></table></div>' +
+      '<div class="cmp4-note">All four columns run the same load profile, rate plan, and discharge window, at the same quantity. ' +
+      'Enphase 10C and Franklin aPower2 bundle their backup gateway, so no separate critical load panel is priced. ' +
+      'Green marks the best figure per row, not the best system overall. Scroll sideways on a phone to see all four.</div>';
+    return h;
+  }
+
+  var lastQty = null;
+  function paint4(force) {
+    if (typeof STATE === 'undefined' || STATE.mode !== 'compare') return;
+    var body = document.getElementById('cmpBody');
+    if (!body) return;
+    var maxQ = ORDER.reduce(function (mn, br) { return BRANDS[br] ? Math.min(mn, BRANDS[br].maxQty) : mn; }, 99);
+    var wantQty = Math.max(1, Math.min(STATE.cmpQty || 2, maxQ));
+    // Repaint when: forced (stepper), v6's two-column output reappeared, our host is
+    // missing, or the quantity changed. Otherwise skip to avoid churning the DOM
+    // (and the qty buttons) on every idle interval tick.
+    var stale = body.querySelector('.cmp-grid, .cmp-verdict, .cmp-qty, .cmp-note');
+    if (!force && !stale && document.getElementById('cmp4Host') && lastQty === wantQty) return;
+
+    injectStyles();
+    // Strip v6's own two-column nodes (but never #cqHost — the competitor panel).
+    ['.cmp-qty', '.cmp-verdict', '.cmp-grid', '.cmp-note'].forEach(function (sel) {
+      body.querySelectorAll(sel).forEach(function (n) { n.remove(); });
+    });
+
+    var maxQty = maxQ;
+    var qty = wantQty;
+    STATE.cmpQty = qty;
+    lastQty = qty;
+    var models = ORDER.filter(function (br) { return BRANDS[br]; }).map(function (br) { return modelFor(br, qty); });
+
+    var host = document.getElementById('cmp4Host');
+    if (!host) { host = document.createElement('div'); host.id = 'cmp4Host'; body.insertBefore(host, body.firstChild); }
+    else if (host !== body.firstChild) { body.insertBefore(host, body.firstChild); }
+    host.innerHTML = buildHTML(models, qty, maxQty);
+
+    var minus = document.getElementById('cmp4Minus');
+    var plus = document.getElementById('cmp4Plus');
+    if (minus) minus.onclick = function () { STATE.cmpQty = Math.max(1, qty - 1); paint4(true); };
+    if (plus) plus.onclick = function () { STATE.cmpQty = Math.min(maxQty, qty + 1); paint4(true); };
+  }
+  window.__paintCompare4 = paint4;
+
+  // Paint after every render, after mode switches, and on a light safety interval.
+  if (typeof window.render === 'function') {
+    var _r = window.render;
+    window.render = function () { var o = _r.apply(this, arguments); try { paint4(); } catch (e) {} return o; };
+  }
+  if (typeof window.setMode === 'function') {
+    var _sm = window.setMode;
+    window.setMode = function () { var o = _sm.apply(this, arguments); setTimeout(function () { try { paint4(); } catch (e) {} }, 20); return o; };
+  }
+  setInterval(function () { try { paint4(); } catch (e) {} }, 400);
+  setTimeout(function () { try { paint4(); } catch (e) {} }, 700);
+})();
+</script>
 </body>
 </html>

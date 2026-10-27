@@ -1476,6 +1476,9 @@ const BRANDS = {
   eg4:   { name: 'EG4 16K',    kwh: 16,    contKw: 12, dod: 0.80, maxQty: 3 },
   lg:    { name: 'LG RESU16H', kwh: 16,    contKw: 7,  dod: 0.80, maxQty: 2 },
   solis: { name: 'Solis 5.12', kwh: 5.12,  contKw: 5,  dod: 0.80, maxQty: 4 },
+  // v19: Tesla declared here too, because a shared/saved Tesla setup is restored and
+  // rendered during boot, before the appended v19 block loads. v19 owns the behavior.
+  tesla: { name: 'Tesla Powerwall 3', kwh: 13.5, contKw: 11.5, dod: 1.0, maxQty: 4 },
 };
 
 // ===================== PRICING & ROI =====================
@@ -9263,13 +9266,13 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   'use strict';
   if (typeof BRANDS === 'undefined' || typeof simulateArbitrage !== 'function') return;
 
-  var ORDER = ['eg4', 'eg4pp', 'enphase10c', 'franklin'];
-  var HEADCOLOR = { eg4: 'var(--yellow)', eg4pp: '#FCD34D', enphase10c: 'var(--teal)', franklin: 'var(--green)' };
+  var ORDER = ['eg4', 'eg4pp', 'enphase10c', 'franklin', 'tesla'];   // tesla added by v19 (performance only, pricing TBD)
+  var HEADCOLOR = { eg4: 'var(--yellow)', eg4pp: '#FCD34D', enphase10c: 'var(--teal)', franklin: 'var(--green)', tesla: '#F87171' };
   var WARRANTY = {
     eg4: '10 yr / 10k cyc', eg4pp: '10 yr / 10k cyc',
-    enphase10c: '15 yr / 6k cyc', franklin: '15 yr'
+    enphase10c: '15 yr / 6k cyc', franklin: '15 yr', tesla: '10 yr'
   };
-  var COUPLING = { eg4: 'DC hybrid', eg4pp: 'DC hybrid', enphase10c: 'AC-coupled', franklin: 'AC-coupled' };
+  var COUPLING = { eg4: 'DC hybrid', eg4pp: 'DC hybrid', enphase10c: 'AC-coupled', franklin: 'AC-coupled', tesla: 'AC + solar inverter' };
 
   function money(n) { return '$' + Math.round(n).toLocaleString(); }
   function money2(n) { return '$' + (Math.round(n * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 2 }); }
@@ -9297,6 +9300,15 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var q = Math.min(qty, b.maxQty);
     var cost = batterySystemCost({ hasBatt: true, brand: brand, qty: q, hasClp: true });
     var annual = totalSaveFor(brand, q);
+    if (cost.priceTBD) {   // v19 Tesla: performance only — every price row reads TBD and never wins
+      return {
+        brand: brand, name: b.name, qty: q, tbd: true,
+        nameplate: b.kwh * q, usable: b.kwh * b.dod * q, cont: b.contKw * q,
+        warranty: WARRANTY[brand] || '—', coupling: COUPLING[brand] || '—',
+        gross: NaN, incentive: NaN, net: NaN, clp: 0,
+        annual: annual, payback: NaN, life25: lifetimeSavings(annual), perUsable: NaN
+      };
+    }
     return {
       brand: brand, name: b.name, qty: q,
       nameplate: b.kwh * q, usable: b.kwh * b.dod * q, cont: b.contKw * q,
@@ -9351,27 +9363,27 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       { k: 'Coupling', f: function (m) { return m.coupling; } },
       { k: 'Warranty', f: function (m) { return m.warranty; } },
       { rule: true },
-      { k: 'Gross', f: function (m) { return money(m.gross); }, v: function (m) { return m.gross; }, hi: false, dp: 0 },
-      { k: 'Critical load panel', f: function (m) { return m.clp > 0 ? money(m.clp) : 'included'; } },
-      { k: 'NYSERDA', f: function (m) { return '−' + money(m.incentive); }, v: function (m) { return m.incentive; }, hi: true, dp: 0 },
-      { k: 'Net cost', f: function (m) { return money(m.net); }, v: function (m) { return m.net; }, hi: false, dp: 0 },
+      { k: 'Gross', f: function (m) { return m.tbd ? 'TBD' : money(m.gross); }, v: function (m) { return m.gross; }, hi: false, dp: 0 },
+      { k: 'Critical load panel', f: function (m) { return m.tbd ? 'TBD' : (m.clp > 0 ? money(m.clp) : 'included'); } },
+      { k: 'NYSERDA', f: function (m) { return m.tbd ? 'TBD' : '−' + money(m.incentive); }, v: function (m) { return m.incentive; }, hi: true, dp: 0 },
+      { k: 'Net cost', f: function (m) { return m.tbd ? 'TBD' : money(m.net); }, v: function (m) { return m.net; }, hi: false, dp: 0 },
       { rule: true },
       { k: 'Annual savings', f: function (m) { return money(m.annual) + '/yr'; }, v: function (m) { return m.annual; }, hi: true, dp: 0 },
-      { k: 'Payback', f: function (m) { return isFinite(m.payback) ? m.payback.toFixed(1) + ' yrs' : '—'; }, v: function (m) { return m.payback; }, hi: false, dp: 1 },
+      { k: 'Payback', f: function (m) { return m.tbd ? 'TBD' : (isFinite(m.payback) ? m.payback.toFixed(1) + ' yrs' : '—'); }, v: function (m) { return m.payback; }, hi: false, dp: 1 },
       { k: '25-yr savings', f: function (m) { return money(m.life25); }, v: function (m) { return m.life25; }, hi: true, dp: 0 },
-      { k: 'Cost per usable kWh', f: function (m) { return money2(m.perUsable); }, v: function (m) { return m.perUsable; }, hi: false, dp: 2 }
+      { k: 'Cost per usable kWh', f: function (m) { return m.tbd ? 'TBD' : money2(m.perUsable); }, v: function (m) { return m.perUsable; }, hi: false, dp: 2 }
     ];
 
     // Verdict: lowest cost per usable kWh across the four.
     var best = null;
-    models.forEach(function (m) { if (!best || m.perUsable < best.perUsable) best = m; });
+    models.forEach(function (m) { if (m.tbd) return; if (!best || m.perUsable < best.perUsable) best = m; });
 
     var h = '' +
       '<div class="cmp4-qty"><span>Quantity</span>' +
         '<button id="cmp4Minus"' + (qty <= 1 ? ' disabled' : '') + '>−</button>' +
         '<b>' + qty + '</b>' +
         '<button id="cmp4Plus"' + (qty >= maxQty ? ' disabled' : '') + '>+</button>' +
-        '<span style="letter-spacing:0;text-transform:none">all four brands, same profile</span>' +
+        '<span style="letter-spacing:0;text-transform:none">all brands, same profile</span>' +
       '</div>' +
       '<div class="cmp4-verdict">' +
         '<span class="vk">Best value</span><span class="vv">' + best.name + '</span>' +
@@ -9391,10 +9403,11 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     });
 
     h += '</tbody></table></div>' +
-      '<div class="cmp4-note">All four columns run the same load profile, rate plan, and discharge window, at the same quantity. ' +
+      '<div class="cmp4-note">Every column runs the same load profile, rate plan, and discharge window, at the same quantity. ' +
       'Enphase 10C and Franklin aPower2 bundle their backup gateway, so no separate critical load panel is priced. ' +
       'Annual savings, payback and 25-yr savings reflect the full switch-plus-battery figure (matching the main view), so those rows barely separate the batteries — net cost and cost per usable kWh are the real differentiators. ' +
-      'Green marks the best figure per row, not the best system overall. Scroll sideways on a phone to see all four.</div>';
+      'Tesla Powerwall 3 is modeled for equipment and performance only; its pricing shows TBD and is left out of the best-value pick. ' +
+      'Green marks the best figure per row, not the best system overall. Scroll sideways on a phone to see every column.</div>';
     return h;
   }
 
@@ -9501,6 +9514,224 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
   setInterval(wire, 1200);
   console.log('[Isolate v18] ready.');
+})();
+</script>
+<script>
+/* ── v19: TESLA POWERWALL 3 — fifth battery brand, performance only ──
+   Equipment + performance modeling, NO pricing yet (Godfrey's call, Oct 2026).
+   - Powerwall 3: 13.5 kWh, 11.5 kW continuous, 100% usable, up to 4 units. Power
+     stacks per Powerwall 3 (confirmed by Rivertown's electrician).
+   - Expansions: 13.5 kWh each, ADD ENERGY ONLY, no added power; up to 3 per PW3.
+   - Model Y / Model 3 Powershare: optional EV kWh on the Backup tab, Tesla only.
+     Shown as its own "with EV" runtime line; it never touches the core battery
+     numbers, arbitrage, price or the NYSERDA rebate.
+   - Pricing: batterySystemCost returns zeros + priceTBD for tesla, so the ROI and
+     backup cost panels stay hidden; any price cell that would still show reads TBD.
+   Also: the "Usable (80% DOD)" label now reads each brand's real DOD.
+   Append-only. Load LAST (after v11, which carries the Tesla compare column). */
+(function () {
+  'use strict';
+  if (typeof BRANDS === 'undefined' || typeof batterySpecs !== 'function') return;
+
+  BRANDS.tesla = { name: 'Tesla Powerwall 3', kwh: 13.5, contKw: 11.5, dod: 1.0, maxQty: 4 };
+  if (typeof BATT_CLP_INCLUDED !== 'undefined') BATT_CLP_INCLUDED.tesla = true;   // Backup Gateway built in
+  var EXP_KWH = 13.5, EXP_PER_UNIT = 3;
+
+  function isTesla(s) { return !!(s && s.hasBatt && s.brand === 'tesla'); }
+  function expOf(s) { var q = (s && s.qty) || 1; return Math.max(0, Math.min((s && s.teslaExp) || 0, q * EXP_PER_UNIT)); }
+  function cur() { return (typeof activeSetup === 'function') ? activeSetup() : STATE.setupB; }
+
+  // ---- specs: expansions add kWh, not kW ---------------------------------
+  var _specs = window.batterySpecs;
+  window.batterySpecs = function (s) {
+    if (!isTesla(s)) return _specs(s);
+    var total = BRANDS.tesla.kwh * s.qty + EXP_KWH * expOf(s);
+    return { total: total, usable: total * BRANDS.tesla.dod, cont: BRANDS.tesla.contKw * s.qty, brand: BRANDS.tesla };
+  };
+
+  // ---- price: TBD ---------------------------------------------------------
+  var _cost = window.batterySystemCost;
+  window.batterySystemCost = function (s) {
+    if (!s || !s.hasBatt || s.brand !== 'tesla') return _cost(s);
+    var kwh = BRANDS.tesla.kwh * (s.qty || 1) + EXP_KWH * expOf(s);
+    return { gross: 0, incentive: 0, net: 0, totalKwh: kwh, clpCost: 0, priceTBD: true };
+  };
+
+  // ---- share links + saved state carry expansions and EV kWh -------------
+  if (typeof window.packSetup === 'function') {
+    var _pack = window.packSetup;
+    window.packSetup = function (s) { var o = _pack(s); if (s && s.teslaExp) o.te = s.teslaExp; if (s && s.evKwh) o.ev = s.evKwh; return o; };
+  }
+  if (typeof window.unpackSetup === 'function') {
+    var _unpack = window.unpackSetup;
+    window.unpackSetup = function (p) { var o = _unpack(p); if (p && p.te) o.teslaExp = p.te; if (p && p.ev) o.evKwh = p.ev; return o; };
+  }
+
+  function redraw() { try { refreshControls(); } catch (e) {} try { render(); } catch (e) {} try { saveState(); } catch (e) {} }
+
+  // A long #c= link was unpacked at boot, before the unpack wrapper above existed, so
+  // copy expansions + EV kWh across from the hash. (Short ?s= links resolve later and
+  // go through the wrapper, so they need nothing here.)
+  function reapplyHash() {
+    var m = String(location.hash || '').match(/^#c=(.+)$/); if (!m) return;
+    var d; try { d = JSON.parse(decodeURIComponent(escape(atob(m[1])))); } catch (e) { try { d = JSON.parse(atob(m[1])); } catch (e2) { return; } }
+    function put(target, p) { if (target && p) { if (p.te) target.teslaExp = p.te; if (p.ev) target.evKwh = p.ev; } }
+    var W = STATE.workspaces;
+    if (d.ws2) {
+      if (d.ws2.ab) { put(W.arbBak.setupA, d.ws2.ab.A); put(W.arbBak.setupB, d.ws2.ab.B); }
+      if (d.ws2.so) { put(W.solar.setupA, d.ws2.so.A); put(W.solar.setupB, d.ws2.so.B); }
+    } else { put(W.arbBak.setupA, d.A); put(W.arbBak.setupB, d.B); }
+  }
+  try { reapplyHash(); } catch (e) {}
+
+  // Client walkthrough CTA stays hidden on a Tesla setup (no price to walk into yet).
+  // A class + !important rule, because v17 re-shows its wrapper on its own timer.
+  (function () {
+    if (document.getElementById('v19css')) return;
+    var st = document.createElement('style'); st.id = 'v19css';
+    st.textContent = 'body.v19-tesla #v17walkWrap{display:none!important}';
+    document.head.appendChild(st);
+  })();
+
+  // ---- brand button -------------------------------------------------------
+  function addBrandButton() {
+    var seg = document.getElementById('brandSeg');
+    if (!seg || seg.querySelector('[data-brand="tesla"]')) return;
+    var btn = document.createElement('button');
+    btn.className = 'seg-btn';
+    btn.dataset.brand = 'tesla';
+    btn.textContent = 'Powerwall 3';
+    btn.style.padding = '8px 6px'; btn.style.fontSize = '11.5px';
+    seg.appendChild(btn);
+    if (typeof setupEvents === 'function') setupEvents();   // rebinds brand onclick for every button
+    btn.addEventListener('click', function () { if (typeof window.updateClpToggle === 'function') setTimeout(window.updateClpToggle, 10); });
+    seg.style.flexWrap = 'wrap';
+  }
+
+  // ---- expansions stepper (Tesla only) ------------------------------------
+  function expansionRow() {
+    var qtyField = document.getElementById('qtyMinus'); qtyField = qtyField && qtyField.closest('.field');
+    if (!qtyField) return;
+    var row = document.getElementById('teslaExpField');
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'field'; row.id = 'teslaExpField';
+      row.innerHTML =
+        '<div class="field-label">Expansions <span class="field-value mono" id="teslaExpLabel">0</span></div>' +
+        '<div class="qty"><button class="qty-btn" id="teslaExpMinus">−</button>' +
+        '<div class="qty-display" id="teslaExpDisplay">0</div>' +
+        '<button class="qty-btn" id="teslaExpPlus">+</button></div>' +
+        '<div style="font-size:11px;color:var(--text-4);margin-top:4px;line-height:1.4">13.5 kWh each · adds storage, not power · up to 3 per Powerwall 3</div>';
+      qtyField.insertAdjacentElement('afterend', row);
+      document.getElementById('teslaExpMinus').onclick = function () { var s = cur(); s.teslaExp = Math.max(0, expOf(s) - 1); redraw(); };
+      document.getElementById('teslaExpPlus').onclick = function () { var s = cur(); s.teslaExp = Math.min(s.qty * EXP_PER_UNIT, expOf(s) + 1); redraw(); };
+    }
+    var s = cur(), on = isTesla(s);
+    row.style.display = on ? '' : 'none';
+    if (on) {
+      var n = expOf(s);
+      if ((s.teslaExp || 0) !== n) s.teslaExp = n;   // re-clamp after the PW3 count drops
+      document.getElementById('teslaExpDisplay').textContent = n;
+      document.getElementById('teslaExpLabel').textContent = n;
+      document.getElementById('teslaExpMinus').disabled = n <= 0;
+      document.getElementById('teslaExpPlus').disabled = n >= s.qty * EXP_PER_UNIT;
+    }
+  }
+
+  // ---- DOD label + gateway note -------------------------------------------
+  function dodLabel() {
+    var el = document.getElementById('specUsable'); if (!el) return;
+    var lab = el.parentElement && el.parentElement.querySelector('.spec-label'); if (!lab) return;
+    var s = cur(), b = s && BRANDS[s.brand];
+    var txt = b ? 'Usable (' + Math.round(b.dod * 100) + '% DOD)' : 'Usable';
+    if (lab.textContent !== txt) lab.textContent = txt;
+    var note = document.getElementById('clpEnphaseNote');
+    var cont = document.getElementById('specCont');   // base rounds kW to whole numbers; 11.5 kW is not 12
+    if (cont && isTesla(s)) { var kw = batterySpecs(s).cont.toFixed(1) + ' <span class="spec-unit">kW</span>'; if (cont.innerHTML !== kw) cont.innerHTML = kw; }
+    if (note && isTesla(s) && note.textContent !== 'Included with Tesla Backup Gateway') note.textContent = 'Included with Tesla Backup Gateway';
+  }
+
+  // ---- pricing TBD where a figure would otherwise show --------------------
+  function priceTbd() {
+    var s = cur(); if (!isTesla(s)) return;
+    // Arbitrage ROI panel only shows if solar adds a cost; mark the battery side TBD.
+    var net = document.getElementById('roiArbNet'); if (net && net.textContent !== 'TBD') net.textContent = 'TBD';
+    var pb = document.getElementById('roiArbPayback'); if (pb && pb.textContent !== 'TBD') pb.textContent = 'TBD';
+    ['cmpAspec', 'cmpBspec'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && /Tesla Powerwall 3[^·]*·[^·]*· net \$0/.test(el.textContent)) el.textContent = el.textContent.replace(/net \$0\b/, 'pricing TBD');
+    });
+  }
+  function teslaClass() { document.body.classList.toggle('v19-tesla', isTesla(cur())); }
+
+  // ---- Model Y / Model 3 Powershare on the Backup tab ---------------------
+  function hrs(h) { if (!isFinite(h) || h <= 0) return '—'; return h > 48 ? Math.floor(h / 24) + 'd ' + Math.round(h % 24) + 'hr' : h.toFixed(1) + ' hr'; }
+  function evCard() {
+    var host = document.getElementById('bakResults'); if (!host) return;
+    var card = document.getElementById('teslaEvCard');
+    var s = cur();
+    var show = isTesla(s) && typeof STATE !== 'undefined' && STATE.mode === 'backup';
+    if (!show) { if (card) card.style.display = 'none'; return; }
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'teslaEvCard'; card.className = 'card';
+      card.style.marginTop = '16px';
+      card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">' +
+          '<div style="font-size:15px;font-weight:700;color:var(--text)">Tesla Powershare (EV backup)</div>' +
+          '<div style="font-size:11px;color:var(--text-4)">Model 3 / Model Y</div></div>' +
+        '<div class="field" style="margin-top:10px"><div class="field-label">EV energy available for backup ' +
+          '<span class="field-value mono"><input id="teslaEvKwh" type="number" min="0" max="130" step="1" class="num-input mono" style="width:76px;text-align:right"> kWh</span></div></div>' +
+        '<div id="teslaEvOut" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;font-size:12px"></div>' +
+        '<div style="font-size:11px;color:var(--text-4);margin-top:10px;line-height:1.45">Enter what the car can give the house after the driving range you want to keep. ' +
+          'Requires Powerwall 3 + a compatible Wall Connector; Tesla guarantees it on Model 3 / Y ordered Oct 1, 2026 or later (older cars: check the car’s settings). ' +
+          'Power stays capped by the Powerwalls; the car adds energy, not kW. Planning estimate.</div>';
+      host.appendChild(card);
+      var inp = card.querySelector('#teslaEvKwh');
+      inp.addEventListener('input', function () {
+        var v = Math.max(0, Math.min(130, parseFloat(this.value) || 0));
+        cur().evKwh = v; paintEv(); try { saveState(); } catch (e) {}
+      });
+    }
+    card.style.display = '';
+    var inp2 = card.querySelector('#teslaEvKwh');
+    if (document.activeElement !== inp2) inp2.value = s.evKwh || 0;
+    paintEv();
+  }
+  function paintEv() {
+    var out = document.getElementById('teslaEvOut'); if (!out) return;
+    var s = cur(); if (!isTesla(s)) return;
+    var b; try { b = simulateBackup(s); } catch (e) { return; }
+    var ev = s.evKwh || 0, withEv = b.usable + ev;
+    var critKw = b.critKw || 0, avgKw = b.avgKw || 0;
+    function cell(label, a, c) {
+      return '<div style="background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">' +
+        '<div style="font-size:10.5px;color:var(--text-4);text-transform:uppercase;letter-spacing:.05em">' + label + '</div>' +
+        '<div class="mono" style="font-size:13px;color:var(--text-2);margin-top:4px">' + a + '</div>' +
+        '<div class="mono" style="font-size:14px;font-weight:700;color:var(--green);margin-top:2px">' + c + '</div></div>';
+    }
+    var html =
+      cell('Storage', b.usable.toFixed(1) + ' kWh', withEv.toFixed(1) + ' kWh') +
+      cell('Critical loads', critKw > 0 ? hrs(b.usable / critKw) : 'pick loads', critKw > 0 ? hrs(withEv / critKw) : '—') +
+      cell('Whole home', hrs(avgKw > 0 ? b.usable / avgKw : 0), hrs(avgKw > 0 ? withEv / avgKw : 0));
+    html += '<div style="grid-column:1/-1;font-size:10.5px;color:var(--text-4)">Top line: Powerwalls alone · green: with the EV</div>';
+    if (out.innerHTML !== html) out.innerHTML = html;
+  }
+
+  function tick() { try { addBrandButton(); expansionRow(); dodLabel(); priceTbd(); teslaClass(); evCard(); } catch (e) {} }
+
+  if (typeof window.render === 'function') {
+    var _r = window.render;
+    window.render = function () { var o = _r.apply(this, arguments); tick(); return o; };
+  }
+  if (typeof window.refreshControls === 'function') {
+    var _rc = window.refreshControls;
+    window.refreshControls = function () { var o = _rc.apply(this, arguments); try { expansionRow(); dodLabel(); } catch (e) {} return o; };
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick); else tick();
+  setInterval(tick, 600);
+  try { redraw(); } catch (e) {}
+  console.log('[Tesla PW3 v19] ready.');
 })();
 </script>
 </body>

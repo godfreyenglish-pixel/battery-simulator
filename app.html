@@ -9448,5 +9448,60 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   setTimeout(function () { try { paint4(); } catch (e) {} }, 700);
 })();
 </script>
+<script>
+/* ── v18: ISOLATE VIEW — Arbitrage + Backup only (installer side) ──
+   Turns the v16 "Inquiry link" checkbox into an "Isolate" switch that also trims
+   the installer's own screen. Checked: Solar Only + Compare tabs and the header
+   Compare button hide, the view snaps to Arbitrage, and Share produces the same
+   two-tab link (x.inq via v9, unchanged). Unchecked: everything comes back.
+   Remembered per device. Client view is untouched (v16 already trims shared links).
+   Load LAST, after v16. */
+(function () {
+  'use strict';
+  var KEY = 'rt-isolate';
+  var TABS = ['modeSol', 'modeCmp'];
+  function isClient(){ return document.body.classList.contains('v7-client'); }
+  function saved(){ try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; } }
+  function save(on){ try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {} }
+  function setShown(id, show){ var el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; }
+
+  function apply(on){
+    window.__inquiryShare = on;
+    window.__inquiryView = on;
+    TABS.forEach(function (id) { setShown(id, !on); });
+    setShown('compareBtn', !on);
+    if (!on) return;
+    try {
+      if (typeof STATE !== 'undefined' && STATE) {
+        if (['arbitrage', 'backup'].indexOf(STATE.mode) < 0 && typeof window.setMode === 'function') window.setMode('arbitrage');
+        if (STATE.compare && typeof window.toggleCompare === 'function') window.toggleCompare();
+      }
+    } catch (e) {}
+  }
+
+  function wire(){
+    if (isClient()) return;
+    var cb = document.getElementById('inqShareToggle'); if (!cb) return;
+    var label = document.getElementById('inqShareLabel');
+    if (!cb.__isolateWired) {
+      cb.__isolateWired = true;
+      if (label) {
+        label.title = 'Isolate: show only the Arbitrage and Backup tabs here and on the share link';
+        for (var i = label.childNodes.length - 1; i >= 0; i--) {
+          if (label.childNodes[i].nodeType === 3) label.removeChild(label.childNodes[i]);
+        }
+        label.appendChild(document.createTextNode('Isolate (Arbitrage + Backup only)'));
+      }
+      cb.checked = saved();
+      cb.addEventListener('change', function (e) { save(e.target.checked); apply(e.target.checked); });
+    }
+    if (cb.checked) apply(true);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire); else wire();
+  setInterval(wire, 1200);
+  console.log('[Isolate v18] ready.');
+})();
+</script>
 </body>
 </html>

@@ -5504,7 +5504,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var total=0; LM.circuits.forEach(function(c){ total+=circuitSave(c); });
     return { total: total, rate: isTou()?"tou":"flat", touUpside: isTou()?0:touUpside() };
   };
-  function boot(){ injectButton(); wrapSetMode(); }
+  // Load Mgmt tab retired Oct 2026: no tab button, no setMode wrap. getLmProposal()
+  // stays so proposal payloads keep their gift field shape.
+  function boot(){}
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(boot,500); });
   else setTimeout(boot,500);
 })();
@@ -8841,94 +8843,18 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   </script>
 
   <script>
-// CLIENT WALKTHROUGH ROUTER — v7.0
-// Generate-time intent pick -> the matching client walkthrough link.
+// CLIENT WALKTHROUGH ROUTER — v7.0 REMOVED (Oct 2026)
+// The installer-side "Client walkthrough · pick a version" picker and its Copy
+// link were retired. The router used to hide the old "Battery only" proposal
+// checkbox, so that job stays here. buildProposalUrl is untouched.
 (function(){
   'use strict';
-  var FUNNEL = {
-    battery: 'https://myarbitragetool.com/solar-walkthrough.html',
-    solar:   'https://myarbitragetool.com/solar-only-walkthrough.html',
-    solbat:  'https://myarbitragetool.com/solar-walkthrough.html',
-    choose:  'https://myarbitragetool.com/solar-walkthrough.html',
-    gift:    'https://myarbitragetool.com/proposal-walkthrough.html'
-  };
-  var LABEL = { battery:'Battery', solar:'Solar', solbat:'Solar + Battery', choose:'Let them choose', gift:'With Emporia gift' };
-  var ORDER = ['battery','solar','solbat','choose','gift'];
-  function isClient(){ return document.body.classList.contains('v7-client'); }
-  function getIntent(){
-    var v; try{ v=localStorage.getItem('rt-proposal-intent'); }catch(e){}
-    return (v && FUNNEL[v]) ? v : 'choose';
-  }
-  function setIntent(v){
-    try{ localStorage.setItem('rt-proposal-intent', v); }catch(e){}
-    if(typeof STATE!=='undefined'){
-      STATE.proposalBatteryOnly = (v==='battery');
-      try{ localStorage.setItem('rt-proposal-battery-only', STATE.proposalBatteryOnly?'1':'0'); }catch(e){}
-    }
-    var cb=document.getElementById('battOnlyProposalToggle'); if(cb) cb.checked=(v==='battery');
-    paint();
-  }
-  function buildWalkUrl(intent){
-    if(typeof window.buildProposalUrl!=='function') return '';
-    var prevBO = (typeof STATE!=='undefined') ? STATE.proposalBatteryOnly : undefined;
-    if(typeof STATE!=='undefined') STATE.proposalBatteryOnly = (intent==='battery');
-    var proposalUrl='';
-    try{ proposalUrl = window.buildProposalUrl(); }
-    finally{ if(typeof STATE!=='undefined') STATE.proposalBatteryOnly = prevBO; }
-    var i = proposalUrl.indexOf('?p=');
-    if(i===-1) return '';
-    var payload = proposalUrl.slice(i+3);
-    var url = (FUNNEL[intent]||FUNNEL.choose) + '?p=' + payload;
-    url += '&intent=' + encodeURIComponent(intent);
-    try{ if(typeof TRACKING_ENDPOINT!=='undefined' && TRACKING_ENDPOINT) url += '&api=' + encodeURIComponent(TRACKING_ENDPOINT); }catch(e){}
-    // No-TOU utilities have no rate arbitrage, so tell the client walkthrough to
-    // drop the (Con Ed-derived) savings/payback figures and show its backup story.
-    try{ var uM=(window.__utilMeta&&window.__utility)?window.__utilMeta[window.__utility]:null; if(uM && uM.tou===false) url += '&tou=0'; }catch(e){}
-    return url;
-  }
-  function flash(btn,msg){ var t=btn.textContent; btn.textContent=msg; setTimeout(function(){ btn.textContent=t; },1400); }
-  function copyWalk(btn){
-    var u=buildWalkUrl(getIntent()); if(!u) return;
-    try{ navigator.clipboard.writeText(u).then(function(){ flash(btn,'Copied ✓'); }, function(){ prompt('Copy client link:', u); }); }
-    catch(e){ prompt('Copy client link:', u); }
-  }
-  function paint(){
-    var cur=getIntent();
-    var sel=document.getElementById('rtIntentSelect'); if(sel && sel.value!==cur) sel.value=cur;
-  }
   function hideOldCheckbox(){
     var cb=document.getElementById('battOnlyProposalToggle');
     if(cb){ var lab=cb.closest('label'); if(lab) lab.style.display='none'; }
   }
-  function inject(){
-    if(isClient()) return;
-    var wrap=document.getElementById('genProposalWrap');
-    if(!wrap){ return; }
-    hideOldCheckbox();
-    if(document.getElementById('rtIntentRow')) return;
-    var box=document.createElement('div');
-    box.id='rtIntentRow';
-    box.style.cssText='margin-top:10px;display:flex;flex-direction:column;gap:8px';
-    box.innerHTML=
-      '<div style="font-size:11px;color:#9CA3AF;font-weight:700;letter-spacing:.4px">CLIENT WALKTHROUGH · pick a version</div>'
-      +'<div id="rtIntentSeg" style="display:none"></div>'
-      +'<div style="display:flex;gap:8px">'
-      +'<select id="rtIntentSelect" style="flex:1;background:#111827;color:#e5e7eb;border:1px solid #334155;border-radius:10px;padding:11px;font-size:13px;font-weight:700;cursor:pointer"></select>'
-      +'<button id="rtWalkCopy" style="background:#1c2635;color:#e5e7eb;border:1px solid #334155;border-radius:10px;padding:11px 14px;font-size:13px;font-weight:700;cursor:pointer">Copy link</button>'
-      +'</div>';
-    wrap.appendChild(box);
-    var selEl=document.getElementById('rtIntentSelect');
-    ORDER.forEach(function(k){ var o=document.createElement('option'); o.value=k; o.textContent=LABEL[k]; selEl.appendChild(o); });
-    selEl.value=getIntent();
-    selEl.addEventListener('change',function(){ setIntent(this.value); });
-    document.getElementById('rtWalkCopy').addEventListener('click',function(){ copyWalk(this); });
-    paint();
-  }
-  function tick(){ inject(); }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', function(){ setTimeout(tick,1000); });
-  else setTimeout(tick,1000);
-  setInterval(tick,1300);
-  console.log('[Walk Router v7.1] generate-time intent picker ready + Emporia gift');
+  setInterval(hideOldCheckbox,1300);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', hideOldCheckbox); else hideOldCheckbox();
 })();
   </script>
 
@@ -8953,39 +8879,6 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 })();
 </script>
 
-<script>
-// COLLAPSIBLE WALKTHROUGH PICKER — v7.3
-// Click the "CLIENT WALKTHROUGH · pick intent" header to show/hide the chips and
-// buttons. State persists. Leaves the separate Inquiry-link checkbox alone.
-(function(){
-  'use strict';
-  var KEY='rt-walk-collapsed';
-  function isCollapsed(){ try{ return localStorage.getItem(KEY)==='1'; }catch(e){ return false; } }
-  function setCollapsed(v){ try{ localStorage.setItem(KEY, v?'1':'0'); }catch(e){} }
-  function paint(row){
-    var kids=[].slice.call(row.children).slice(1);
-    var c=isCollapsed();
-    kids.forEach(function(el){ el.style.display = c ? 'none' : ''; });
-    if(row.__caret) row.__caret.textContent = c ? '\u25B8' : '\u25BE';
-  }
-  function enhance(){
-    var row=document.getElementById('rtIntentRow');
-    if(!row || row.__collapsible) return;
-    if(!document.getElementById('rtIntentSeg')) return;
-    var header=row.firstElementChild; if(!header) return;
-    row.__collapsible=true;
-    header.style.cursor='pointer'; header.style.userSelect='none'; header.title='Show / hide';
-    var caret=document.createElement('span');
-    caret.style.cssText='display:inline-block;margin-right:6px;font-size:10px;color:#9CA3AF';
-    header.insertBefore(caret, header.firstChild);
-    row.__caret=caret;
-    header.addEventListener('click', function(){ setCollapsed(!isCollapsed()); paint(row); });
-    paint(row);
-  }
-  setInterval(enhance, 500);
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', enhance); else enhance();
-})();
-</script>
 <script>// CSV -> ANNUAL USAGE FIELD SYNC v1
 // When a Green Button CSV is the active source, the "Annual usage" field and the
 // proposal's annualKwh must reflect the CSV's annual, not whatever preset sat in the

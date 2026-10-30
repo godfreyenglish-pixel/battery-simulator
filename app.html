@@ -9023,14 +9023,16 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   'use strict';
   if (typeof BRANDS === 'undefined' || typeof BATT_BASE === 'undefined') return;
 
-  // Franklin aPower2. Price basis (Godfrey's numbers): $/kWh by quantity — 1u $1,155,
-  // 2u $755, 3u $805 — times 15 kWh per unit = gross. The aGate smart panel is bundled,
-  // so CLP is included (no +$3,000 add-on), same treatment as Enphase 10C. NYSERDA
-  // ($250/kWh capped at 25 kWh total) and net come from the shared batterySystemCost().
-  //   gross: 1u $17,325 · 2u $22,650 · 3u $36,225
-  //   net  : 1u $13,575 · 2u $16,400 · 3u $29,975
-  BRANDS.franklin    = { name: 'Franklin aPower2', kwh: 15, contKw: 10, dod: 1.0, maxQty: 3 };
-  BATT_BASE.franklin = { 1: 17325, 2: 22650, 3: 36225 };
+  // Franklin aPower2. Price basis (Godfrey's numbers, updated 2026-10-30): $/kWh by
+  // quantity — 1u $1,305, 2u $1,050, 3u $950, 4u $900 — times 15 kWh per unit times
+  // quantity = gross. Fourth unit added this revision (was maxQty 3). The aGate smart
+  // panel is bundled, so CLP is included (no +$3,000 add-on), same treatment as
+  // Enphase 10C. NYSERDA ($250/kWh capped at 25 kWh total) and net come from the
+  // shared batterySystemCost().
+  //   gross: 1u $19,575 · 2u $31,500 · 3u $42,750 · 4u $54,000
+  //   net  : 1u $15,825 · 2u $25,250 · 3u $36,500 · 4u $47,750
+  BRANDS.franklin    = { name: 'Franklin aPower2', kwh: 15, contKw: 10, dod: 1.0, maxQty: 4 };
+  BATT_BASE.franklin = { 1: 19575, 2: 31500, 3: 42750, 4: 54000 };
   if (typeof BATT_CLP_INCLUDED !== 'undefined') BATT_CLP_INCLUDED.franklin = true;
 
   // Generalized CLP-toggle UI state: grey the CLP field for ANY brand whose price
@@ -9732,6 +9734,92 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   setInterval(tick, 600);
   try { redraw(); } catch (e) {}
   console.log('[Tesla PW3 v19] ready.');
+})();
+</script>
+
+<script>
+/* ── v20: NYSERDA incentive by utility region (append-only, MUST load last) ──
+   Bug this fixes: NYSERDA_PER_KWH was hardcoded to 250 for every territory, but
+   $250/kWh is the Con Edison region rate only. NYSERDA's Residential MWh Block
+   splits the state into:
+     Con Edison region (NYC + Con Ed Westchester) ......... $250/kWh  (Block 1)
+     Rest of State (O&R, NYSEG, National Grid, Central
+       Hudson, RG&E) ...................................... $200/kWh  (Block 1)
+     Long Island (PSEG LI) ................................ no published
+       residential MWh Block rate; LI runs a separate RGGI-funded program.
+   The 25 kWh cap is statewide and unchanged.
+
+   Effect on an O&R / NYSEG quote: incentive drops $50/kWh, i.e. $750 on a 15 kWh
+   system and $1,250 on anything at the 25 kWh cap. Net cost, payback and lifetime
+   savings all move with it. Con Edison quotes are untouched.
+
+   Implementation: wraps window.batterySystemCost (same pattern as v19) and
+   recomputes incentive + net from the wrapped result. Every consumer — the ROI
+   panel, the four-brand compare table, the A/B compare rows, the proposal payload
+   and the share link — reads cost.incentive, so none of them need separate edits.
+   Loads after v19 so the Tesla priceTBD short-circuit is preserved.
+
+   Rates are NYSERDA Block 1. Blocks decline as capacity fills; confirm against the
+   Residential Incentive Dashboard before quoting if a block has rolled over. */
+(function () {
+  'use strict';
+  if (typeof window.batterySystemCost !== 'function') return;
+
+  var CON_ED_RATE = 250;   // Con Edison region, Block 1
+  var REST_RATE   = 200;   // Rest of State, Block 1
+  var CAP_KWH     = (typeof NYSERDA_CAP_KWH !== 'undefined') ? NYSERDA_CAP_KWH : 25;
+
+  // v14 picker values. coned_flat is still Con Ed territory (the client is just
+  // staying off TOU), so it keeps the Con Ed rate. psegli and other fall back to
+  // Rest of State: Con Edison is the only territory that pays $250, so the lower
+  // rate is the safe default for an unknown one.
+  var CON_ED_UTILS = { coned: 1, coned_flat: 1 };
+
+  function currentUtility() {
+    if (window.__utility) return window.__utility;
+    // No v14 picker value yet — fall back to the older preset system.
+    if (typeof STATE !== 'undefined' && STATE && STATE.utility === 'oru') return 'onr';
+    return 'coned';
+  }
+
+  function nyserdaRate() {
+    return CON_ED_UTILS[currentUtility()] ? CON_ED_RATE : REST_RATE;
+  }
+  window.nyserdaRate = nyserdaRate;
+
+  var _prevCost = window.batterySystemCost;
+  window.batterySystemCost = function (s) {
+    var r = _prevCost(s);
+    // No battery, or a TBD-priced brand (Tesla): leave the result alone.
+    if (!r || r.priceTBD || !s || !s.hasBatt) return r;
+    var rate = nyserdaRate();
+    if (rate === CON_ED_RATE) {
+      // Base already computed at $250/kWh; just tag the rate for display code.
+      var same = {}; for (var k0 in r) same[k0] = r[k0];
+      same.nyserdaRate = rate;
+      return same;
+    }
+    var totalKwh = (r.totalKwh != null) ? r.totalKwh : 0;
+    var incentive = Math.min(totalKwh, CAP_KWH) * rate;
+    var out = {}; for (var k in r) out[k] = r[k];
+    out.incentive = incentive;
+    out.net = Math.max(0, r.gross - incentive);
+    out.nyserdaRate = rate;
+    return out;
+  };
+
+  // switchUtility() already re-renders, and the v14 picker calls it. This is a
+  // guard for the case where switchUtility throws before reaching render(): the
+  // listener sits on document, so it works no matter when the select is injected.
+  document.addEventListener('change', function (e) {
+    if (!e.target || e.target.id !== 'utilityPick') return;
+    setTimeout(function () {
+      try { if (typeof refreshControls === 'function') refreshControls(); } catch (err) {}
+      try { if (typeof render === 'function') render(); } catch (err) {}
+    }, 20);
+  });
+
+  console.log('[NYSERDA by region v20] ready — ' + currentUtility() + ' @ $' + nyserdaRate() + '/kWh.');
 })();
 </script>
 </body>

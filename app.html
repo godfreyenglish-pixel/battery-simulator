@@ -9410,7 +9410,6 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
       '<div class="cmp4-note">Every column runs the same load profile, rate plan, and discharge window, at the same quantity. ' +
       'Enphase 10C and Franklin aPower2 bundle their backup gateway, so no separate critical load panel is priced. ' +
       'Annual savings, payback and 25-yr savings reflect the full switch-plus-battery figure (matching the main view), so those rows barely separate the batteries — net cost and cost per usable kWh are the real differentiators. ' +
-      'Tesla Powerwall 3 is modeled for equipment and performance only; its pricing shows TBD and is left out of the best-value pick. ' +
       'Green marks the best figure per row, not the best system overall. Scroll sideways on a phone to see every column.</div>';
     return h;
   }
@@ -9553,10 +9552,11 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     return { total: total, usable: total * BRANDS.tesla.dod, cont: BRANDS.tesla.contKw * s.qty, brand: BRANDS.tesla };
   };
 
-  // ---- price: TBD ---------------------------------------------------------
+  // ---- price: from BATT_BASE.tesla (v21, Nov 2026); TBD only with expansions --
   var _cost = window.batterySystemCost;
   window.batterySystemCost = function (s) {
     if (!s || !s.hasBatt || s.brand !== 'tesla') return _cost(s);
+    if (!expOf(s) && typeof BATT_BASE !== 'undefined' && BATT_BASE.tesla) return _cost(s);
     var kwh = BRANDS.tesla.kwh * (s.qty || 1) + EXP_KWH * expOf(s);
     return { gross: 0, incentive: 0, net: 0, totalKwh: kwh, clpCost: 0, priceTBD: true };
   };
@@ -9625,7 +9625,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
         '<div class="qty"><button class="qty-btn" id="teslaExpMinus">−</button>' +
         '<div class="qty-display" id="teslaExpDisplay">0</div>' +
         '<button class="qty-btn" id="teslaExpPlus">+</button></div>' +
-        '<div style="font-size:11px;color:var(--text-4);margin-top:4px;line-height:1.4">13.5 kWh each · adds storage, not power · up to 3 per Powerwall 3</div>';
+        '<div style="font-size:11px;color:var(--text-4);margin-top:4px;line-height:1.4">13.5 kWh each · adds storage, not power · up to 3 per Powerwall 3 · pricing TBD</div>';
       qtyField.insertAdjacentElement('afterend', row);
       document.getElementById('teslaExpMinus').onclick = function () { var s = cur(); s.teslaExp = Math.max(0, expOf(s) - 1); redraw(); };
       document.getElementById('teslaExpPlus').onclick = function () { var s = cur(); s.teslaExp = Math.min(s.qty * EXP_PER_UNIT, expOf(s) + 1); redraw(); };
@@ -9657,7 +9657,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 
   // ---- pricing TBD where a figure would otherwise show --------------------
   function priceTbd() {
-    var s = cur(); if (!isTesla(s)) return;
+    var s = cur(); if (!isTesla(s) || !expOf(s)) return;   // priced unless expansions are on
     // Arbitrage ROI panel only shows if solar adds a cost; mark the battery side TBD.
     var net = document.getElementById('roiArbNet'); if (net && net.textContent !== 'TBD') net.textContent = 'TBD';
     var pb = document.getElementById('roiArbPayback'); if (pb && pb.textContent !== 'TBD') pb.textContent = 'TBD';
@@ -9822,6 +9822,35 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   });
 
   console.log('[NYSERDA by region v20] ready — ' + currentUtility() + ' @ $' + nyserdaRate() + '/kWh.');
+})();
+</script>
+<script>
+/* ── v21: Battery pricing at the HudsonWorks catalog MID (Nov 2026) ──
+   Installed price per configuration = midpoint between the catalog floor and list
+   price, read from the HudsonWorks "Battery Only" services (1-4 units each).
+   Same basis as before: price BEFORE the critical load panel (EG4 keeps its +$3,000
+   CLP toggle; Enphase, Franklin and Tesla bundle their gateway). NYSERDA still comes
+   off in batterySystemCost / v20. Commission is not part of this file.
+     EG4 16K        1u 20,585 · 2u 27,690 · 3u 34,794 · 4u 46,795   (4th unit enabled)
+     EG4 14.3       EG4 16K x 0.89375 (capacity scale, Sep 2026 rule; not in catalog)
+     Enphase 10C    1u 22,338 · 2u 32,867 · 3u 43,395 · 4u 53,923
+     Franklin aP2   1u 24,492 · 2u 38,120 · 3u 51,748 · 4u 65,375
+     Tesla PW3      1u 24,502 · 2u 36,282 · 3u 48,061 · 4u 59,841   (expansions: TBD)
+   Plain table swap, append-only. */
+(function () {
+  'use strict';
+  if (typeof BATT_BASE === 'undefined' || typeof BRANDS === 'undefined') return;
+  BATT_BASE.eg4        = { 1: 20585, 2: 27690, 3: 34794, 4: 46795 };
+  BATT_BASE.enphase10c = { 1: 22338, 2: 32867, 3: 43395, 4: 53923 };
+  BATT_BASE.franklin   = { 1: 24492, 2: 38120, 3: 51748, 4: 65375 };
+  BATT_BASE.tesla      = { 1: 24502, 2: 36282, 3: 48061, 4: 59841 };
+  var SCALE = 14.3 / 16;
+  BATT_BASE.eg4pp = {};
+  [1, 2, 3].forEach(function (q) { BATT_BASE.eg4pp[q] = Math.round(BATT_BASE.eg4[q] * SCALE); });
+  if (BRANDS.eg4) BRANDS.eg4.maxQty = 4;
+  try { refreshControls(); } catch (e) {}
+  try { render(); } catch (e) {}
+  console.log('[Battery mid pricing v21] ready.');
 })();
 </script>
 </body>

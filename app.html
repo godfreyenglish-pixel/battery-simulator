@@ -9828,8 +9828,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
 /* ── v21: Battery pricing at the HudsonWorks catalog MID (Nov 2026) ──
    Installed price per configuration = midpoint between the catalog floor and list
    price, read from the HudsonWorks "Battery Only" services (1-4 units each).
-   Same basis as before: price BEFORE the critical load panel (EG4 keeps its +$3,000
-   CLP toggle; Enphase, Franklin and Tesla bundle their gateway). NYSERDA still comes
+   Every catalog price already includes backup hardware: EG4's critical load panel
+   (Godfrey, Nov 6 2026; the old +$3,000 CLP add-on is dropped for EG4 16K and 14.3),
+   and the bundled gateway for Enphase, Franklin and Tesla. NYSERDA still comes
    off in batterySystemCost / v20. Commission is not part of this file.
      EG4 16K        1u 20,585 · 2u 27,690 · 3u 34,794 · 4u 46,795   (4th unit enabled)
      EG4 14.3       EG4 16K x 0.89375 (capacity scale, Sep 2026 rule; not in catalog)
@@ -9848,6 +9849,7 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   BATT_BASE.eg4pp = {};
   [1, 2, 3].forEach(function (q) { BATT_BASE.eg4pp[q] = Math.round(BATT_BASE.eg4[q] * SCALE); });
   if (BRANDS.eg4) BRANDS.eg4.maxQty = 4;
+  if (typeof BATT_CLP_INCLUDED !== 'undefined') { BATT_CLP_INCLUDED.eg4 = true; BATT_CLP_INCLUDED.eg4pp = true; }
   try { refreshControls(); } catch (e) {}
   try { render(); } catch (e) {}
   console.log('[Battery mid pricing v21] ready.');

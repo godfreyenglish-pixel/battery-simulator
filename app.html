@@ -9855,5 +9855,218 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
   console.log('[Battery mid pricing v21] ready.');
 })();
 </script>
+<script>
+/* ── v22: NYSERDA Inclusive Storage Incentive (ISI) auto-check (Nov 2026) ──
+   ISI = $450/kWh on up to 25 kWh ($11,250 max), statewide EXCEPT Long Island, and it
+   REPLACES the standard incentive (cannot be combined). A home qualifies on ANY of:
+     1. it sits in a NYS Disadvantaged Community census tract (Climate Justice Working
+        Group, "Final DAC 2023", 2010 tracts, data.ny.gov dataset 2e6c-s6fp);
+     2. household income under 80% of AMI/SMI (cannot be told from an address, so it
+        is a checkbox the installer ticks after asking);
+     3. 1-4 unit affordable housing (folded into the same checkbox).
+   How the tract test works: the service address is read from the Green Button CSV
+   header or the PDF bill on upload (or typed in), geocoded to a 2010 census tract with
+   the U.S. Census geocoder (JSONP, no key), then looked up live in the state DAC table.
+   NYSERDA makes the final call; this is a pre-check. Block status is not checked here.
+   Share links carry only the two yes/no flags, never the address.
+   Wraps batterySystemCost AFTER v20 (regional standard rate) and v21 (mid pricing).
+   Append-only; installer card is hidden in client view. */
+(function () {
+  'use strict';
+  if (typeof window.batterySystemCost !== 'function') return;
+  var ISI_RATE = 450, CAP = (typeof NYSERDA_CAP_KWH !== 'undefined') ? NYSERDA_CAP_KWH : 25;
+  var KEY = 'rt-isi-v1';
+  var ISI = { addr: '', matched: '', geoid: '', dac: null, inc: false, status: '' };
+  // Not persisted across reloads on purpose: a saved "qualifies" from yesterday's
+  // client must never leak into today's quote. Each session starts at Standard.
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  window.__isi = ISI;
+  function save() {}
+  function isClient() { return document.body && document.body.classList.contains('v7-client'); }
+  function util() { return window.__utility || 'coned'; }
+  function onLI() { return util() === 'psegli'; }
+  function qualifies() { return !onLI() && (ISI.dac === true || ISI.inc === true); }
+  window.isiQualifies = qualifies;
+
+  // ---- price: ISI replaces the standard incentive -------------------------
+  var _cost = window.batterySystemCost;
+  window.batterySystemCost = function (s) {
+    var r = _cost(s);
+    if (!r || r.priceTBD || !s || !s.hasBatt || !qualifies()) return r;
+    var out = {}; for (var k in r) out[k] = r[k];
+    out.incentive = Math.min(r.totalKwh || 0, CAP) * ISI_RATE;
+    out.net = Math.max(0, r.gross - out.incentive);
+    out.nyserdaRate = ISI_RATE; out.isi = true;
+    return out;
+  };
+
+  function redraw() { try { refreshControls(); } catch (e) {} try { render(); } catch (e) {} paint(); }
+
+  // ---- share link: flags only ---------------------------------------------
+  if (typeof window.serializeState === 'function') {
+    var _ser = window.serializeState;
+    window.serializeState = function () {
+      var enc = _ser.apply(this, arguments);
+      try {
+        var d = JSON.parse(decodeURIComponent(escape(atob(enc))));
+        d.isi = { d: ISI.dac === true ? 1 : 0, i: ISI.inc ? 1 : 0 };
+        return btoa(unescape(encodeURIComponent(JSON.stringify(d))));
+      } catch (e) { return enc; }
+    };
+  }
+  function fromHash() {
+    var m = String(location.hash || '').match(/^#c=(.+)$/); if (!m) return;
+    var d; try { d = JSON.parse(decodeURIComponent(escape(atob(m[1])))); } catch (e) { try { d = JSON.parse(atob(m[1])); } catch (e2) { return; } }
+    // A shared link is a different client: never inherit this device's saved check.
+    ISI.addr = ''; ISI.matched = ''; ISI.geoid = '';
+    ISI.dac = !!(d.isi && d.isi.d); ISI.inc = !!(d.isi && d.isi.i);
+    ISI.status = d.isi ? 'From shared plan' : '';
+    redraw();
+  }
+
+  // ---- address lookup ------------------------------------------------------
+  var seq = 0;
+  function jsonp(url, ms) {
+    return new Promise(function (res, rej) {
+      var cb = '__isiCb' + (++seq), sc = document.createElement('script'), done = false;
+      window[cb] = function (j) { done = true; res(j); cleanup(); };
+      function cleanup() { try { delete window[cb]; } catch (e) { window[cb] = undefined; } if (sc.parentNode) sc.parentNode.removeChild(sc); }
+      sc.onerror = function () { if (!done) { rej(new Error('lookup failed')); cleanup(); } };
+      setTimeout(function () { if (!done) { rej(new Error('lookup timed out')); cleanup(); } }, ms || 15000);
+      sc.src = url + '&format=jsonp&callback=' + cb;
+      document.head.appendChild(sc);
+    });
+  }
+  function check(addr) {
+    addr = String(addr || '').replace(/\s+/g, ' ').trim();
+    ISI.addr = addr; ISI.matched = ''; ISI.geoid = ''; ISI.dac = null;
+    if (!addr) { ISI.status = ''; save(); redraw(); return; }
+    ISI.status = 'Checking address…'; paint();
+    var u = 'https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?address=' + encodeURIComponent(addr) +
+            '&benchmark=Public_AR_Current&vintage=Census2010_Current&layers=Census%20Tracts';
+    jsonp(u).then(function (j) {
+      var m = j && j.result && j.result.addressMatches && j.result.addressMatches[0];
+      var t = m && m.geographies && m.geographies['Census Tracts'] && m.geographies['Census Tracts'][0];
+      if (!t) throw new Error('Address not found. Check the spelling, or add the town and zip.');
+      ISI.matched = m.matchedAddress; ISI.geoid = t.GEOID;
+      if (String(t.GEOID).slice(0, 2) !== '36') { ISI.dac = false; return null; }
+      return fetch('https://data.ny.gov/resource/2e6c-s6fp.json?$select=geoid,dac_designation&geoid=' + encodeURIComponent(t.GEOID))
+        .then(function (r) { return r.json(); });
+    }).then(function (rows) {
+      if (rows) ISI.dac = !!(rows[0] && /^Designated/i.test(rows[0].dac_designation || ''));
+      ISI.status = ISI.dac ? 'In a Disadvantaged Community tract' : 'Not in a Disadvantaged Community tract';
+      save(); redraw();
+    }).catch(function (e) {
+      ISI.dac = null; ISI.status = e.message || 'Lookup failed. Try again.'; save(); redraw();
+    });
+  }
+  window.isiCheck = check;
+
+  // ---- read the address off an uploaded Green Button CSV or PDF bill -------
+  function fromCsv(text) {
+    var lines = String(text || '').replace(/^﻿/, '').split(/\r?\n/).slice(0, 25);
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^\s*"?(?:service\s*|property\s*|premise\s*)?address"?\s*[,:\t;]\s*"?(.+?)"?\s*,*\s*$/i);
+      if (m && /\d/.test(m[1])) return m[1].replace(/"/g, '').trim();
+    }
+    return '';
+  }
+  var STREET = '(\\d{1,6}[A-Z]?\\s+[A-Z0-9 .\'-]{2,40}?\\s+(?:ST|STREET|AVE|AVENUE|RD|ROAD|DR|DRIVE|LN|LANE|CT|COURT|PL|PLACE|BLVD|WAY|TER|TERRACE|PKWY|PARKWAY|CIR|CIRCLE|HWY|HIGHWAY|TPKE|TURNPIKE|TRL|TRAIL|SQ|PATH|RUN|XING|ROW|WALK)\\.?(?:\\s+(?:APT|UNIT|#|FL|STE)\\.?\\s*[A-Z0-9-]+)?)';
+  // A bill's text runs fields together ("10116 Steve Capone 145 OLIVER RD"), so keep
+  // only the last house-number run before the street suffix.
+  function street(s) { var idx = -1, re = /\b\d{1,6}[A-Z]?\s+(?=[A-Z])/ig, m; while ((m = re.exec(s))) idx = m.index; return idx > 0 ? s.slice(idx) : s; }
+  function fromPdfText(t) {
+    t = String(t || '').replace(/\s+/g, ' ');
+    var lab = t.match(new RegExp('(?:service\\s*(?:address|location|for|delivered\\s*to)|premise\\s*address)\\s*:?\\s*' + STREET + '[ ,]+([A-Z .\'-]{2,30}?),?\\s+NY\\s+(\\d{5})', 'i'));
+    if (lab) return street(lab[1]) + ', ' + lab[2].trim() + ', NY ' + lab[3];
+    var re = new RegExp(STREET + '[ ,]+([A-Z .\'-]{2,30}?),?\\s+NY\\s+(\\d{5})', 'ig'), m;
+    while ((m = re.exec(t))) {
+      if (/irving\s+pl|p\.?\s?o\.?\s*box|\bbox\s+\d/i.test(m[0])) continue;   // utility remit / HQ addresses
+      return street(m[1]) + ', ' + m[2].trim() + ', NY ' + m[3];
+    }
+    return '';
+  }
+  function readFile(f) {
+    var name = (f && f.name || '').toLowerCase();
+    if (/\.(csv|txt)$/.test(name)) {
+      f.text().then(function (txt) { var a = fromCsv(txt); if (a) gotAddress(a); });
+    } else if (/\.pdf$/.test(name) && typeof pdfjsLib !== 'undefined') {
+      f.arrayBuffer().then(function (buf) {
+        try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) {}
+        return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+      }).then(function (pdf) {
+        var n = Math.min(pdf.numPages, 3), parts = [], p = Promise.resolve();
+        for (var i = 1; i <= n; i++) (function (i) { p = p.then(function () { return pdf.getPage(i).then(function (pg) { return pg.getTextContent(); }).then(function (c) { parts.push(c.items.map(function (it) { return it.str; }).join(' ')); }); }); })(i);
+        return p.then(function () { return parts.join(' '); });
+      }).then(function (t) { var a = fromPdfText(t); if (a) gotAddress(a); }).catch(function () {});
+    }
+  }
+  function gotAddress(a) {
+    ISI.inc = false;   // a new client file: income answer starts fresh
+    var inp = document.getElementById('isiAddr'); if (inp) inp.value = a;
+    check(a);
+  }
+  window.__isiFromCsv = fromCsv; window.__isiFromPdf = fromPdfText;
+  document.addEventListener('change', function (e) {
+    var t = e.target; if (!t || t.type !== 'file' || isClient()) return;
+    Array.prototype.forEach.call(t.files || [], readFile);
+  }, true);
+  document.addEventListener('drop', function (e) {
+    if (isClient() || !e.dataTransfer) return;
+    Array.prototype.forEach.call(e.dataTransfer.files || [], readFile);
+  }, true);
+
+  // ---- installer card -------------------------------------------------------
+  function money(n) { return '$' + Math.round(n).toLocaleString(); }
+  function stdRate() { return (typeof window.nyserdaRate === 'function') ? window.nyserdaRate() : 250; }
+  function card() {
+    if (isClient()) { var old = document.getElementById('isiCard'); if (old) old.style.display = 'none'; return null; }
+    var c = document.getElementById('isiCard');
+    if (c) { c.style.display = ''; return c; }
+    var anchor = document.getElementById('annualOverrideWrap'); if (!anchor) return null;
+    c = document.createElement('div'); c.id = 'isiCard';
+    c.style.cssText = 'margin-top:10px;padding:10px 12px;background:#0B1220;border:1px solid #1F2937;border-radius:10px;font-size:12px;color:#9CA3AF;max-width:640px';
+    c.innerHTML =
+      '<div style="font-weight:700;color:#F9FAFB;margin-bottom:6px">NYSERDA incentive check</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        '<input id="isiAddr" type="text" autocomplete="off" placeholder="Service address (auto-fills from the Green Button or bill)" style="flex:1;min-width:200px;background:#111827;border:1px solid #1F2937;color:#F9FAFB;border-radius:6px;padding:7px 9px;font-size:12px">' +
+        '<button id="isiGo" style="background:#1c2635;color:#FBBF24;border:1px solid #F59E0B;border-radius:6px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer">Check</button>' +
+      '</div>' +
+      '<div id="isiStatus" style="margin-top:6px;line-height:1.45"></div>' +
+      '<label style="display:flex;align-items:center;gap:7px;margin-top:6px;cursor:pointer"><input type="checkbox" id="isiInc" style="accent-color:#FBBF24;width:14px;height:14px">Income-qualified (household under 80% of area median) or 1-4 unit affordable housing</label>' +
+      '<div id="isiResult" style="margin-top:6px;font-weight:600"></div>';
+    anchor.insertAdjacentElement('afterend', c);
+    var inp = c.querySelector('#isiAddr'); inp.value = ISI.addr || '';
+    c.querySelector('#isiGo').addEventListener('click', function () { check(inp.value); });
+    inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') check(inp.value); });
+    c.querySelector('#isiInc').addEventListener('change', function (e) { ISI.inc = e.target.checked; save(); redraw(); });
+    return c;
+  }
+  function paint() {
+    var c = card(); if (!c) return;
+    var st = c.querySelector('#isiStatus'), rs = c.querySelector('#isiResult'), cb = c.querySelector('#isiInc');
+    if (cb.checked !== !!ISI.inc) cb.checked = !!ISI.inc;
+    var col = ISI.dac === true ? '#34D399' : (ISI.dac === false ? '#9CA3AF' : '#FBBF24');
+    var s1 = ISI.status ? '<span style="color:' + col + '">' + ISI.status + '</span>' : 'Enter the service address to check the Disadvantaged Community map.';
+    if (ISI.matched) s1 += '<br><span style="opacity:.75">Matched: ' + ISI.matched.replace(/</g, '&lt;') + ' · tract ' + ISI.geoid + '</span>';
+    if (st.innerHTML !== s1) st.innerHTML = s1;
+    var r;
+    if (onLI()) r = '<span style="color:#9CA3AF">Long Island: ISI not offered; standard incentive applies.</span>';
+    else if (qualifies()) r = '<span style="color:#34D399">Inclusive Storage Incentive: $' + ISI_RATE + '/kWh, up to ' + money(CAP * ISI_RATE) + ' (' + (ISI.dac ? 'Disadvantaged Community' : 'income-qualified') + ')</span>';
+    else r = 'Standard incentive: $' + stdRate() + '/kWh, up to ' + money(CAP * stdRate());
+    r += '<div style="font-weight:400;opacity:.7;margin-top:3px">Pre-check only. NYSERDA verifies eligibility and ISI funding is first-come, first-served by block.</div>';
+    if (rs.innerHTML !== r) rs.innerHTML = r;
+  }
+
+  // a utility switch can turn Long Island on/off
+  document.addEventListener('change', function (e) { if (e.target && e.target.id === 'utilityPick') setTimeout(paint, 60); });
+  window.addEventListener('hashchange', fromHash);
+  if (location.hash && /^#c=/.test(location.hash)) fromHash();
+  else if (/[?&]s=/.test(location.search)) { setTimeout(fromHash, 2500); setTimeout(fromHash, 9000); }
+  setInterval(paint, 1200);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { setTimeout(redraw, 1100); }); else setTimeout(redraw, 1100);
+  console.log('[ISI check v22] ready.');
+})();
+</script>
 </body>
 </html>

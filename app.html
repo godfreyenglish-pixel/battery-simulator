@@ -8735,7 +8735,9 @@ console.log('[XLSX Parser v1] Excel workbooks route through the CSV engine (lazy
     var hide = isClient() && !!window.__inquiryView && isNoTou();
     wrap.style.display = hide ? 'none' : '';
   }
-  function run(){ ensureCss(); hidePrice(); injectBtn(); updateWalkVis(); }
+  // Nov 2026: the client-view "See your full proposal" button is retired (Godfrey's call).
+  // injectBtn/updateWalkVis stay defined but are no longer called.
+  function run(){ ensureCss(); hidePrice(); var w=document.getElementById('v17walkWrap'); if(w) w.remove(); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', run); else run();
   setInterval(run,1400);
   console.log('[Client Walkthrough v17] ready.');
